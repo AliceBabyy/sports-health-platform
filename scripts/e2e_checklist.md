@@ -27,11 +27,11 @@
 | BD-11 | 趋势四档：本月（每天当日值） | ✅ | 同上 range=month |
 | BD-12 | 趋势四档：近半年（每月 1/10/20 号，窗口 [锚点-10 天,锚点] 11 天均值） | ✅ | 同上 range=half_year（窗口 11 天，锚点=采样日） |
 | BD-13 | 趋势四档：近一年（每月 1/15 号，窗口 [锚点-15 天,锚点] 16 天均值） | ✅ | 同上 range=year（窗口 16 天） |
-| BD-14 | 无记录断线不插值（connectNulls:false） | ✅ | FE-17；折线图 connectNulls:false |
+| BD-14 | 无记录断线不插值（connectNulls:false） | ✅ | FE-17；折线图 connectNulls:false（2026-10-31 整改：改 connectNulls:true 跳空连线） |
 | BD-20 | 身材数据页布局（4 指标卡 / 趋势图 / 剪影 / 记录表格；**页面默认显示记录日期最新一条**） | ✅ | `templates/body/index.html` + `static/js/body.js`（latest_snapshot 渲染指标卡与剪影） |
 | BD-21 | **4 个分类添加按钮 + 4 弹窗**（基础 3 字段 / 期望 2 / 围度 8 / 目标围度 6；记录日期默认当天，可自选） | ✅ | `body/index.html` btnAddBasic/btnAddGoal/btnAddGirth/btnAddTarget + modalBasic/Goal/Girth/Target |
 | BD-22 | 删除身材记录（按日删除当日 4 组全部） | ✅ | `/api/body-metrics` DELETE（record_date）→ `service.py::delete_day` |
-| BD-23 | 目标值（target_*）不参与趋势 | ✅ | TREND_KEYS（基础+围度 11 维）；趋势接口对目标值返回 400 |
+| BD-23 | 目标值（target_*）不参与趋势；身高/颈围/肩宽不参与趋势 | ✅ | TREND_KEYS（基础+围度 8 维：体重/体脂/臂/胸/腰/臀/大腿/小腿）；趋势接口对目标值返回 400 |
 | BD-24 | 表格按日期合并 4 组展示（同日多组并成一行） | ✅ | `/api/body-metrics` GET（list_records 合并分页）+ body.js 表格渲染 |
 
 ## 2. 健身训练 TR

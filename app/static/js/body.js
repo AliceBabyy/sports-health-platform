@@ -25,7 +25,7 @@
     if (!chart) chart = echarts.init(chartEl);
     chart.setOption({
       animation: false,
-      grid: { left: 48, right: 18, top: 26, bottom: 28 },
+      grid: { left: 48, right: 18, top: 34, bottom: 28 },
       tooltip: {
         trigger: 'axis',
         backgroundColor: '#ffffff',
@@ -50,13 +50,19 @@
       series: [{
         type: 'line',
         data: values,
-        connectNulls: false,           // 缺失点断线，不插值不补零
+        connectNulls: true,           // 无记录点跳过、曲线连续不中断
         symbol: 'circle',
         symbolSize: 5,
-        showSymbol: data.range === 'week' || data.range === 'month',
+        showSymbol: true,
         lineStyle: { width: 2.5, color: '#1b2434' },
         itemStyle: { color: '#1b2434' },
         areaStyle: { color: 'rgba(27, 36, 52, 0.05)' },
+        label: {
+          show: true,
+          position: 'top',
+          color: '#6b7280',
+          fontSize: 10
+        },
         emphasis: { focus: 'series' }
       }]
     });

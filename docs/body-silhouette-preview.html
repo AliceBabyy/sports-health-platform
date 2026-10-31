@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>身材数据模块 · 人物剪影新版预览</title>
+<style>
+  :root {
+    --bg-page: #fbfbfb;
+    --color-primary: #1b2434;
+    --color-text: #1f2430;
+    --color-text-secondary: #6b7280;
+    --color-border-strong: rgba(27, 36, 52, 0.09);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-page);
+    color: var(--color-text);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 32px 16px 48px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 600; color: var(--color-text); }
+  .sub { font-size: 13px; color: var(--color-text-secondary); margin: 6px 0 20px; line-height: 1.6; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: #fff;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius);
+    padding: 18px 16px 14px;
+  }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--color-text); margin-bottom: 2px; }
+  .card-sub { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; }
+  .silhouette { display: flex; justify-content: center; padding: 6px 0 2px; }
+  .foot {
+    margin-top: 18px;
+    padding: 12px 14px;
+    background: #f8f8f8;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    line-height: 1.8;
+  }
+  .foot b { color: var(--color-text); font-weight: 600; }
+  code {
+    background: rgba(120, 130, 145, 0.12);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 12px;
+    font-family: Consolas, "Courier New", monospace;
+    color: #2c3a52;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>身材维度 · 剪影新版预览</h1>
+  <p class="sub">方案：部件式贝塞尔曲线剪影（男 H 型 / 女沙漏型）+ 轮廓边缘测量锚点，标注引线不穿身。数值为示例硬编码，用于看效果。</p>
+
+  <div class="grid">
+    <!-- 男 -->
+    <div class="card">
+      <div class="card-title">男性剪影</div>
+      <div class="card-sub">肩宽腰直 · 部件独立闭合路径</div>
+      <div class="silhouette">
+        <svg viewBox="0 0 300 430" width="250" height="358" xmlns="http://www.w3.org/2000/svg" style="display:block">
+          <defs>
+            <linearGradient id="mf" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#f2f4f8"/>
+              <stop offset="1" stop-color="#e0e5ee"/>
+            </linearGradient>
+          </defs>
+          <!-- 头 -->
+          <circle cx="150" cy="46" r="25" fill="url(#mf)" stroke="#ccd3de" stroke-width="1.5"/>
+          <!-- 躯干 -->
+          <path d="M220 86 C214 74 176 66 162 66 L138 66 C124 66 86 74 80 86 C78 92 82 100 88 108 C96 128 100 148 100 168 C100 190 94 210 90 230 C88 252 96 276 106 300 C108 296 132 292 150 292 C168 292 192 296 194 300 C204 276 212 252 210 230 C206 210 200 190 200 168 C200 148 204 128 212 108 C218 100 222 92 220 86 Z"
+                fill="url(#mf)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <!-- 左臂 -->
+          <path d="M94 104 C86 108 84 132 90 154 C94 174 94 202 92 226 C91 234 94 238 100 236 C104 224 104 202 104 182 C104 154 100 130 98 114 C96 106 96 104 94 104 Z"
+                fill="url(#mf)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <!-- 右臂 -->
+          <path d="M206 104 C214 108 216 132 210 154 C206 174 206 202 208 226 C209 234 206 238 200 236 C196 224 196 202 196 182 C196 154 200 130 202 114 C204 106 204 104 206 104 Z"
+                fill="url(#mf)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <!-- 左腿 -->
+          <path d="M106 300 C100 320 98 340 100 362 C102 384 102 400 100 410 C99 414 95 416 90 416 L84 420 C83 425 89 426 95 424 C111 423 111 416 113 410 C115 398 117 382 115 362 C113 342 111 322 113 300 Z"
+                fill="url(#mf)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <!-- 右腿 -->
+          <path d="M194 300 C200 320 202 340 200 362 C198 384 198 400 200 410 C201 414 205 416 210 416 L216 420 C217 425 211 426 205 424 C189 423 189 416 187 410 C185 398 183 382 185 362 C187 342 189 322 187 300 Z"
+                fill="url(#mf)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+
+          <!-- 标注：胸/腰/臀（左） -->
+          <circle cx="101" cy="112" r="3.5" fill="#1b2434"/>
+          <line x1="101" y1="112" x2="58" y2="112" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="54" y="105" font-size="11" fill="#6b7280" text-anchor="end">胸围</text>
+          <text x="54" y="120" font-size="14" font-weight="600" fill="#1b2434" text-anchor="end">92.5 cm</text>
+          <text x="54" y="134" font-size="11" fill="#c0392b" text-anchor="end">↑ 0.5</text>
+
+          <circle cx="103" cy="172" r="3.5" fill="#1b2434"/>
+          <line x1="103" y1="172" x2="58" y2="172" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="54" y="165" font-size="11" fill="#6b7280" text-anchor="end">腰围</text>
+          <text x="54" y="180" font-size="14" font-weight="600" fill="#1b2434" text-anchor="end">70.0 cm</text>
+          <text x="54" y="194" font-size="11" fill="#0e8f72" text-anchor="end">↓ 1.0</text>
+
+          <circle cx="96" cy="226" r="3.5" fill="#1b2434"/>
+          <line x1="96" y1="226" x2="58" y2="226" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="54" y="219" font-size="11" fill="#6b7280" text-anchor="end">臀围</text>
+          <text x="54" y="234" font-size="14" font-weight="600" fill="#1b2434" text-anchor="end">94.8 cm</text>
+          <text x="54" y="248" font-size="11" fill="#c0392b" text-anchor="end">↑ 1.2</text>
+
+          <!-- 标注：臂/大腿（右） -->
+          <circle cx="202" cy="140" r="3.5" fill="#1b2434"/>
+          <line x1="202" y1="140" x2="248" y2="140" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="252" y="133" font-size="11" fill="#6b7280">臂围</text>
+          <text x="252" y="148" font-size="14" font-weight="600" fill="#1b2434">30.2 cm</text>
+          <text x="252" y="162" font-size="11" fill="#0e8f72">↓ 0.2</text>
+
+          <circle cx="200" cy="330" r="3.5" fill="#1b2434"/>
+          <line x1="200" y1="330" x2="248" y2="330" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="252" y="323" font-size="11" fill="#6b7280">大腿围</text>
+          <text x="252" y="338" font-size="14" font-weight="600" fill="#1b2434">54.5 cm</text>
+          <text x="252" y="352" font-size="11" fill="#8a94a3">— 0.0</text>
+
+          <!-- 身高 -->
+          <line x1="120" y1="40" x2="58" y2="32" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <text x="54" y="30" font-size="11" fill="#6b7280" text-anchor="end">身高 175 cm</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- 女 -->
+    <div class="card">
+      <div class="card-title">女性剪影</div>
+      <div class="card-sub">肩腰臀沙漏曲线 · 部件独立闭合路径</div>
+      <div class="silhouette">
+        <svg viewBox="0 0 300 430" width="250" height="358" xmlns="http://www.w3.org/2000/svg" style="display:block">
+          <defs>
+            <linearGradient id="ff" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#f2f4f8"/>
+              <stop offset="1" stop-color="#e0e5ee"/>
+            </linearGradient>
+          </defs>
+          <circle cx="150" cy="46" r="25" fill="url(#ff)" stroke="#ccd3de" stroke-width="1.5"/>
+          <path d="M212 86 C206 74 174 66 162 66 L138 66 C126 66 94 74 88 86 C86 92 90 100 94 108 C100 128 104 148 106 170 C106 192 100 214 96 232 C94 254 102 278 104 300 C110 296 132 292 150 292 C168 292 190 296 196 300 C198 278 206 254 204 232 C200 214 194 192 194 170 C196 148 200 128 206 108 C210 100 214 92 212 86 Z"
+                fill="url(#ff)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M96 104 C88 108 86 132 92 154 C96 174 96 202 94 226 C93 234 96 238 102 236 C106 224 106 202 106 182 C106 154 102 130 100 114 C98 106 98 104 96 104 Z"
+                fill="url(#ff)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M204 104 C212 108 214 132 208 154 C204 174 204 202 206 226 C207 234 204 238 198 236 C194 224 194 202 194 182 C194 154 198 130 200 114 C202 106 202 104 204 104 Z"
+                fill="url(#ff)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M104 300 C98 322 96 342 98 364 C100 386 100 402 98 412 C97 416 93 418 88 418 L82 422 C81 427 87 428 93 426 C109 425 109 418 111 412 C113 400 115 384 113 364 C111 344 109 322 111 300 Z"
+                fill="url(#ff)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M196 300 C202 322 204 342 202 364 C200 386 200 402 202 412 C203 416 207 418 212 418 L218 422 C219 427 213 428 207 426 C191 425 191 418 189 412 C187 400 185 384 187 364 C189 344 191 322 189 300 Z"
+                fill="url(#ff)" stroke="#ccd3de" stroke-width="1.5" stroke-linejoin="round"/>
+
+          <circle cx="101" cy="112" r="3.5" fill="#1b2434"/>
+          <line x1="101" y1="112" x2="58" y2="112" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="54" y="105" font-size="11" fill="#6b7280" text-anchor="end">胸围</text>
+          <text x="54" y="120" font-size="14" font-weight="600" fill="#1b2434" text-anchor="end">88.0 cm</text>
+          <text x="54" y="134" font-size="11" fill="#0e8f72" text-anchor="end">↓ 0.8</text>
+
+          <circle cx="103" cy="172" r="3.5" fill="#1b2434"/>
+          <line x1="103" y1="172" x2="58" y2="172" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="54" y="165" font-size="11" fill="#6b7280" text-anchor="end">腰围</text>
+          <text x="54" y="180" font-size="14" font-weight="600" fill="#1b2434" text-anchor="end">64.2 cm</text>
+          <text x="54" y="194" font-size="11" fill="#c0392b" text-anchor="end">↑ 0.3</text>
+
+          <circle cx="96" cy="226" r="3.5" fill="#1b2434"/>
+          <line x1="96" y1="226" x2="58" y2="226" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="54" y="219" font-size="11" fill="#6b7280" text-anchor="end">臀围</text>
+          <text x="54" y="234" font-size="14" font-weight="600" fill="#1b2434" text-anchor="end">90.6 cm</text>
+          <text x="54" y="248" font-size="11" fill="#0e8f72" text-anchor="end">↓ 0.4</text>
+
+          <circle cx="202" cy="140" r="3.5" fill="#1b2434"/>
+          <line x1="202" y1="140" x2="248" y2="140" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="252" y="133" font-size="11" fill="#6b7280">臂围</text>
+          <text x="252" y="148" font-size="14" font-weight="600" fill="#1b2434">27.8 cm</text>
+          <text x="252" y="162" font-size="11" fill="#c0392b">↑ 0.1</text>
+
+          <circle cx="200" cy="330" r="3.5" fill="#1b2434"/>
+          <line x1="200" y1="330" x2="248" y2="330" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <text x="252" y="323" font-size="11" fill="#6b7280">大腿围</text>
+          <text x="252" y="338" font-size="14" font-weight="600" fill="#1b2434">51.0 cm</text>
+          <text x="252" y="352" font-size="11" fill="#8a94a3">— 0.0</text>
+
+          <line x1="120" y1="40" x2="58" y2="32" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <text x="54" y="30" font-size="11" fill="#6b7280" text-anchor="end">身高 162 cm</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>说明</b><br>
+    · 剪影本体：贝塞尔曲线部件式路径，男女各一套（男 H 型 / 女沙漏型），保留"按性别切换、未填默认女"逻辑。<br>
+    · 标注：锚点改放在轮廓边缘（测量点语义），引线向两侧拉出，不再横穿身体；维度名 / 数值 / 差值三行对齐。<br>
+    · 预览中数值为硬编码示例。若认可此方向，我把路径与标注坐标替换进 <code>app/templates/body/index.html</code>，标注循环（Jinja2 动态数值）原样保留。<br>
+    · 备选方案：若想要照片级剪影，可提供<b>透明背景 SVG</b>（首选，任意缩放）或<b>透明背景高清 PNG</b>（建议 ≥800×1200，正面站姿、双臂自然下垂微张、双腿微开），我来做标注层叠加。
+  </div>
+</div>
+</body>
+</html>

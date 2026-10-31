@@ -50,8 +50,12 @@ GROUP_LABELS = {
 METRIC_KEYS = BODY_KEYS
 METRIC_LABELS = BODY_LABELS
 METRIC_UNITS = BODY_UNITS
-# 可参与趋势图的实际维度（基础 + 围度，排除两组目标值）
-TREND_KEYS = [k for k in BODY_KEYS if BODY_FIELDS[k][3] in ("basic", "girth")]
+# 可参与趋势图的实际维度（基础 + 围度；身高/颈围/肩宽按页面整改口径不参与趋势）
+TREND_KEYS = [
+    k
+    for k in BODY_KEYS
+    if BODY_FIELDS[k][3] in ("basic", "girth") and k not in ("height", "neck", "shoulder_width")
+]
 # 页面 4 指标卡
 CARD_KEYS = ["weight", "body_fat", "waist", "hip"]
 # 围度参与剪影标注

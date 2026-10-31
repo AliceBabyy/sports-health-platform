@@ -149,7 +149,7 @@ def trend(
     user: User = Depends(get_current_user),
 ):
     if metric not in TREND_KEYS:
-        raise AppError(400, "不支持的指标（目标值不参与趋势）")
+        raise AppError(400, "不支持的指标（身高、颈围、肩宽与目标值不参与趋势）")
     if range not in TREND_RANGES:
         raise AppError(400, "不支持的档位")
     return trend_service.build_trend(db, user.id, metric, range)

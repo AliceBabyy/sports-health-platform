@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.core.constants import BODY_GROUPS, BODY_KEYS, BODY_LABELS, CARD_KEYS, GROUP_LABELS, TREND_KEYS
 from app.core.deps import get_current_user
 from app.core.templating import render_page
 from app.modules.auth.models import User
@@ -27,5 +28,12 @@ def body_page(
             "active": "body",
             "snapshot": snap,
             "initial_trend": initial_trend,
+            "body_keys": BODY_KEYS,
+            "body_labels": BODY_LABELS,
+            "body_groups": BODY_GROUPS,
+            "group_labels": GROUP_LABELS,
+            "card_keys": CARD_KEYS,
+            "trend_keys": TREND_KEYS,
+            "user_gender": user.gender,
         },
     )

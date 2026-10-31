@@ -5,24 +5,32 @@
 {% block content %}
 <div class="page-head">
   <h1>身材数据</h1>
-  <div class="page-desc">身高体重与身材维度的连续记录，按周/月/半年/一年回溯变化趋势。</div>
-  <div class="page-head-actions">
-    <button class="btn btn-primary" id="btnAddRecord">＋ 添加记录</button>
+  <div class="page-desc">身高体重与身材维度的连续记录，按周/月/半年/一年回溯变化趋势；四类记录分别添加。</div>
+  <div class="page-head-actions add-actions">
+    <button class="btn btn-primary" id="btnAddBasic">＋ 基础记录</button>
+    <button class="btn" id="btnAddGoal">＋ 期望指标</button>
+    <button class="btn" id="btnAddGirth">＋ 围度记录</button>
+    <button class="btn" id="btnAddTarget">＋ 目标围度</button>
+    <span class="actions-divider"></span>
+    <button class="btn" id="btnImportExcel">⇧ 导入 Excel</button>
+    <button class="btn" id="btnExportExcel">⇩ 导出 Excel</button>
   </div>
 </div>
 
 {% set w = snapshot.get('weight', {}) %}
 {% set h = snapshot.get('height', {}) %}
 {% set bf = snapshot.get('body_fat', {}) %}
+{% set tw = snapshot.get('target_weight', {}) %}
+{% set tbf = snapshot.get('target_body_fat', {}) %}
 <div class="stat-grid">
   {{ stat_card('当前体重', w.value, 'kg',
-      ('较上次记录 ' + ('下降' if w.delta is not none and w.delta < 0 else '上升' if w.delta is not none and w.delta > 0 else '持平') + ' ' + (w.delta|abs|round(1)|string if w.delta is not none else '—') + ' kg') if w.value is not none else '暂无记录',
+      ('目标 ' + (tw.value|string if tw.value is not none else '—')) + ' kg · 较上次 ' + ('↓' if w.delta is not none and w.delta < 0 else '↑' if w.delta is not none and w.delta > 0 else '—') + (w.delta|abs|round(1)|string if w.delta is not none else '—'),
       delta=(('↓' if w.delta is not none and w.delta < 0 else '↑' if w.delta is not none and w.delta > 0 else '—') + (w.delta|round(1)|string if w.delta is not none else '—')),
       delta_dir=('down' if w.delta is not none and w.delta < 0 else 'up' if w.delta is not none and w.delta > 0 else 'flat')) }}
-  {{ stat_card('身高', h.value, 'cm', '固定参考 · 最近记录 ' + (h.record_date or '—')) }}
+  {{ stat_card('身高', h.value, 'cm', '最近记录 ' + (h.record_date or '—')) }}
   {{ stat_card('BMI', snapshot.bmi, '', (('健康区间 18.5~23.9 · ' + snapshot.bmi_state) if snapshot.bmi_state else '暂无体重或身高数据'), delta=None) }}
   {{ stat_card('体脂率', bf.value, '%',
-      ('较上次记录 ' + ('下降' if bf.delta is not none and bf.delta < 0 else '上升' if bf.delta is not none and bf.delta > 0 else '持平') + ' ' + (bf.delta|abs|round(1)|string if bf.delta is not none else '—') + ' %') if bf.value is not none else '暂无记录',
+      ('目标 ' + (tbf.value|string if tbf.value is not none else '—')) + ' % · 较上次 ' + ('↓' if bf.delta is not none and bf.delta < 0 else '↑' if bf.delta is not none and bf.delta > 0 else '—') + (bf.delta|abs|round(1)|string if bf.delta is not none else '—'),
       delta=(('↓' if bf.delta is not none and bf.delta < 0 else '↑' if bf.delta is not none and bf.delta > 0 else '—') + (bf.delta|round(1)|string if bf.delta is not none else '—')),
       delta_dir=('down' if bf.delta is not none and bf.delta < 0 else 'up' if bf.delta is not none and bf.delta > 0 else 'flat')) }}
 </div>
@@ -31,11 +39,9 @@
   <div class="card chart-card">
     <div class="card-title">趋势折线 <span class="sub">四档口径 · 无记录点断线不插值</span></div>
     <div class="chart-toolbar">
-      <div class="seg" id="metricSeg">
-        <button data-metric="weight" class="active">体重</button>
-        <button data-metric="body_fat">体脂</button>
-        <button data-metric="waist">腰围</button>
-      </div>
+      <select class="input" id="metricSelect" style="width:150px">
+        {% for key in trend_keys %}<option value="{{ key }}">{{ body_labels[key] }}</option>{% endfor %}
+      </select>
       <div class="seg" id="rangeSeg">
         <button data-range="week">周</button>
         <button data-range="month" class="active">月</button>
@@ -57,26 +63,53 @@
       <svg viewBox="0 0 300 430" width="260" height="373" xmlns="http://www.w3.org/2000/svg" style="display:block">
         <defs>
           <linearGradient id="bodyFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#eef1f6"/><stop offset="1" stop-color="#e2e7ef"/>
+            <stop offset="0" stop-color="#f1f4f8"/><stop offset="1" stop-color="#e8ecf3"/>
           </linearGradient>
         </defs>
-        <!-- 人体剪影 -->
-        <path d="M150 22 a26 26 0 1 0 0.001 0.001 z" fill="url(#bodyFill)" stroke="#c9d1dd" stroke-width="1.5"/>
-        <path d="M150 46 L134 60 Q128 66 128 74 L124 66 L112 60 L118 88
-                 Q116 96 110 108 L96 128 Q92 140 96 148 Q100 156 108 150 L116 136
-                 Q112 152 112 168 L118 176 L124 170
-                 M150 46 L166 60 Q172 66 172 74 L176 66 L188 60 L182 88
-                 Q184 96 190 108 L204 128 Q208 140 204 148 Q200 156 192 150 L184 136
-                 Q188 152 188 168 L182 176 L176 170
-                 M124 170 L120 250 Q120 268 134 272 L138 272
-                 M176 170 L180 250 Q180 268 166 272 L162 272
-                 M134 272 Q150 280 166 272 L172 330 Q172 344 162 344 L150 338 L138 344 Q128 344 128 330 Z
-                 M128 344 Q126 390 122 420 L140 420 L146 370 L150 366 L154 370 L160 420 L178 420 Q174 390 172 344"
-              fill="url(#bodyFill)" stroke="#c9d1dd" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 人体剪影：男/女两套部件式剪影（每部件独立闭合路径，避免填充错乱）；
+             按用户性别显示，未填性别默认女 -->
+        {% set male = (user_gender == '男') %}
+        {% if male %}
+        <!-- 头 -->
+        <circle cx="150" cy="40" r="24" fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5"/>
+        <!-- 躯干（H 型：肩宽腰直） -->
+        <path d="M106 64 L112 90 L132 160 L132 250 L136 300 L164 300 L168 250 L168 160 L188 90 L194 64 Q150 56 106 64 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 左臂 -->
+        <path d="M106 64 L112 90 L108 132 L94 146 L98 156 L110 148 L122 130 L128 66 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 右臂 -->
+        <path d="M194 64 L188 90 L192 132 L206 146 L202 156 L190 148 L178 130 L172 66 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 左腿 -->
+        <path d="M136 300 L130 330 L126 344 L124 418 L142 420 L147 368 L150 364 L150 330 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 右腿 -->
+        <path d="M164 300 L170 330 L174 344 L176 418 L158 420 L153 368 L150 364 L150 330 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        {% else %}
+        <!-- 头 -->
+        <circle cx="150" cy="40" r="24" fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5"/>
+        <!-- 躯干（沙漏型：肩宽腰细臀宽） -->
+        <path d="M112 64 L118 90 L122 168 L134 252 Q136 274 132 292 L138 330 L162 330 L168 292 Q164 274 166 252 L178 168 L182 90 L188 64 Q150 56 112 64 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 左臂 -->
+        <path d="M112 64 L118 90 L110 132 L96 146 L100 156 L112 148 L122 130 L126 66 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 右臂 -->
+        <path d="M188 64 L182 90 L190 132 L204 146 L200 156 L188 148 L178 130 L174 66 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 左腿 -->
+        <path d="M134 300 L138 330 L130 344 L126 418 L142 420 L146 368 L150 366 L150 330 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 右腿 -->
+        <path d="M166 300 L162 330 L170 344 L174 418 L158 420 L154 368 L150 366 L150 330 Z"
+              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
+        {% endif %}
         <!-- 标注点与引线 -->
         {% for item in [
           ('chest', '胸围', 150, 112, 74, 108),
-          ('arm', '手臂围', 96, 140, 226, 132),
+          ('arm', '臂围', 96, 140, 226, 132),
           ('waist', '腰围', 150, 172, 74, 168),
           ('hip', '臀围', 150, 226, 74, 226),
           ('thigh', '大腿围', 130, 300, 226, 300),
@@ -86,23 +119,23 @@
         <circle cx="{{ item[2] }}" cy="{{ item[3] }}" r="4" fill="#1b2434"/>
         <line x1="{{ item[2] }}" y1="{{ item[3] }}" x2="{{ item[4] }}" y2="{{ item[5] }}" stroke="#9aa4b2" stroke-width="1.2"/>
         {% if key == 'arm' or key == 'thigh' %}
-        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="600">{{ item[1] }}</text>
-        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="700" class="num">{{ val.value if val.value is not none else '—' }}</text>
+        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="400">{{ item[1] }}</text>
+        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="400" class="num">{{ val.value if val.value is not none else '—' }}</text>
         <text x="{{ item[4] + 6 }}" y="{{ item[5] + 32 }}" font-size="10.5" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
         {% else %}
-        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="600" text-anchor="end">{{ item[1] }}</text>
-        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="700" class="num" text-anchor="end">{{ val.value if val.value is not none else '—' }}</text>
+        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="400" text-anchor="end">{{ item[1] }}</text>
+        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="400" class="num" text-anchor="end">{{ val.value if val.value is not none else '—' }}</text>
         <text x="{{ item[4] - 6 }}" y="{{ item[5] + 32 }}" font-size="10.5" text-anchor="end" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
         {% endif %}
         {% endfor %}
         <!-- 身高标注 -->
         <line x1="98" y1="38" x2="48" y2="30" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="3 3"/>
-        <text x="42" y="28" font-size="11" fill="#1f2430" font-weight="600" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
+        <text x="42" y="28" font-size="11" fill="#1f2430" font-weight="400" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
       </svg>
     </div>
     <div class="silhouette-foot">
       <span>引线标注当前维度 · 数值旁为与上次记录的差值</span>
-      <span>目标参考线待设定（BD-13 可后置）</span>
+      <span>目标值在「期望指标 / 目标围度」记录中维护</span>
     </div>
   </div>
 </div>
@@ -113,7 +146,7 @@
     <table class="tbl">
       <thead>
         <tr>
-          <th>日期</th><th>体重</th><th>体脂率</th><th>胸围</th><th>腰围</th><th>臀围</th><th>大腿围</th><th>手臂围</th><th>操作</th>
+          <th>日期</th><th>身高</th><th>体重</th><th>体脂率</th><th>胸围</th><th>腰围</th><th>臀围</th><th>大腿围</th><th>目标</th><th>操作</th>
         </tr>
       </thead>
       <tbody id="recBody"></tbody>
@@ -122,33 +155,128 @@
   <div id="recPagination"></div>
 </div>
 
-<!-- 添加/编辑身材记录弹窗 -->
-<div class="modal-mask" id="modalBodyRecord">
-  <div class="modal">
-    <div class="modal-title" id="modalBodyTitle">添加身材记录</div>
-    <div class="modal-desc">一次记录可同时更新体重、体脂与五项围度，留空的项沿用最近一次数据。</div>
-    <form id="formBodyRecord">
+<!-- 添加记录弹窗 ×4：基础 / 期望指标 / 围度 / 目标围度（与 4 张表一一对应） -->
+<!-- 基础：身高/体重/体脂率 -->
+<div class="modal-mask" id="modalBasic">
+  <div class="modal" style="width:560px">
+    <div class="modal-title">添加基础记录</div>
+    <div class="modal-desc">身高 · 体重 · 体脂率；留空的项自动沿用该维度最近一次记录的数据。</div>
+    <form id="formBasic">
+      <div class="form-item form-date"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
       <div class="form-grid">
-        <div class="form-item"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
-        <div class="form-item"><label class="field-label">体重 (kg)</label><input class="input num" type="number" step="0.1" name="weight" placeholder="留空沿用最近值"></div>
-        <div class="form-item"><label class="field-label">体脂率 (%)</label><input class="input num" type="number" step="0.1" name="body_fat" placeholder="留空沿用最近值"></div>
-        <div class="form-item"><label class="field-label">胸围 (cm)</label><input class="input num" type="number" step="0.1" name="chest" placeholder="留空沿用最近值"></div>
-        <div class="form-item"><label class="field-label">腰围 (cm)</label><input class="input num" type="number" step="0.1" name="waist" placeholder="留空沿用最近值"></div>
-        <div class="form-item"><label class="field-label">臀围 (cm)</label><input class="input num" type="number" step="0.1" name="hip" placeholder="留空沿用最近值"></div>
-        <div class="form-item"><label class="field-label">大腿围 (cm)</label><input class="input num" type="number" step="0.1" name="thigh" placeholder="留空沿用最近值"></div>
-        <div class="form-item"><label class="field-label">手臂围 (cm)</label><input class="input num" type="number" step="0.1" name="arm" placeholder="留空沿用最近值"></div>
+        <div class="form-item"><label class="field-label">身高 (cm)</label><input class="input num" type="number" step="0.1" min="50" max="250" name="height"></div>
+        <div class="form-item"><label class="field-label">体重 (kg)</label><input class="input num" type="number" step="0.1" name="weight"></div>
+        <div class="form-item"><label class="field-label">体脂率 (%)</label><input class="input num" type="number" step="0.1" name="body_fat"></div>
       </div>
-      <div class="modal-note">数据仅用于趋势分析；同日同指标重复保存将覆盖为最后一条（BD-02）。</div>
+      <div class="modal-note">同日重复保存会覆盖当日已填的基础数据；BMI 由身高体重实时计算。</div>
       <div class="modal-actions">
-        <button type="button" class="btn" data-close="modalBodyRecord">取消</button>
+        <button type="button" class="btn" data-close="modalBasic">取消</button>
         <button type="submit" class="btn btn-primary">保存记录</button>
       </div>
     </form>
   </div>
 </div>
+
+<!-- 期望指标：目标体重/目标体脂率 -->
+<div class="modal-mask" id="modalGoal">
+  <div class="modal" style="width:560px">
+    <div class="modal-title">添加期望指标</div>
+    <div class="modal-desc">目标体重 · 目标体脂率；留空的项自动沿用该维度最近一次记录的数据。</div>
+    <form id="formGoal">
+      <div class="form-item form-date"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">目标体重 (kg)</label><input class="input num" type="number" step="0.1" name="target_weight"></div>
+        <div class="form-item"><label class="field-label">目标体脂率 (%)</label><input class="input num" type="number" step="0.1" name="target_body_fat"></div>
+      </div>
+      <div class="modal-note">同日重复保存会覆盖当日已填的期望指标。</div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalGoal">取消</button>
+        <button type="submit" class="btn btn-primary">保存记录</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 围度：颈/肩/臂/胸/腰/臀/大腿/小腿 -->
+<div class="modal-mask" id="modalGirth">
+  <div class="modal" style="width:640px">
+    <div class="modal-title">添加围度记录</div>
+    <div class="modal-desc">颈围 · 肩宽 · 臂围 · 胸围 · 腰围 · 臀围 · 大腿围 · 小腿围；留空的项自动沿用该维度最近一次记录的数据。</div>
+    <form id="formGirth">
+      <div class="form-item form-date"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">颈围 (cm)</label><input class="input num" type="number" step="0.1" name="neck"></div>
+        <div class="form-item"><label class="field-label">肩宽 (cm)</label><input class="input num" type="number" step="0.1" name="shoulder_width"></div>
+        <div class="form-item"><label class="field-label">臂围 (cm)</label><input class="input num" type="number" step="0.1" name="arm"></div>
+        <div class="form-item"><label class="field-label">胸围 (cm)</label><input class="input num" type="number" step="0.1" name="chest"></div>
+        <div class="form-item"><label class="field-label">腰围 (cm)</label><input class="input num" type="number" step="0.1" name="waist"></div>
+        <div class="form-item"><label class="field-label">臀围 (cm)</label><input class="input num" type="number" step="0.1" name="hip"></div>
+        <div class="form-item"><label class="field-label">大腿围 (cm)</label><input class="input num" type="number" step="0.1" name="thigh"></div>
+        <div class="form-item"><label class="field-label">小腿围 (cm)</label><input class="input num" type="number" step="0.1" name="calf"></div>
+      </div>
+      <div class="modal-note">同日重复保存会覆盖当日已填的围度数据。</div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalGirth">取消</button>
+        <button type="submit" class="btn btn-primary">保存记录</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 目标围度：目标臂/胸/腰/臀/大腿/小腿围 -->
+<div class="modal-mask" id="modalTarget">
+  <div class="modal" style="width:640px">
+    <div class="modal-title">添加目标围度</div>
+    <div class="modal-desc">目标臂围 · 目标胸围 · 目标腰围 · 目标臀围 · 目标大腿围 · 目标小腿围；留空的项自动沿用该维度最近一次记录的数据。</div>
+    <form id="formTarget">
+      <div class="form-item form-date"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">目标臂围 (cm)</label><input class="input num" type="number" step="0.1" name="target_arm"></div>
+        <div class="form-item"><label class="field-label">目标胸围 (cm)</label><input class="input num" type="number" step="0.1" name="target_chest"></div>
+        <div class="form-item"><label class="field-label">目标腰围 (cm)</label><input class="input num" type="number" step="0.1" name="target_waist"></div>
+        <div class="form-item"><label class="field-label">目标臀围 (cm)</label><input class="input num" type="number" step="0.1" name="target_hip"></div>
+        <div class="form-item"><label class="field-label">目标大腿围 (cm)</label><input class="input num" type="number" step="0.1" name="target_thigh"></div>
+        <div class="form-item"><label class="field-label">目标小腿围 (cm)</label><input class="input num" type="number" step="0.1" name="target_calf"></div>
+      </div>
+      <div class="modal-note">同日重复保存会覆盖当日已填的目标围度。</div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalTarget">取消</button>
+        <button type="submit" class="btn btn-primary">保存记录</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Excel 导入弹窗：基础记录 + 维度记录（留空列沿用最近值 / 同日覆盖） -->
+<div class="modal-mask" id="modalImport">
+  <div class="modal" style="width:640px">
+    <div class="modal-title">导入 Excel 数据</div>
+    <div class="modal-desc">基础记录 · 维度记录两个工作表；留空的列自动沿用该维度最近一次记录的值，同日重复导入覆盖该日数据。</div>
+    <form id="formImport">
+      <div class="form-item">
+        <label class="field-label">选择文件（.xlsx）</label>
+        <input class="input file-input" type="file" name="file" id="importFile" accept=".xlsx" required>
+      </div>
+      <div class="modal-note">表头须与模板一致。没有模板？<a href="/api/body-metrics/template">下载导入模板</a>（含填写说明与示例）。</div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>
+        <button type="submit" class="btn btn-primary" id="importSubmit">开始导入</button>
+        <button type="button" class="btn btn-primary" id="importDone" style="display:none">完成</button>
+      </div>
+    </form>
+    <div id="importResult" class="import-result" style="display:none"></div>
+  </div>
+</div>
 {% endblock %}
 {% block extra_js %}
-<script>window.INIT_TREND = {{ initial_trend | tojson }};</script>
-<script src="/static/vendor/echarts.min.js"></script>
-<script src="/static/js/body.js"></script>
+<script>
+window.INIT_TREND = {{ initial_trend | tojson }};
+window.BODY_LABELS = {{ body_labels | tojson }};
+window.BODY_KEYS = {{ body_keys | tojson }};
+window.BODY_GROUPS = {{ body_groups | tojson }};
+window.GROUP_LABELS = {{ group_labels | tojson }};
+window.CARD_KEYS = {{ card_keys | tojson }};
+</script>
+<script src="/static/vendor/echarts.min.js?v=20261031"></script>
+<script src="/static/js/body.js?v=20261031"></script>
 {% endblock %}

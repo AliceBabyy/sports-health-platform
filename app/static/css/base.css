@@ -1,4 +1,4 @@
-/* 基础样式（FE-01 字体栈 / FE-10 按钮文字居中 / 通用组件） */
+/* 基础样式（FE-01 字体栈：GitHub 同款 UI 字体 / FE-10 按钮文字居中 / 通用组件） */
 * { box-sizing: border-box; }
 
 html, body {
@@ -6,7 +6,7 @@ html, body {
   padding: 0;
   background: var(--bg-page);
   color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Noto Sans, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
@@ -18,7 +18,14 @@ html, body {
 a { color: var(--color-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+h1, h2, h3, h4, h5, h6 { margin: 0; font-weight: 400; }
+
+/* 全站不加粗：b / strong 恢复正常字重 */
+b, strong { font-weight: 400; }
+th { font-weight: 400; }
+
+/* 全部控件继承 GitHub 同款字体（表单控件默认 Arial，需显式继承） */
+button, input, select, textarea { font-family: inherit; }
 
 /* ---------- 按钮（文字一律居中 FE-10） ---------- */
 .btn {
@@ -27,26 +34,27 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
   justify-content: center;
   gap: 6px;
   padding: 8px 16px;
-  border: 1px solid var(--color-border-strong);
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
   color: var(--color-text);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
   transition: background .15s, border-color .15s, box-shadow .15s;
   line-height: 1.2;
   white-space: nowrap;
 }
-.btn:hover { background: var(--bg-section); border-color: var(--color-border-strong); }
+.btn:hover { background: var(--bg-section); box-shadow: inset 0 0 0 0.5px var(--color-border-strong); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .btn-primary {
   background: var(--color-primary);
-  border-color: var(--color-primary);
+  box-shadow: none;
   color: #fff;
 }
-.btn-primary:hover { background: var(--color-primary-soft); border-color: var(--color-primary-soft); }
+.btn-primary:hover { background: var(--color-primary-soft); box-shadow: none; }
 
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-ghost:hover { background: var(--bg-section); }
@@ -66,7 +74,8 @@ label.field-label {
 .input, .select, textarea.input {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--color-border-strong);
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border-strong);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
   color: var(--color-text);
@@ -75,11 +84,10 @@ label.field-label {
 }
 .input:focus, .select:focus, textarea.input:focus {
   outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(27, 36, 52, .08);
+  box-shadow: inset 0 0 0 0.5px var(--color-primary), 0 0 0 3px rgba(27, 36, 52, .08);
 }
 
-/* ---------- 标签（半透明马卡龙） ---------- */
+/* ---------- 标签（配色严格按设计稿） ---------- */
 .tag {
   display: inline-flex;
   align-items: center;
@@ -87,39 +95,45 @@ label.field-label {
   padding: 2px 9px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.6;
   background: var(--tag-gray-bg);
   color: var(--tag-gray-fg);
 }
-.tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--tag-dot, currentColor); }
 .tag.no-dot::before { display: none; }
 
-.tag-pink   { background: var(--tag-pink-bg);   color: var(--tag-pink-fg); }
-.tag-mint   { background: var(--tag-mint-bg);   color: var(--tag-mint-fg); }
-.tag-gray   { background: var(--tag-gray-bg);   color: var(--tag-gray-fg); }
-.tag-apricot-light { background: var(--tag-apricot-light-bg); color: var(--tag-apricot-light-fg); }
-.tag-apricot-mid   { background: var(--tag-apricot-mid-bg);   color: var(--tag-apricot-mid-fg); }
-.tag-apricot-dark  { background: var(--tag-apricot-dark-bg);  color: var(--tag-apricot-dark-fg); }
+/* 中性工具标签（部位/泳姿/未推算） */
+.tag-gray { background: var(--tag-gray-bg); color: var(--tag-gray-fg); }
 
-.tag-high { background: var(--tag-high-bg); color: var(--tag-high-fg); }
-.tag-good { background: var(--tag-good-bg); color: var(--tag-good-fg); }
-.tag-rest { background: var(--tag-rest-bg); color: var(--tag-rest-fg); }
+/* 阶段色别名标签（图例等，药丸样式） */
+.tag-pink   { background: var(--tag-pink-bg);   color: var(--tag-pink-fg);   --tag-dot: var(--tag-pink-dot); }
+.tag-mint   { background: var(--tag-mint-bg);   color: var(--tag-mint-fg);   --tag-dot: var(--tag-mint-dot); }
+.tag-apricot-light { background: var(--tag-apricot-light-bg); color: var(--tag-apricot-light-fg); --tag-dot: var(--tag-apricot-light-dot); }
+.tag-apricot-mid   { background: var(--tag-apricot-mid-bg);   color: var(--tag-apricot-mid-fg);   --tag-dot: var(--tag-apricot-mid-dot); }
+.tag-apricot-dark  { background: var(--tag-apricot-dark-bg);  color: var(--tag-apricot-dark-fg);  --tag-dot: var(--tag-apricot-dark-dot); }
 
-/* 阶段标签映射 */
-.phase-menstrual { background: var(--tag-pink-bg); color: var(--tag-pink-fg); }
-.phase-follicular_pre, .phase-follicular_post { background: var(--tag-gray-bg); color: var(--tag-gray-fg); }
-.phase-ovulation_day { background: var(--tag-mint-bg); color: var(--tag-mint-fg); }
-.phase-luteal_early { background: var(--tag-apricot-light-bg); color: var(--tag-apricot-light-fg); }
-.phase-luteal_mid { background: var(--tag-apricot-mid-bg); color: var(--tag-apricot-mid-fg); }
-.phase-luteal_late { background: var(--tag-apricot-dark-bg); color: var(--tag-apricot-dark-fg); }
+/* 运动三档标签（设计稿药丸：浅色底 + 浅色圆点 + 深色文字） */
+.tag-high { background: var(--tag-high-bg); color: var(--tag-high-fg); --tag-dot: var(--tag-high-dot); }
+.tag-good { background: var(--tag-good-bg); color: var(--tag-good-fg); --tag-dot: var(--tag-good-dot); }
+.tag-rest { background: var(--tag-rest-bg); color: var(--tag-rest-fg); --tag-dot: var(--tag-rest-dot); }
+
+/* 阶段标签映射（设计稿：透明底 + 阶段色小方块 + 深灰文字） */
+.phase-menstrual { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-menses); }
+.phase-follicular_pre { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-foll-pre); }
+.phase-follicular_post { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-foll-post); }
+.phase-ovulation_day { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-ovu); }
+.phase-luteal_early { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-luteal-early); }
+.phase-luteal_mid { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-luteal-mid); }
+.phase-luteal_late { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-luteal-late); }
+.tag[class*="phase-"]::before { border-radius: 3px; }
 
 /* ---------- 卡片 ---------- */
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--color-border);
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-card);
   padding: 18px 20px;
 }
 .card-title {
@@ -128,7 +142,7 @@ label.field-label {
   justify-content: space-between;
   margin-bottom: 14px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .card-title .sub { font-size: 12px; color: var(--color-text-secondary); font-weight: 400; }
 
@@ -138,14 +152,15 @@ label.field-label {
   padding: 3px;
   gap: 2px;
   background: var(--bg-section);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-radius: 6px;
 }
 .seg button {
   border: 0;
   background: transparent;
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 13px;
   color: var(--color-text-secondary);
   cursor: pointer;
@@ -156,7 +171,7 @@ label.field-label {
 .seg button.active {
   background: var(--bg-card);
   color: var(--color-primary);
-  font-weight: 600;
+  font-weight: 400;
   box-shadow: 0 1px 2px rgba(27,36,52,.08);
 }
 
@@ -167,8 +182,8 @@ table.tbl th {
   text-align: left;
   padding: 8px 10px;
   color: var(--color-text-secondary);
-  font-weight: 500;
-  border-bottom: 1px solid var(--color-border);
+  font-weight: 400;
+  border-bottom: 1.333px solid var(--color-border);
   white-space: nowrap;
 }
 table.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
@@ -201,7 +216,7 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
   transition: transform .18s;
 }
 .modal-mask.open .modal { transform: translateY(0); }
-.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.modal-title { font-size: 16px; font-weight: 400; margin-bottom: 6px; }
 .modal-desc { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 16px; }
 .modal-actions {
   display: flex;
@@ -235,7 +250,7 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
   background: var(--color-primary);
   color: #fff;
   padding: 9px 18px;
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 13px;
   box-shadow: var(--shadow-pop);
   opacity: 0;
@@ -249,8 +264,9 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
 .checkmark {
   width: 18px;
   height: 18px;
-  border: 1.5px solid var(--color-border-strong);
-  border-radius: 5px;
+  border: 0;
+  box-shadow: inset 0 0 0 1.333px var(--color-border-strong);
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -260,5 +276,12 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
   flex: none;
 }
 .checkmark svg { width: 12px; height: 12px; stroke: var(--tag-mint-fg); stroke-width: 2.4; fill: none; opacity: 0; stroke-dasharray: 16; stroke-dashoffset: 16; transition: all .12s; }
-.checkmark.checked { border-color: var(--tag-mint-fg); background: var(--state-done-row); }
+.checkmark.checked { box-shadow: inset 0 0 0 1.333px var(--tag-mint-fg); background: var(--state-done-row); }
 .checkmark.checked svg { opacity: 1; stroke-dashoffset: 0; }
+
+/* ---------- 响应式微调 ---------- */
+@media (max-width: 640px) {
+  .modal { padding: 20px 18px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .seg { max-width: 100%; overflow-x: auto; }
+}

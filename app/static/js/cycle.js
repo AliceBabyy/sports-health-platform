@@ -34,7 +34,8 @@
       const isSel = d.date === state.selected;
       const phaseTxt = d.phase_label ? d.phase_label : '—';
       const sportTxt = d.sport_label ? d.sport_label : '—';
-      html += '<div class="cal-day ' + (isSel ? 'selected' : '') + (isToday ? ' today-cell' : '') + '" data-date="' + d.date + '">' +
+      html += '<div class="cal-day' + (isSel ? ' selected' : '') + (isToday ? ' today-cell' : '') +
+        (d.phase_key ? ' phase-' + d.phase_key : '') + (d.sport_level ? ' sport-' + d.sport_level : '') + '" data-date="' + d.date + '">' +
         '<div class="cd-num num">' + dd.getDate() + '</div>' +
         '<div class="cd-phase">' + App.escapeHtml(phaseTxt) + '</div>' +
         '<div class="cd-sport">' + App.escapeHtml(sportTxt) + '</div></div>';

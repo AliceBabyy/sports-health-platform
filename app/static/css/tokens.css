@@ -1,8 +1,8 @@
 /* Design Tokens（需求 8.1，与定稿原型一致） */
 :root {
-  /* 背景 */
-  --bg-page: #fafbfd;          /* 整页背景（冷调浅灰，不带黄） */
-  --bg-section: #f7f9fc;       /* 分区/内嵌块底色 */
+  /* 背景（纯中性灰，不带蓝） */
+  --bg-page: #fbfbfb;          /* 整页背景（中性浅灰，更轻盈） */
+  --bg-section: #f8f8f8;       /* 分区/内嵌块底色（中性浅灰，弱化灰色块） */
   --bg-card: #ffffff;          /* 卡片底色，配极轻投影 */
 
   /* 主色 */
@@ -10,44 +10,59 @@
   --color-primary-soft: #2c3a52;
   --color-text: #1f2430;
   --color-text-secondary: #6b7280;
-  --color-border: #e6e9f0;
-  --color-border-strong: #d5dae4;
+  --color-border: rgba(27, 36, 52, 0.05);         /* 普通分割线（卡片描边/表格行线/弹窗分组等；比发丝档加深一点） */
+  --color-border-strong: rgba(27, 36, 52, 0.09);  /* 强描边：输入框/按钮（加深一点） */
 
   /* 状态色 */
   --state-done-row: #eefaf1;   /* 已勾选（完成）行浅绿底 */
   --state-danger: #c0392b;
   --state-danger-bg: #fdf0ee;
 
-  /* 半透明马卡龙标签（8%~10% 透明度叠加；文字保持饱和度，对比度≥4.5:1） */
-  --tag-pink-bg: rgba(236, 112, 145, 0.10);
-  --tag-pink-fg: #c2335f;
-  --tag-mint-bg: rgba(45, 190, 155, 0.12);
-  --tag-mint-fg: #0e8f72;
-  --tag-gray-bg: rgba(120, 130, 145, 0.12);
-  --tag-gray-fg: #5a6472;
-  --tag-apricot-light-bg: rgba(245, 183, 106, 0.14);
-  --tag-apricot-light-fg: #b97a1e;
-  --tag-apricot-mid-bg: rgba(240, 165, 80, 0.16);
-  --tag-apricot-mid-fg: #a86a10;
-  --tag-apricot-dark-bg: rgba(230, 140, 60, 0.16);
-  --tag-apricot-dark-fg: #934f0d;
+  /* 标签配色——严格按设计稿（C:\Users\admin\Desktop\sh项目ui图\1844590b7….png 像素级提取） */
 
-  /* 运动三档标签 */
-  --tag-high-bg: rgba(224, 93, 56, 0.10);
-  --tag-high-fg: #c8452b;
-  --tag-good-bg: rgba(47, 143, 159, 0.12);
-  --tag-good-fg: #1f7a8c;
-  --tag-rest-bg: rgba(122, 127, 135, 0.12);
-  --tag-rest-fg: #63666d;
+  /* 阶段标记色（阶段表色块/圆点，饱和色） */
+  --phase-menses: #e8558c;        /* 月经期 */
+  --phase-foll-pre: #4fc08d;      /* 排卵期前期 */
+  --phase-foll-post: #35b381;     /* 排卵期后期 */
+  --phase-ovu: #12a46e;           /* 排卵日 */
+  --phase-luteal-early: #e3ac22;  /* 黄体期前期 */
+  --phase-luteal-mid: #d69a08;    /* 黄体期中期 */
+  --phase-luteal-late: #d08b4f;   /* 黄体期后期 */
+  --phase-text: #4a5261;          /* 阶段标签文字（设计稿表格文字色，深灰蓝） */
+
+  /* 阶段日历格底色（设计稿浅色 tint） */
+  --phase-menses-tint: #ffdce8;
+  --phase-foll-pre-tint: #edfaf2;
+  --phase-foll-post-tint: #f2fbf5;
+  --phase-ovu-tint: #dff8e9;
+  --phase-luteal-early-tint: #fbebbe;
+  --phase-luteal-mid-tint: #fff5d6;
+  --phase-luteal-late-tint: #fff0e4;
+
+  /* 运动三档标签（设计稿药丸：浅色底 + 浅色圆点 + 深色文字） */
+  --tag-high-bg: #ffe7f0;  --tag-high-dot: #ffd3e3;  --tag-high-fg: #b01b57;  /* 精力旺盛 */
+  --tag-good-bg: #e2f9ec;  --tag-good-dot: #c6f1da;  --tag-good-fg: #0a7c4c;  /* 状态良好 */
+  --tag-rest-bg: #fff4d2;  --tag-rest-dot: #ffe6a6;  --tag-rest-fg: #8f5e00;  /* 适合休息 */
+
+  /* 中性工具标签（部位/泳姿/未推算等，设计稿无对应色，沿用浅灰） */
+  --tag-gray-bg: rgba(120, 130, 145, 0.10);
+  --tag-gray-fg: #5a6472;
+
+  /* 阶段色别名（tag-pink/tag-mint/tag-apricot-* 与阶段色同源，供图例等复用） */
+  --tag-pink-bg: #ffdce8;            --tag-pink-fg: #e8558c;            --tag-pink-dot: #ffd3e3;
+  --tag-mint-bg: #e2f9ec;            --tag-mint-fg: #0a7c4c;            --tag-mint-dot: #c6f1da;
+  --tag-apricot-light-bg: #fbebbe;   --tag-apricot-light-fg: #e3ac22;   --tag-apricot-light-dot: #f6d98c;
+  --tag-apricot-mid-bg: #fff5d6;     --tag-apricot-mid-fg: #d69a08;     --tag-apricot-mid-dot: #f8e0a0;
+  --tag-apricot-dark-bg: #fff0e4;    --tag-apricot-dark-fg: #d08b4f;    --tag-apricot-dark-dot: #f2c9a0;
 
   /* 阴影 */
-  --shadow-card: 0 1px 3px rgba(27, 36, 52, 0.04), 0 1px 2px rgba(27, 36, 52, 0.03);
+  --shadow-card: none; /* 面板卡片完全无阴影（扁平，仅发丝描边定型） */
   --shadow-pop: 0 8px 28px rgba(27, 36, 52, 0.12);
 
-  /* 圆角 */
-  --radius: 10px;
-  --radius-sm: 6px;
-  --radius-lg: 14px;
+  /* 圆角（收窄，参考 GitHub 6px 体系，避免笨重） */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-lg: 10px;
 
   /* 布局 */
   --sidebar-w: 216px;

@@ -1,4 +1,4 @@
-"""身材数据 schemas。"""
+"""身材数据 schemas（宽表：values 为字段 key→数值）。"""
 from datetime import date
 
 from pydantic import BaseModel, Field
@@ -10,5 +10,4 @@ class MetricUpsertIn(BaseModel):
 
 
 class MetricUpdateIn(BaseModel):
-    value: float | None = None
-    record_date: date | None = None
+    values: dict[str, float] = Field(default_factory=dict)

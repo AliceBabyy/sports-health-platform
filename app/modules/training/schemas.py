@@ -6,11 +6,11 @@ from pydantic import BaseModel, Field
 
 class PlanItemIn(BaseModel):
     exercise_name: str = Field(min_length=1, max_length=128)
-    body_part: str = Field(default="", max_length=32)
-    weight_kg: float = Field(default=0, ge=0, le=999)
-    sets: int = Field(default=1, ge=1, le=99)
-    reps: int = Field(default=1, ge=1, le=999)
-    target_weight_kg: float | None = Field(default=None, ge=0, le=999)
+    body_part: str | None = Field(default=None, max_length=32)   # 部位可空
+    weight_kg: float | None = Field(default=None, ge=0, le=999)  # 重量可空
+    sets: int | None = Field(default=None, ge=1, le=99)          # 组数可空
+    reps: str | None = Field(default=None, max_length=32)        # 每组个数，字符串，可空
+    target_weight_kg: float | None = Field(default=None, ge=0, le=999)  # 期望突破重量，计划/记录均可填
     checked: bool = False
 
 
@@ -23,5 +23,5 @@ class StartIn(BaseModel):
 
 
 class NoteIn(BaseModel):
-    status_text: str = Field(default="", max_length=2000)
+    status_text: str | None = Field(default=None, max_length=2000)  # 心得文本可空
     rating: int | None = Field(default=None, ge=1, le=5)

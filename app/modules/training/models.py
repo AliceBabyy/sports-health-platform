@@ -48,11 +48,11 @@ class TrainingPlanItem(Base):
     plan_id: Mapped[int] = mapped_column(ForeignKey("training_plans.id", ondelete="CASCADE"), nullable=False, index=True)
     sort: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     exercise_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    body_part: Mapped[str] = mapped_column(String(32), nullable=False, default="")
-    weight_kg: Mapped[Decimal] = mapped_column(Numeric(5, 1), nullable=False, default=Decimal("0"))
-    sets: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    reps: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    target_weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(5, 1), nullable=True)  # 期望突破重量，仅记录模式填
+    body_part: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 部位，可空
+    weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(5, 1), nullable=True)  # 重量 kg，可空
+    sets: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 组数，可空
+    reps: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 每组个数，字符串，可空
+    target_weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(5, 1), nullable=True)  # 期望突破重量，计划/记录均可填
     checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     plan: Mapped[TrainingPlan] = relationship(back_populates="items")
@@ -63,7 +63,7 @@ class TrainingNote(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("training_plans.id", ondelete="CASCADE"), unique=True, nullable=False)
-    status_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # 心得文本，可空
     rating: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)  # 1~5
 
     plan: Mapped[TrainingPlan] = relationship(back_populates="note")

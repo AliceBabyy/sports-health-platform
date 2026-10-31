@@ -1,15 +1,15 @@
-"""趋势聚合单测（BD-10~14）：锚点窗口均值、null 断线、同日多记录取最后。"""
+"""趋势聚合单测（BD-10~14）：锚点窗口均值、null 断线、同日覆盖取最后（4 表：体重在 body_basic_records）。"""
 from datetime import date, timedelta
 
-from app.core.constants import today_local
+from app.core.constants import BODY_COLUMNS, today_local
 from app.modules.body import trend_service
-from app.modules.body.models import BodyMetricRecord
+from app.modules.body.models import BodyBasicRecord
 
 USER = 1
 
 
 def _add(db, day: date, value: float, metric="weight"):
-    db.add(BodyMetricRecord(user_id=USER, metric_key=metric, record_date=day, value=value))
+    db.add(BodyBasicRecord(user_id=USER, record_date=day, **{BODY_COLUMNS[metric]: value}))
     db.commit()
 
 
@@ -29,7 +29,7 @@ def test_week_points_today_values_and_null(db):
 
 
 def test_same_day_multiple_take_last(db):
-    """BD-02：同日多条（upsert 幂等重写）→ 保留最后一次值。"""
+    """同日重复添加同组 → 覆盖取最后一次值。"""
     today = today_local()
     for v in (60.0, 60.5, 61.0):
         service_upsert(db, today, v)
@@ -41,7 +41,7 @@ def test_same_day_multiple_take_last(db):
 def service_upsert(db, day: date, value: float, metric="weight"):
     from app.modules.body import service as body_service
 
-    body_service.upsert_metrics(db, USER, day, {metric: value})
+    body_service.upsert_group(db, USER, "basic", day, {metric: value})
 
 
 def test_half_year_window_average(db):

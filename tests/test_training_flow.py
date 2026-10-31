@@ -10,7 +10,9 @@ from app.modules.training.schemas import PlanItemIn
 
 USER = 1
 
-ITEM = PlanItemIn(exercise_name="杠铃深蹲", body_part="腿", weight_kg=70, sets=5, reps=8)
+ITEM = PlanItemIn(exercise_name="杠铃深蹲", body_part="腿", weight_kg=70, sets=5, reps="8")
+ITEM_MIX = PlanItemIn(exercise_name="杠铃卧推", body_part="胸", weight_kg=40, sets=3, reps="10+8+6")
+ITEM_EMPTY = PlanItemIn(exercise_name="拉伸放松", body_part=None, weight_kg=None, sets=None, reps=None)
 
 
 def _today():
@@ -24,7 +26,7 @@ def test_save_and_get_plan(db):
     assert data["item_count"] == 1
     assert data["body_parts_summary"] == "腿"
     assert data["total_volume"] == 70 * 5 * 8
-    assert data["items"][0]["sets"] == 5 and data["items"][0]["reps"] == 8
+    assert data["items"][0]["sets"] == 5 and data["items"][0]["reps"] == "8"
 
 
 def test_start_edit_vs_training(db):
@@ -93,3 +95,23 @@ def test_history_only_recorded(db):
     service.save_record(db, USER, _today(), [ITEM])
     h = service.history(db, USER)
     assert h["total"] == 1
+
+
+def test_reps_string_mixed_and_volume(db):
+    """reps 字符串化：'10+8+6' 参与容量按首个数字段 10 计算；返回原样字符串。"""
+    plan = service.save_plan(db, USER, _today(), [ITEM_MIX])
+    data = service.plan_to_dict(plan)
+    assert data["items"][0]["reps"] == "10+8+6"
+    assert data["total_volume"] == 40 * 3 * 10
+
+
+def test_nullable_fields_and_zero_volume(db):
+    """部位/重量/组数/个数全部可空：透传 None，容量按 0 计。"""
+    plan = service.save_plan(db, USER, _today(), [ITEM_EMPTY])
+    data = service.plan_to_dict(plan)
+    assert data["items"][0]["body_part"] is None
+    assert data["items"][0]["weight_kg"] is None
+    assert data["items"][0]["sets"] is None
+    assert data["items"][0]["reps"] is None
+    assert data["total_volume"] == 0
+    assert data["total_sets"] == 0

@@ -7,7 +7,7 @@
   <nav class="sidebar-nav">
     {% for key, url, label in nav_items %}
     <a href="{{ url }}" class="{{ 'active' if active == key else '' }}">
-      <span class="nav-ico"></span>{{ label }}
+      <span class="nav-t">{{ label[:2] }}</span><span class="nav-f">{{ label }}</span>
     </a>
     {% endfor %}
   </nav>

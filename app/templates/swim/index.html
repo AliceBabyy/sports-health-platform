@@ -23,7 +23,7 @@
   <div class="card-title">全部记录 <span class="sub">按日期倒序 · 可分页查看</span>
     <span>
       {% for stroke, n in stats.stroke_count.items() %}
-      <span class="tag tag-gray no-dot" style="margin-left:6px">{{ C.SWIM_STROKE_LABELS.get(stroke, stroke) }} {{ n }} 次</span>
+      <span class="tag tag-gray no-dot" style="margin-left:6px">{{ C.SWIM_STROKE_LABELS.get(stroke, '未填写') if stroke else '未填写' }} {{ n }} 次</span>
       {% endfor %}
     </span>
   </div>
@@ -54,6 +54,7 @@
         <div class="form-item"><label class="field-label">总划水次数</label><input class="input num" type="number" name="total_strokes" min="0"></div>
         <div class="form-item"><label class="field-label">主泳姿</label>
           <select class="select" name="main_stroke">
+            <option value="">未填写</option>
             <option value="freestyle">自由泳</option>
             <option value="breaststroke">蛙泳</option>
             <option value="backstroke">仰泳</option>

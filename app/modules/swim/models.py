@@ -18,7 +18,7 @@ class SwimRecord(Base):
     duration_s: Mapped[int] = mapped_column(Integer, nullable=False)  # 存秒，界面按分钟录入
     avg_heart_rate: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_strokes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    main_stroke: Mapped[str] = mapped_column(String(16), nullable=False)
+    main_stroke: Mapped[str | None] = mapped_column(String(16), nullable=True)  # 主泳姿，可空
     laps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     calories: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

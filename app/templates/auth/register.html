@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}注册 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/login.css">{% endblock %}
+{% block standalone %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-name">体序</div>
+      <div class="logo-en">BODY ALMANAC</div>
+    </div>
+    <h1>注册新账号</h1>
+    <p class="login-desc">使用账号密码注册，并填写基础信息用于个性化记录。身高可稍后在「身材数据」中记录。</p>
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/register">
+      <label class="field-label">用户名</label>
+      <input class="input" name="username" value="{{ username or '' }}" minlength="3" maxlength="32" autocomplete="username" required autofocus>
+      <label class="field-label" style="margin-top:12px">密码</label>
+      <input class="input" type="password" name="password" minlength="6" autocomplete="new-password" required>
+      <label class="field-label" style="margin-top:12px">昵称</label>
+      <input class="input" name="display_name" value="{{ display_name or '' }}" maxlength="32" placeholder="页面右上角展示的名字" required>
+      <div class="reg-row">
+        <div>
+          <label class="field-label">性别</label>
+          <select class="input" name="gender">
+            <option value="">未填写</option>
+            <option value="男" {% if gender == '男' %}selected{% endif %}>男</option>
+            <option value="女" {% if gender == '女' %}selected{% endif %}>女</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">年龄</label>
+          <input class="input" type="number" name="age" value="{{ age or '' }}" min="1" max="120" placeholder="岁">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit" style="margin-top:22px;width:100%">注 册</button>
+    </form>
+    <div class="login-foot">已有账号？<a href="/login" class="login-link">直接登录</a></div>
+  </div>
+</div>
+{% endblock %}

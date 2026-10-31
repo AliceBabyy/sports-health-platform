@@ -69,5 +69,5 @@ def swim_stats(
 
 
 def _validate(payload: SwimRecordIn):
-    if payload.main_stroke not in SWIM_STROKES:
+    if payload.main_stroke is not None and payload.main_stroke not in SWIM_STROKES:
         raise AppError(400, "主泳姿不合法")

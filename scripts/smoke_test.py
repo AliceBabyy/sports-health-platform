@@ -5,10 +5,11 @@
 """
 import json
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
 from http.cookiejar import CookieJar
 from pathlib import Path
 
@@ -89,6 +90,29 @@ def main() -> None:
         guard_code = e.code
     check("未登录访问业务页被拦截(303)", guard_code == 303, f"got {guard_code}")
 
+    print("== 注册链路（新用户，基础信息） ==")
+    suffix = str(int(time.time()))[-6:]
+    reg_user = "smokereg" + suffix
+    reg_body = urllib.parse.urlencode({
+        "username": reg_user, "password": "pass1234",
+        "display_name": "冒烟注册", "gender": "女", "age": "28",
+    }).encode()
+    jar3 = CookieJar()
+    reg_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar3), NoRedirect())
+    r = urllib.request.Request(BASE + "/register", data=reg_body, method="POST")
+    try:
+        with reg_opener.open(r, timeout=15) as resp:
+            reg_code, reg_loc = resp.status, resp.headers.get("Location", "")
+    except urllib.error.HTTPError as e:
+        reg_code, reg_loc = e.code, e.headers.get("Location", "")
+    check("POST /register 注册成功并跳转 /body", reg_code == 303 and reg_loc == "/body", f"code={reg_code} loc={reg_loc}")
+    try:
+        with reg_opener.open(BASE + "/body", timeout=15) as resp:
+            reg_body_page = resp.status
+    except urllib.error.HTTPError as e:
+        reg_body_page = e.code
+    check("注册用户会话可直接访问 /body", reg_body_page == 200, f"code={reg_body_page}")
+
     print("== 核心 API ==")
     code, text = req("GET", "/api/body-metrics/latest")
     ok = code == 200 and "bmi" in text
@@ -111,8 +135,90 @@ def main() -> None:
     check("GET /api/training/plans/{date}", code == 200, f"code={code}")
 
     print("== 写链路（临时数据，测后即删） ==")
-    code, text = req("POST", "/api/body-metrics", {"record_date": today, "values": {"weight": 60.0}})
-    check("POST /api/body-metrics upsert", code == 200, f"code={code}")
+    # 4 表拆分：分 4 组写入（昨日基础只填体重 → 今日身高应继承昨日体重所在行的身高？不，
+    # 继承按字段回溯：今日只填身高，体重应沿用昨日的体重）
+    day1 = (date.today() - timedelta(days=1)).isoformat()
+    code, _ = req("POST", "/api/body-metrics/basic", {
+        "record_date": day1,
+        "values": {"weight": 60.0},
+    })
+    check("POST /api/body-metrics/basic（昨日仅体重）", code == 200, f"code={code}")
+    code, _ = req("POST", "/api/body-metrics/basic", {
+        "record_date": today,
+        "values": {"height": 165.0},
+    })
+    check("POST /api/body-metrics/basic（今日仅身高）", code == 200, f"code={code}")
+    code, text = req("GET", "/api/body-metrics/latest")
+    ok = code == 200 and '"weight"' in text and '"height"' in text and "bmi" in text
+    check("GET /api/body-metrics/latest 合并 4 组字段", ok, f"code={code}")
+    try:
+        payload = json.loads(text)
+        inherited_ok = payload.get("weight", {}).get("value") == 60.0 and payload.get("height", {}).get("value") == 165.0
+        bmi_ok = payload.get("bmi") is not None
+    except Exception:  # noqa: BLE001
+        inherited_ok = bmi_ok = False
+    check("未填字段继承最近值（体重=60 沿用）且 BMI 可算", inherited_ok and bmi_ok, f"text={text[:200]}")
+
+    code, _ = req("POST", "/api/body-metrics/goal", {
+        "record_date": today,
+        "values": {"target_weight": 55.0, "target_body_fat": 20.0},
+    })
+    check("POST /api/body-metrics/goal", code == 200, f"code={code}")
+    code, _ = req("POST", "/api/body-metrics/girth", {
+        "record_date": today,
+        "values": {"waist": 68.0, "chest": 88.0, "arm": 30.0, "hip": 92.0},
+    })
+    check("POST /api/body-metrics/girth", code == 200, f"code={code}")
+    code, _ = req("POST", "/api/body-metrics/target", {
+        "record_date": today,
+        "values": {"target_waist": 65.0},
+    })
+    check("POST /api/body-metrics/target", code == 200, f"code={code}")
+
+    code, _ = req("POST", "/api/body-metrics/basic", {
+        "record_date": today,
+        "values": {"waist": 99.0},
+    })
+    check("POST /api/body-metrics/basic 拒绝不属于该组的字段", code == 400, f"code={code}")
+
+    code, text = req("GET", "/api/body-metrics/latest")
+    ok = code == 200 and '"target_weight"' in text and '"target_waist"' in text and '"waist"' in text
+    check("GET /api/body-metrics/latest 含目标与围度字段", ok, f"code={code}")
+
+    code, text = req("GET", "/api/body-metrics")
+    ok = code == 200 and '"total"' in text
+    check("GET /api/body-metrics 列表（按日期合并）", ok, f"code={code}")
+
+    code, _ = req("GET", "/api/body-metrics/trend?metric=body_fat&range=month")
+    check("GET /api/body-metrics/trend(非 weight 指标)", code == 200, f"code={code}")
+    code, _ = req("GET", "/api/body-metrics/trend?metric=target_weight&range=month")
+    check("GET /api/body-metrics/trend 拒绝目标值", code == 400, f"code={code}")
+
+    code, text = req("POST", "/api/training/plans/" + today, {
+        "items": [
+            {"exercise_name": "深蹲", "body_part": None, "weight_kg": None, "sets": None, "reps": None,
+             "target_weight_kg": 65.0, "checked": False},
+            {"exercise_name": "卧推", "body_part": "胸", "weight_kg": 40.0, "sets": 3, "reps": "10+8+6",
+             "target_weight_kg": None, "checked": False},
+        ]
+    })
+    check("POST /api/training/plans 计划（可空字段+reps字符串）", code == 200, f"code={code}")
+    code, text = req("GET", "/api/training/plans/" + today)
+    item_reps_ok = False
+    body_part_null_ok = False
+    try:
+        payload = json.loads(text)
+        items = (payload.get("plan") or {}).get("items") or []
+        for it in items:
+            if it.get("exercise_name") == "卧推" and it.get("reps") == "10+8+6":
+                item_reps_ok = True
+            if it.get("exercise_name") == "深蹲" and it.get("body_part") is None and it.get("weight_kg") is None:
+                body_part_null_ok = True
+    except Exception:  # noqa: BLE001
+        pass
+    check("GET /api/training/plans reps 原样返回且可空字段为 null", code == 200 and item_reps_ok and body_part_null_ok, f"code={code}")
+    code, _ = req("DELETE", "/api/training/plans/" + today)
+    check("DELETE /api/training/plans", code == 200, f"code={code}")
 
     code, text = req("POST", "/api/swim-records", {
         "record_date": today, "distance_m": 500, "duration_s": 660,
@@ -137,6 +243,8 @@ def main() -> None:
         check("DELETE /api/dance-records", code == 200, f"code={code}")
     code, _ = req("DELETE", "/api/body-metrics?record_date=" + today)
     check("DELETE /api/body-metrics(按日)", code == 200, f"code={code}")
+    code, _ = req("DELETE", "/api/body-metrics?record_date=" + day1)
+    check("DELETE /api/body-metrics(按日·昨日)", code == 200, f"code={code}")
 
     print(f"\n结果：通过 {passed} / {passed + failed}")
     sys.exit(1 if failed else 0)

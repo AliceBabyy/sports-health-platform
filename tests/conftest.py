@@ -1,4 +1,4 @@
-"""pytest 公共 fixture：内存 SQLite + 全模型建表。"""
+"""pytest 公共 fixture：临时文件 SQLite（每测试独立文件，避免 :memory: 连接竞态）+ 全模型建表。"""
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -8,8 +8,8 @@ from database import Base
 
 
 @pytest.fixture()
-def db():
-    engine = create_engine("sqlite:///:memory:", future=True)
+def db(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", future=True)
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     session = TestSession()

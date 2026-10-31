@@ -11,6 +11,6 @@ class SwimRecordIn(BaseModel):
     duration_s: int = Field(ge=1)  # 前端分钟转秒后提交
     avg_heart_rate: int | None = Field(default=None, ge=1, le=300)
     total_strokes: int | None = Field(default=None, ge=0)
-    main_stroke: str
+    main_stroke: str | None = Field(default=None)  # 主泳姿，可空
     laps: int | None = Field(default=None, ge=0)
     calories: Decimal | None = None

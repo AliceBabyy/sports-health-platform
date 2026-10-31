@@ -20,7 +20,7 @@ def _item_dict(item: TrainingPlanItem) -> dict:
         "sort": item.sort,
         "exercise_name": item.exercise_name,
         "body_part": item.body_part,
-        "weight_kg": float(item.weight_kg),
+        "weight_kg": float(item.weight_kg) if item.weight_kg is not None else None,
         "sets": item.sets,
         "reps": item.reps,
         "target_weight_kg": float(item.target_weight_kg) if item.target_weight_kg is not None else None,
@@ -28,13 +28,34 @@ def _item_dict(item: TrainingPlanItem) -> dict:
     }
 
 
+def _reps_number(reps: str | None) -> int | None:
+    """reps 字符串化兼容：取首个数字段（如 '12'→12、'10+8'→10、空→None）。"""
+    if reps is None:
+        return None
+    m = ""
+    for ch in str(reps).strip():
+        if ch.isdigit():
+            m += ch
+        elif m:
+            break
+    return int(m) if m else None
+
+
+def _item_volume(item: TrainingPlanItem) -> float:
+    """容量 = 重量 × 组数 × 每组个数（三者齐备才计入；reps 取首个数字段）。"""
+    if item.weight_kg is None or item.sets is None:
+        return 0.0
+    reps = _reps_number(item.reps)
+    if reps is None:
+        return 0.0
+    return float(item.weight_kg) * item.sets * reps
+
+
 def plan_to_dict(plan: TrainingPlan | None) -> dict | None:
     if plan is None:
         return None
     items = plan.items if plan.items is not None else []
-    total_volume = sum(
-        float(i.weight_kg) * i.sets * i.reps for i in items if i.weight_kg is not None
-    )
+    total_volume = sum(_item_volume(i) for i in items)
     body_parts = list(dict.fromkeys(i.body_part for i in items if i.body_part))
     return {
         "id": plan.id,
@@ -43,7 +64,7 @@ def plan_to_dict(plan: TrainingPlan | None) -> dict | None:
         "started_at": plan.started_at.isoformat() if plan.started_at else None,
         "saved_at": plan.saved_at.isoformat() if plan.saved_at else None,
         "item_count": len(items),
-        "total_sets": sum(i.sets for i in items),
+        "total_sets": sum((i.sets or 0) for i in items),
         "total_volume": round(total_volume, 1),
         "completed_count": sum(1 for i in items if i.checked),
         "body_parts_summary": " + ".join(body_parts) if body_parts else "",
@@ -65,17 +86,17 @@ def get_plan(db: Session, user_id: int, plan_date: date) -> TrainingPlan | None:
 
 
 def replace_items(plan: TrainingPlan, items_payload) -> None:
-    """整体替换计划明细（保留勾选与期望重量字段按提交值）。"""
+    """整体替换计划明细（保留勾选与期望重量字段按提交值；部位/重量/组数/个数可空）。"""
     plan.items.clear()
     for idx, payload in enumerate(items_payload):
         plan.items.append(
             TrainingPlanItem(
                 sort=idx + 1,
                 exercise_name=payload.exercise_name,
-                body_part=payload.body_part or "",
+                body_part=payload.body_part or None,
                 weight_kg=payload.weight_kg,
                 sets=payload.sets,
-                reps=payload.reps,
+                reps=payload.reps or None,
                 target_weight_kg=payload.target_weight_kg,
                 checked=payload.checked,
             )
@@ -170,9 +191,7 @@ def save_record(db: Session, user_id: int, plan_date: date, items_payload) -> di
         "duration_s": duration_s,
         "item_count": len(plan.items),
         "completed_count": sum(1 for i in plan.items if i.checked),
-        "total_volume": round(
-            sum(float(i.weight_kg) * i.sets * i.reps for i in plan.items if i.weight_kg is not None), 1
-        ),
+        "total_volume": round(sum(_item_volume(i) for i in plan.items), 1),
     }
 
 
@@ -198,10 +217,10 @@ def save_note(db: Session, user_id: int, plan_date: date, status_text: str, rati
         raise AppError(404, "该日无训练记录")
     note = db.query(TrainingNote).filter(TrainingNote.plan_id == plan.id).first()
     if note is None:
-        note = TrainingNote(plan_id=plan.id, status_text=status_text or "", rating=rating)
+        note = TrainingNote(plan_id=plan.id, status_text=status_text or None, rating=rating)
         db.add(note)
     else:
-        note.status_text = status_text or ""
+        note.status_text = status_text or None
         note.rating = rating
     db.commit()
     db.refresh(note)

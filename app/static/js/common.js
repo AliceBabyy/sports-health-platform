@@ -66,4 +66,33 @@
     const mask = e.target.closest('.modal-mask');
     if (mask && e.target === mask) mask.classList.remove('open');
   });
+
+  /* ---------- 侧边栏收起/展开（顶栏按钮 + 窄屏自动收起 + localStorage 记忆） ---------- */
+  (function sidebar() {
+    const shell = document.querySelector('.app-shell');
+    if (!shell) return;
+    const KEY = 'sh.sidebar.collapsed';
+    const btn = document.getElementById('sidebarToggle');
+
+    function apply() {
+      const saved = localStorage.getItem(KEY);
+      let collapsed;
+      if (window.innerWidth <= 768) collapsed = true;                    // 窄屏强制收起
+      else if (window.innerWidth <= 1100 && saved === null) collapsed = true; // 中屏默认收起
+      else collapsed = saved === '1';
+      shell.classList.toggle('sidebar-collapsed', collapsed);
+      if (btn) btn.classList.toggle('collapsed', collapsed);
+    }
+
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const now = shell.classList.contains('sidebar-collapsed');
+        localStorage.setItem(KEY, now ? '0' : '1'); // 当前收起→展开；当前展开→收起
+        apply();
+      });
+    }
+    apply();
+    let timer;
+    window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(apply, 120); });
+  })();
 })();

@@ -4,30 +4,57 @@
 """
 from datetime import date, timedelta
 
-# ---------- 身材指标 ----------
-# 需求 BD-01 七指标 + UI 原型体脂率（规划 12.1 建议加入第 8 个 key）
-METRIC_KEYS = ["height", "weight", "body_fat", "chest", "arm", "waist", "hip", "thigh"]
-METRIC_LABELS = {
-    "height": "身高",
-    "weight": "体重",
-    "body_fat": "体脂率",
-    "chest": "胸围",
-    "arm": "手臂围",
-    "waist": "腰围",
-    "hip": "臀围",
-    "thigh": "大腿围",
+# ---------- 身材字段（4 表拆分，BD 重构） ----------
+# 每种维度直接定义为字段；元组：(标签, 单位, 数据库列名, 所属分组)。
+# 分组 → 表：basic→body_basic_records、goal→body_basic_goal、
+#          girth→body_dimensions_records、target→body_dimensions_goal
+BODY_FIELDS: dict[str, tuple[str, str, str, str]] = {
+    "height":         ("身高",     "cm", "height_cm",           "basic"),
+    "weight":         ("体重",     "kg", "weight_kg",           "basic"),
+    "body_fat":       ("体脂率",   "%",  "body_fat_pct",        "basic"),
+    "target_weight":  ("目标体重", "kg", "target_weight_kg",    "goal"),
+    "target_body_fat":("目标体脂率", "%", "target_body_fat_pct", "goal"),
+    "neck":           ("颈围",     "cm", "neck_cm",             "girth"),
+    "shoulder_width": ("肩宽",     "cm", "shoulder_width_cm",   "girth"),
+    "arm":            ("臂围",     "cm", "arm_circ_cm",         "girth"),
+    "chest":          ("胸围",     "cm", "chest_circ_cm",       "girth"),
+    "waist":          ("腰围",     "cm", "waist_circ_cm",       "girth"),
+    "hip":            ("臀围",     "cm", "hip_circ_cm",         "girth"),
+    "thigh":          ("大腿围",   "cm", "thigh_circ_cm",       "girth"),
+    "calf":           ("小腿围",   "cm", "calf_circ_cm",        "girth"),
+    "target_arm":     ("目标臂围", "cm", "target_arm_circ_cm",  "target"),
+    "target_chest":   ("目标胸围", "cm", "target_chest_circ_cm","target"),
+    "target_waist":   ("目标腰围", "cm", "target_waist_circ_cm","target"),
+    "target_hip":     ("目标臀围", "cm", "target_hip_circ_cm",  "target"),
+    "target_thigh":   ("目标大腿围", "cm", "target_thigh_circ_cm", "target"),
+    "target_calf":    ("目标小腿围", "cm", "target_calf_circ_cm", "target"),
 }
-METRIC_UNITS = {
-    "height": "cm",
-    "weight": "kg",
-    "body_fat": "%",
-    "chest": "cm",
-    "arm": "cm",
-    "waist": "cm",
-    "hip": "cm",
-    "thigh": "cm",
+BODY_KEYS = list(BODY_FIELDS.keys())
+BODY_LABELS = {k: v[0] for k, v in BODY_FIELDS.items()}
+BODY_UNITS = {k: v[1] for k, v in BODY_FIELDS.items()}
+BODY_COLUMNS = {k: v[2] for k, v in BODY_FIELDS.items()}
+# 分组 → key 列表（与 4 张表一一对应）
+BODY_GROUPS: dict[str, list[str]] = {
+    "basic":  ["height", "weight", "body_fat"],
+    "goal":   ["target_weight", "target_body_fat"],
+    "girth":  ["neck", "shoulder_width", "arm", "chest", "waist", "hip", "thigh", "calf"],
+    "target": ["target_arm", "target_chest", "target_waist", "target_hip", "target_thigh", "target_calf"],
 }
-# 身高/体重为固定双卡位，围度参与剪影标注
+GROUP_LABELS = {
+    "basic": "身体基础",
+    "goal": "期望指标",
+    "girth": "围度",
+    "target": "目标围度",
+}
+# 兼容别名：smoke_test / 旧调用（key → 列名不变）
+METRIC_KEYS = BODY_KEYS
+METRIC_LABELS = BODY_LABELS
+METRIC_UNITS = BODY_UNITS
+# 可参与趋势图的实际维度（基础 + 围度，排除两组目标值）
+TREND_KEYS = [k for k in BODY_KEYS if BODY_FIELDS[k][3] in ("basic", "girth")]
+# 页面 4 指标卡
+CARD_KEYS = ["weight", "body_fat", "waist", "hip"]
+# 围度参与剪影标注
 SILHOUETTE_METRICS = ["chest", "arm", "waist", "hip", "thigh"]
 
 # ---------- 趋势聚合（BD-10~14） ----------

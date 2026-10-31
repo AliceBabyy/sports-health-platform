@@ -67,10 +67,10 @@
       wrap.innerHTML = '<table class="tbl training-tbl"><thead><tr><th>#</th><th>动作</th><th>部位</th><th>重量</th><th>组数 × 次数</th></tr></thead><tbody>' +
         items.map(function (it, i) {
           return '<tr><td class="num" style="color:var(--color-text-secondary)">' + String(i + 1).padStart(2, '0') + '</td>' +
-            '<td class="done-text" style="font-weight:600">' + App.escapeHtml(it.exercise_name) + '</td>' +
+            '<td class="done-text" style="font-weight:400">' + App.escapeHtml(it.exercise_name) + '</td>' +
             '<td>' + (it.body_part ? '<span class="tag tag-gray no-dot">' + App.escapeHtml(it.body_part) + '</span>' : '—') + '</td>' +
-            '<td class="num">' + it.weight_kg + ' kg</td>' +
-            '<td class="num" style="font-weight:600">' + it.sets + ' × ' + it.reps + '</td></tr>';
+            '<td class="num">' + (it.weight_kg != null ? it.weight_kg + ' kg' : '—') + '</td>' +
+            '<td class="num" style="font-weight:400">' + (it.sets != null ? it.sets : '—') + ' × ' + (it.reps != null ? App.escapeHtml(it.reps) : '—') + '</td></tr>';
         }).join('') + '</tbody></table>';
       renderOverview(items);
       return;
@@ -89,8 +89,8 @@
           '<td><span class="checkmark ' + (it.checked ? 'checked' : '') + '" data-act="check"><svg viewBox="0 0 12 12"><path d="M2 6.5 L4.5 9 L10 3"/></svg></span></td>' +
           '<td><input class="tin wide done-text" data-f="exercise_name" value="' + App.escapeHtml(it.exercise_name) + '"></td>' +
           '<td><input class="tin" data-f="body_part" value="' + App.escapeHtml(it.body_part || '') + '"></td>' +
-          '<td><input class="tin num" type="number" step="0.5" min="0" data-f="weight_kg" value="' + it.weight_kg + '"></td>' +
-          '<td style="white-space:nowrap"><input class="tin num" type="number" min="1" data-f="sets" value="' + it.sets + '"><span style="margin:0 4px;color:var(--color-text-secondary)">×</span><input class="tin num" type="number" min="1" data-f="reps" value="' + it.reps + '"></td>' +
+          '<td><input class="tin num" type="number" step="0.5" min="0" data-f="weight_kg" value="' + (it.weight_kg != null ? it.weight_kg : '') + '"></td>' +
+          '<td style="white-space:nowrap"><input class="tin num" type="number" min="1" data-f="sets" value="' + (it.sets != null ? it.sets : '') + '"><span style="margin:0 4px;color:var(--color-text-secondary)">×</span><input class="tin" style="width:64px" data-f="reps" value="' + App.escapeHtml(it.reps != null ? it.reps : '') + '"></td>' +
           '<td><input class="tin num" type="number" step="0.5" min="0" data-f="target_weight_kg" value="' + (it.target_weight_kg != null ? it.target_weight_kg : '') + '" placeholder="如 75"></td>' +
           '<td class="action-cell"><button class="btn btn-sm btn-danger" data-act="delrow">删除</button></td></tr>';
       }).join('') + '</tbody></table>';
@@ -98,8 +98,14 @@
     startTimerIfNeeded();
   }
 
+  function parseReps(reps) {
+    // reps 字符串化兼容：取首个数字段（'10+8+6'→10），空→0
+    if (reps == null || reps === '') return 0;
+    const m = String(reps).match(/\d+/);
+    return m ? parseInt(m[0], 10) : 0;
+  }
   function computeVolume(items) {
-    return items.reduce(function (a, it) { return a + (it.weight_kg || 0) * (it.sets || 0) * (it.reps || 0); }, 0).toFixed(0);
+    return items.reduce(function (a, it) { return a + (it.weight_kg || 0) * (it.sets || 0) * parseReps(it.reps); }, 0).toFixed(0);
   }
   function sumSets(items) { return items.reduce(function (a, it) { return a + (it.sets || 0); }, 0); }
   function partsSummary(items) {
@@ -182,9 +188,9 @@
     const idx = parseInt(row.dataset.idx, 10);
     const f = t.dataset.f;
     const it = state.plan.items[idx];
-    if (f === 'exercise_name' || f === 'body_part') it[f] = t.value;
+    if (f === 'exercise_name' || f === 'body_part' || f === 'reps') it[f] = t.value;
     else if (f === 'weight_kg' || f === 'target_weight_kg') it[f] = t.value === '' ? null : parseFloat(t.value);
-    else it[f] = t.value === '' ? 1 : parseInt(t.value, 10);
+    else if (f === 'sets') it[f] = t.value === '' ? null : parseInt(t.value, 10);
     if (['weight_kg', 'sets', 'reps'].includes(f)) {
       document.getElementById('volLabel').textContent = computeVolume(state.plan.items);
       renderOverview(state.plan.items);
@@ -203,10 +209,10 @@
     const items = state.plan.items.map(function (it, i) {
       return {
         exercise_name: (it.exercise_name || '').trim(),
-        body_part: (it.body_part || '').trim(),
-        weight_kg: it.weight_kg || 0,
-        sets: it.sets || 1,
-        reps: it.reps || 1,
+        body_part: (it.body_part || '').trim() || null,
+        weight_kg: it.weight_kg != null ? it.weight_kg : null,
+        sets: it.sets != null ? it.sets : null,
+        reps: (it.reps != null && it.reps !== '') ? String(it.reps) : null,
         target_weight_kg: it.target_weight_kg != null ? it.target_weight_kg : null,
         checked: !!it.checked,
       };
@@ -294,8 +300,9 @@
       '<input class="input" name="exercise_name" placeholder="动作名称" value="' + App.escapeHtml(it.exercise_name || '') + '">' +
       '<input class="input" name="body_part" placeholder="部位" value="' + App.escapeHtml(it.body_part || '') + '">' +
       '<input class="input num" type="number" step="0.5" min="0" name="weight_kg" value="' + (it.weight_kg != null ? it.weight_kg : '') + '">' +
-      '<input class="input num" type="number" min="1" name="sets" value="' + (it.sets || 1) + '">' +
-      '<input class="input num" type="number" min="1" name="reps" value="' + (it.reps || 1) + '">' +
+      '<input class="input num" type="number" min="1" name="sets" value="' + (it.sets != null ? it.sets : '') + '">' +
+      '<input class="input" name="reps" placeholder="如 10+8+6" value="' + App.escapeHtml(it.reps != null ? it.reps : '') + '">' +
+      '<input class="input num" type="number" step="0.5" min="0" name="target_weight_kg" value="' + (it.target_weight_kg != null ? it.target_weight_kg : '') + '" placeholder="目标重量">' +
       '<button type="button" class="btn btn-sm btn-danger" title="删除行">✕</button>';
     div.querySelector('button').addEventListener('click', function () { div.remove(); });
     wrap.appendChild(div);
@@ -309,12 +316,17 @@
     Array.prototype.forEach.call(form.querySelectorAll('.plan-form-item'), function (row) {
       const name = row.querySelector('[name=exercise_name]').value.trim();
       if (!name) return;
+      const weightRaw = row.querySelector('[name=weight_kg]').value;
+      const setsRaw = row.querySelector('[name=sets]').value;
+      const repsRaw = row.querySelector('[name=reps]').value.trim();
+      const targetRaw = row.querySelector('[name=target_weight_kg]').value;
       items.push({
         exercise_name: name,
-        body_part: row.querySelector('[name=body_part]').value.trim(),
-        weight_kg: parseFloat(row.querySelector('[name=weight_kg]').value) || 0,
-        sets: parseInt(row.querySelector('[name=sets]').value, 10) || 1,
-        reps: parseInt(row.querySelector('[name=reps]').value, 10) || 1,
+        body_part: row.querySelector('[name=body_part]').value.trim() || null,
+        weight_kg: weightRaw === '' ? null : parseFloat(weightRaw),
+        sets: setsRaw === '' ? null : parseInt(setsRaw, 10),
+        reps: repsRaw === '' ? null : repsRaw,
+        target_weight_kg: targetRaw === '' ? null : parseFloat(targetRaw),
       });
     });
     if (!items.length) { App.toast('至少填写一条动作名称', true); return; }

@@ -1,6 +1,6 @@
 /* 生理周期页 */
 .calendar-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
-.calendar-title { font-size: 16px; font-weight: 600; }
+.calendar-title { font-size: 16px; font-weight: 400; }
 .calendar-sub { font-size: 12.5px; color: var(--color-text-secondary); margin-top: 4px; }
 .cal-nav { display: flex; gap: 8px; align-items: center; }
 
@@ -8,7 +8,7 @@
 .cal-weekday { text-align: center; font-size: 12px; color: var(--color-text-secondary); padding: 4px 0; }
 .cal-day {
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 6px 6px 7px;
   min-height: 64px;
   cursor: pointer;
@@ -17,17 +17,58 @@
 }
 .cal-day:hover { border-color: var(--color-border-strong); }
 .cal-day.selected { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
-.cal-day.today-cell { background: var(--bg-section); }
-.cal-day .cd-num { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; margin-bottom: 3px; }
-.cal-day .cd-phase { font-size: 10.5px; color: var(--color-text-secondary); line-height: 1.4; }
+
+/* 阶段日历格底色（设计稿浅色 tint；today-cell 放在其后仅叠加今日标识不覆盖 tint） */
+.cal-day.phase-menses { background: var(--phase-menses-tint); }
+.cal-day.phase-follicular_pre { background: var(--phase-foll-pre-tint); }
+.cal-day.phase-follicular_post { background: var(--phase-foll-post-tint); }
+.cal-day.phase-ovulation_day { background: var(--phase-ovu-tint); }
+.cal-day.phase-luteal_early { background: var(--phase-luteal-early-tint); }
+.cal-day.phase-luteal_mid { background: var(--phase-luteal-mid-tint); }
+.cal-day.phase-luteal_late { background: var(--phase-luteal-late-tint); }
+.cal-day.today-cell { box-shadow: inset 0 0 0 1.5px var(--color-border-strong); }
+
+.cal-day .cd-num { font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; margin-bottom: 3px; }
+.cal-day .cd-phase { font-size: 10.5px; color: var(--phase-text); line-height: 1.4; }
 .cal-day .cd-sport { font-size: 10px; color: var(--color-text-secondary); line-height: 1.4; }
+
+/* 日历格内阶段文字按阶段着色（设计稿） */
+.cal-day.phase-menses .cd-phase { color: var(--phase-menses); }
+.cal-day.phase-follicular_pre .cd-phase { color: var(--phase-foll-pre); }
+.cal-day.phase-follicular_post .cd-phase { color: var(--phase-foll-post); }
+.cal-day.phase-ovulation_day .cd-phase { color: var(--phase-ovu); }
+.cal-day.phase-luteal_early .cd-phase { color: var(--phase-luteal-early); }
+.cal-day.phase-luteal_mid .cd-phase { color: var(--phase-luteal-mid); }
+.cal-day.phase-luteal_late .cd-phase { color: var(--phase-luteal-late); }
+
+/* 日历格内运动状态：圆点 + 文字（设计稿） */
+.cal-day .cd-sport::before { content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; background: var(--cd-sport-dot, currentColor); }
+.cal-day.sport-high .cd-sport { color: var(--tag-high-fg); --cd-sport-dot: var(--tag-high-dot); }
+.cal-day.sport-good .cd-sport { color: var(--tag-good-fg); --cd-sport-dot: var(--tag-good-dot); }
+.cal-day.sport-rest .cd-sport { color: var(--tag-rest-fg); --cd-sport-dot: var(--tag-rest-dot); }
+
+/* 图例（设计稿两行：阶段浅色块 + 运动圆点） */
+.legend { display: flex; gap: 10px 14px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--color-text-secondary); }
+.legend .legend-block { display: inline-flex; align-items: center; gap: 5px; }
+.legend .swatch { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.legend .sdot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.legend .sw-menses { background: var(--phase-menses-tint); }
+.legend .sw-foll-pre { background: var(--phase-foll-pre-tint); }
+.legend .sw-foll-post { background: var(--phase-foll-post-tint); }
+.legend .sw-ovu { background: var(--phase-ovu-tint); }
+.legend .sw-luteal-early { background: var(--phase-luteal-early-tint); }
+.legend .sw-luteal-mid { background: var(--phase-luteal-mid-tint); }
+.legend .sw-luteal-late { background: var(--phase-luteal-late-tint); }
+.legend .sdot-high { background: var(--tag-high-dot); }
+.legend .sdot-good { background: var(--tag-good-dot); }
+.legend .sdot-rest { background: var(--tag-rest-dot); }
 
 /* 右侧详情 */
 .day-detail .dd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.day-detail .dd-date { font-size: 15px; font-weight: 600; }
+.day-detail .dd-date { font-size: 15px; font-weight: 400; }
 .day-detail .dd-meta { font-size: 12.5px; color: var(--color-text-secondary); margin-top: 3px; }
 .dd-block { margin-top: 14px; }
-.dd-block .dd-title { font-size: 12px; color: var(--color-text-secondary); font-weight: 600; margin-bottom: 5px; }
+.dd-block .dd-title { font-size: 12px; color: var(--color-text-secondary); font-weight: 400; margin-bottom: 5px; }
 .dd-text { font-size: 12.5px; color: var(--color-text); line-height: 1.7; }
 
 .pain-group { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -40,13 +81,13 @@
   color: var(--color-text-secondary);
   cursor: pointer;
 }
-.pain-btn.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 500; }
+.pain-btn.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 400; }
 .pain-btn[data-level="2"], .pain-btn[data-level="3"]:not(.active) { color: var(--state-danger); }
 .pain-note { font-size: 11.5px; color: var(--color-text-secondary); margin-top: 7px; }
 
 .ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 6px; }
 .ov-item .k { font-size: 12px; color: var(--color-text-secondary); }
-.ov-item .v { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.ov-item .v { font-size: 14px; font-weight: 400; font-variant-numeric: tabular-nums; margin-top: 2px; }
 .progress-track { height: 6px; background: var(--bg-section); border-radius: 999px; margin-top: 6px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--color-primary); border-radius: 999px; }
 
@@ -56,5 +97,19 @@
 .phase-table .hormone { color: var(--color-text-secondary); }
 .phase-table .advice { max-width: 380px; white-space: normal; }
 
+/* 响应式：日历格随窗口收敛 */
+@media (max-width: 900px) {
+  .cal-grid { gap: 4px; }
+  .cal-day { min-height: 56px; padding: 5px 4px 6px; }
+  .cal-day .cd-phase { font-size: 9.5px; }
+  .cal-day .cd-sport { font-size: 9px; }
+}
+@media (max-width: 560px) {
+  .cal-day { min-height: 44px; }
+  .cal-day .cd-phase { font-size: 9px; }
+  .cal-day .cd-sport { display: none; }
+  .cal-day .cd-num { font-size: 11px; }
+}
+
 .modal { width: 520px; }
-.next-period-tip { font-size: 13px; font-weight: 600; color: var(--tag-mint-fg); margin-top: 12px; }
+.next-period-tip { font-size: 13px; font-weight: 400; color: var(--tag-mint-fg); margin-top: 12px; }

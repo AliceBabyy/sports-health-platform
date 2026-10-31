@@ -11,5 +11,5 @@
   cursor: pointer;
   background: var(--bg-card);
 }
-.chip.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 500; }
+.chip.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 400; }
 .stars { display: inline-flex; gap: 3px; color: #e0a72b; font-size: 14px; letter-spacing: 1px; }

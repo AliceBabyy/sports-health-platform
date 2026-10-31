@@ -18,7 +18,7 @@
             '<td class="num">' + App.fmtPace(r.pace) + '</td>' +
             '<td class="num">' + (r.avg_heart_rate != null ? r.avg_heart_rate : '—') + '</td>' +
             '<td class="num">' + (r.total_strokes != null ? r.total_strokes : '—') + '</td>' +
-            '<td>' + App.escapeHtml(r.main_stroke_label) + '</td>' +
+            '<td>' + (r.main_stroke_label ? App.escapeHtml(r.main_stroke_label) : '—') + '</td>' +
             '<td class="num">' + (r.laps != null ? r.laps : '—') + '</td>' +
             '<td class="num">' + (r.avg_stroke_rate != null ? r.avg_stroke_rate + ' 次/分' : '—') + '</td>' +
             '<td class="num">' + (r.calories != null ? r.calories : '—') + '</td>' +
@@ -105,7 +105,7 @@
       duration_s: Math.round(parseFloat(form.elements.duration_min.value) * 60),
       avg_heart_rate: form.elements.avg_heart_rate.value !== '' ? parseInt(form.elements.avg_heart_rate.value, 10) : null,
       total_strokes: form.elements.total_strokes.value !== '' ? parseInt(form.elements.total_strokes.value, 10) : null,
-      main_stroke: form.elements.main_stroke.value,
+      main_stroke: form.elements.main_stroke.value || null,
       laps: form.elements.laps.value !== '' ? parseInt(form.elements.laps.value, 10) : null,
       calories: form.elements.calories.value !== '' ? parseFloat(form.elements.calories.value) : null,
     };

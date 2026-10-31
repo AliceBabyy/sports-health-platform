@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "components/stat_card.html" import stat_card %}
+{% block title %}舞蹈记录 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/dance.css">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>舞蹈记录</h1>
+  <div class="page-desc">按课程记录舞种、风格与强度，回看身体对不同舞种的适应。</div>
+  <div class="page-head-actions">
+    <button class="btn btn-primary" id="btnAddDance">＋ 新增记录</button>
+  </div>
+</div>
+
+{% set hours = ((stats.total_duration_s or 0) / 3600) %}
+<div class="stat-grid">
+  {{ stat_card('累计课程', (stats.count|string), '次', '按日期倒序 · 可分页查看') }}
+  {{ stat_card('总时长', ('%.1f'|format(hours)), '小时', (('平均 ' ~ ((stats.avg_duration_s or 0) // 60) ~ ' 分钟/次') if stats.count else '暂无记录')) }}
+  {{ stat_card('平均心率', (stats.avg_heart_rate if stats.avg_heart_rate is not none else '—'), 'bpm', (('最激烈的一场 ' ~ stats.max_heart_rate ~ ' bpm') if stats.max_heart_rate else '暂无记录')) }}
+  {{ stat_card('平均星级', (stats.avg_stars if stats.avg_stars is not none else '—'), '★', ('消耗合计 ' ~ (stats.total_calories|int) ~ ' kcal') if stats.count else '暂无记录') }}
+</div>
+
+<div class="card dance-page">
+  <div class="card-title">全部记录 <span class="sub">按日期倒序 · 星级为当日课程完成度自评</span>
+    <div class="filter-chips" id="danceFilters"></div>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>日期</th><th>舞种</th><th>星级</th><th>舞蹈风格</th><th>运动时长</th><th>平均心率</th><th>最大心率</th><th>总卡路里</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="danceBody"></tbody>
+    </table>
+  </div>
+  <div id="dancePagination"></div>
+</div>
+
+<!-- 新增/编辑舞蹈记录弹窗 -->
+<div class="modal-mask" id="modalDance">
+  <div class="modal">
+    <div class="modal-title" id="modalDanceTitle">新增舞蹈记录</div>
+    <div class="modal-desc">记下这节课的舞种、风格与强度，星级用于自评完成度。</div>
+    <form id="formDance">
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">日期</label><input class="input" type="date" name="record_date" required></div>
+        <div class="form-item"><label class="field-label">舞种</label>
+          <input class="input" name="dance_type" list="danceTypes" placeholder="如 爵士 / 街舞 / 中国舞 / 拉丁 / 芭蕾" required>
+          <datalist id="danceTypes">
+            <option value="爵士"></option><option value="街舞"></option><option value="中国舞"></option><option value="拉丁"></option><option value="芭蕾"></option>
+          </datalist>
+        </div>
+        <div class="form-item"><label class="field-label">舞蹈风格</label><input class="input" name="style" placeholder="如 编舞·力量"></div>
+        <div class="form-item"><label class="field-label">星级自评 (1~5)</label>
+          <select class="select" name="stars">
+            <option value="5">★★★★★</option>
+            <option value="4" selected>★★★★</option>
+            <option value="3">★★★</option>
+            <option value="2">★★</option>
+            <option value="1">★</option>
+          </select>
+        </div>
+        <div class="form-item"><label class="field-label">运动时长 (分钟)</label><input class="input num" type="number" name="duration_min" min="1" step="0.1" required></div>
+        <div class="form-item"><label class="field-label">平均心率 (bpm)</label><input class="input num" type="number" name="avg_heart_rate" min="1"></div>
+        <div class="form-item"><label class="field-label">最大心率 (bpm)</label><input class="input num" type="number" name="max_heart_rate" min="1"></div>
+        <div class="form-item"><label class="field-label">总卡路里 (kcal)</label><input class="input num" type="number" step="0.1" name="calories"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalDance">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="/static/js/dance.js"></script>
+{% endblock %}

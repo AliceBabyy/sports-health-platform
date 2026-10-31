@@ -1,5 +1,27 @@
 [project]
 name = "sports-health-platform"
 version = "0.1.0"
+description = "个人健康管理平台（体序 BODY ALMANAC）V1：SSR 单体应用，FastAPI + Jinja2 + SQLAlchemy + PostgreSQL"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.143.0",
+    "uvicorn[standard]",
+    "jinja2>=3.1",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9.10",
+    "bcrypt>=5.0.0",
+    "itsdangerous>=2.2",
+    "pydantic-settings>=2.3",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[[tool.uv.index]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+[tool.uv]
+package = false

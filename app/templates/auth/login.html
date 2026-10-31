@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}登录 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/login.css">{% endblock %}
+{% block standalone %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-name">体序</div>
+      <div class="logo-en">BODY ALMANAC</div>
+    </div>
+    <h1>个人健康管理平台</h1>
+    <p class="login-desc">登录后管理身材数据、健身训练、游泳、舞蹈与生理周期。</p>
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/login">
+      <label class="field-label">用户名</label>
+      <input class="input" name="username" value="{{ username or '' }}" autocomplete="username" required autofocus>
+      <label class="field-label" style="margin-top:14px">密码</label>
+      <input class="input" type="password" name="password" autocomplete="current-password" required>
+      <button class="btn btn-primary btn-block" type="submit" style="margin-top:22px;width:100%">登 录</button>
+    </form>
+    <div class="login-hint">默认开发账号：admin / admin123（可由 scripts/init_db.py 修改）</div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}健身训练 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>健身训练</h1>
+  <div class="page-desc">日面板看动作与负荷，周面板看节奏；训练记录在计划之上实时校准。</div>
+  <div class="page-head-actions">
+    <div class="seg" id="viewSeg">
+      <button data-view="day" class="active">日</button>
+      <button data-view="week">周</button>
+    </div>
+    <button class="btn" id="btnNewPlan">＋ 新建计划</button>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="three-row-stack">
+    <!-- 日面板 -->
+    <div class="card" id="dayPanel">
+      <div class="day-head">
+        <div>
+          <div class="day-title">今日训练 <span class="tag tag-good" id="statusTag" style="display:none">记录模式</span></div>
+          <div class="day-sub"><span>{{ today.strftime('%m月%d日') }} · {{ weekday_cn }}</span><span id="timerLabel" class="num" style="font-variant-numeric:tabular-nums"></span></div>
+          <div class="day-summary" id="daySummary"></div>
+        </div>
+        <button class="btn btn-primary" id="btnStartRecord" style="display:none">切换为记录模式</button>
+      </div>
+      <div class="table-wrap" id="planWrap" style="margin-top:14px"></div>
+      <div class="day-foot" id="dayFoot" style="display:none">
+        <span class="note">记录模式仅对当日计划开放，保存后计划即转为训练记录（FE-14 弹窗确认后进入）</span>
+        <div style="display:flex;align-items:center;gap:14px">
+          <span>总容量 <b class="vol num" id="volLabel">0</b> kg</span>
+          <button class="btn" id="btnCancelRecord">取消</button>
+          <button class="btn btn-primary" id="btnSaveRecord">保存记录</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 周面板 -->
+    <div class="card" id="weekPanel" style="display:none">
+      <div class="card-title">本周训练 <span class="sub" id="weekRange"></span>
+        <span style="display:flex;gap:6px">
+          <button class="btn btn-sm" id="btnWeekPrev">‹ 上周</button>
+          <button class="btn btn-sm" id="btnWeekNext">下周 ›</button>
+        </span>
+      </div>
+      <div class="week-grid" id="weekGrid"></div>
+    </div>
+
+    <!-- 训练历史 -->
+    <div class="card">
+      <div class="card-title">训练历史 <span class="sub">已保存的训练记录 · 含心得</span></div>
+      <div class="table-wrap history-table">
+        <table class="tbl">
+          <thead><tr><th>日期</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>心得</th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+      <div id="historyPagination"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-title">训练概览 <span class="sub">今日</span></div>
+      <div class="ov-list" id="overviewList"></div>
+    </div>
+    <div class="card cycle-card">
+      <div class="card-title">周期联动 <span class="tag tag-{{ cycle_link.sport_level }}">{{ cycle_link.sport_label }}</span></div>
+      <div style="color:var(--color-text-secondary);font-size:12px;margin-top:2px">今日为{{ cycle_link.phase_label }} · 结合今日生理周期给到的强度建议</div>
+      <div class="cc-advice">{{ cycle_link.advice or '暂无周期数据，按常规强度安排。' }}</div>
+      <div class="cycle-chips">
+        {% for c in cycle_link.chips %}<span class="cycle-chip">{{ c }}</span>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 是否开始训练确认弹窗（FE-14：中部留白，仅底部两按钮居中） -->
+<div class="modal-mask start-modal" id="modalStart">
+  <div class="modal">
+    <div class="modal-title">是否开始训练？</div>
+    <div class="modal-desc">记录模式会把今日计划转为可编辑的训练记录，你可以按实际训练情况调整动作、重量与组数。</div>
+    <div class="modal-actions">
+      <button class="btn" id="btnModeEdit">仅编辑</button>
+      <button class="btn btn-primary" id="btnModeTraining">开始训练</button>
+    </div>
+  </div>
+</div>
+
+<!-- 庆祝弹窗 -->
+<div class="modal-mask celebrate-modal" id="modalCelebrate">
+  <div class="modal">
+    <div class="celebrate-title">恭喜你，又是自律的一天 🎉</div>
+    <div class="celebrate-sub">本次训练已保存，记录可在训练历史中回看。</div>
+    <div class="celebrate-stats">
+      <div class="celebrate-stat"><div class="cs-num num" id="celebrateDuration">—</div><div class="cs-label">本次训练时长</div></div>
+      <div class="celebrate-stat"><div class="cs-num num" id="celebrateItems">—</div><div class="cs-label">本次训练动作</div></div>
+    </div>
+    <div class="celebrate-meta" id="celebrateMeta"></div>
+    <div class="celebrate-ask">是否填写训练心得？</div>
+    <div class="modal-actions">
+      <button class="btn" id="btnNoteLater">取消</button>
+      <button class="btn btn-primary" id="btnNoteConfirm">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 心得表单弹窗 -->
+<div class="modal-mask note-modal" id="modalNote">
+  <div class="modal">
+    <div class="modal-title">填写训练心得</div>
+    <div class="modal-desc">记录当下的训练状态与效果，方便下一次对比调整。</div>
+    <form id="formNote">
+      <label class="field-label">训练状态</label>
+      <textarea class="input" name="status_text" rows="3" placeholder="例如：睡眠7小时，热身充分，深蹲最后一组接近力竭。"></textarea>
+      <div style="margin-top:12px" class="field-label">训练效果理想程度 <span style="font-weight:400">（点击星星评分）</span></div>
+      <div class="star-picker" id="starPicker">
+        <span data-s="1">★</span><span data-s="2">★</span><span data-s="3">★</span><span data-s="4">★</span><span data-s="5">★</span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalNote">稍后再说</button>
+        <button type="submit" class="btn btn-primary">保存心得</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 新建/编辑计划弹窗 -->
+<div class="modal-mask note-modal" id="modalPlan">
+  <div class="modal" style="width:720px">
+    <div class="modal-title" id="modalPlanTitle">新建计划</div>
+    <div class="modal-desc">计划由用户手动创建，暂无自动生成需求（TR-03）。</div>
+    <form id="formPlan">
+      <div style="margin-bottom:12px">
+        <label class="field-label">所属日期</label>
+        <input class="input" type="date" name="plan_date" style="width:200px" required>
+      </div>
+      <div class="plan-form-head" style="font-size:12px;color:var(--color-text-secondary);font-weight:500">
+        <span>动作名称</span><span>部位</span><span>重量 kg</span><span>组数</span><span>每组个数</span><span></span>
+      </div>
+      <div id="planRows"></div>
+      <button type="button" class="btn btn-sm" id="btnAddRow">＋ 添加一行</button>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalPlan">取消</button>
+        <button type="submit" class="btn btn-primary">保存计划</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>window.INIT_PLAN = {{ today_plan | tojson }};
+window.INIT_CAN_RECORD = {{ 'true' if can_record else 'false' }};</script>
+<script src="/static/js/confetti.js"></script>
+<script src="/static/js/training.js"></script>
+{% endblock %}

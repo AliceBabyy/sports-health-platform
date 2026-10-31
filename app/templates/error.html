@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ error_code }} · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/login.css">{% endblock %}
+{% block standalone %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-name">体序</div>
+      <div class="logo-en">BODY ALMANAC</div>
+    </div>
+    <h1>{{ error_code }}</h1>
+    <p class="login-desc">{{ error_message }}</p>
+    <a class="btn btn-primary" href="/" style="margin-top:8px">返回首页</a>
+  </div>
+</div>
+{% endblock %}

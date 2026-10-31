@@ -1,0 +1,8 @@
+/* 游泳记录页 */
+.swim-page .tbl { font-size: 12.5px; }
+.swim-page .tbl td { padding: 8px 8px; }
+.swim-page .modal { width: 560px; }
+.form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px 16px; }
+.form-item { display: flex; flex-direction: column; gap: 5px; }
+.form-item.full { grid-column: 1 / -1; }
+.readonly-note { font-size: 12px; color: var(--color-text-secondary); margin-top: 12px; }

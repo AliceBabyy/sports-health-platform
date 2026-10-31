@@ -1,0 +1,264 @@
+/* 基础样式（FE-01 字体栈 / FE-10 按钮文字居中 / 通用组件） */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-page);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Noto Sans, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 数字读数等宽 */
+.num, .numeral { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+a { color: var(--color-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+
+/* ---------- 按钮（文字一律居中 FE-10） ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg-section); border-color: var(--color-border-strong); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--color-primary-soft); border-color: var(--color-primary-soft); }
+
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-ghost:hover { background: var(--bg-section); }
+
+.btn-danger { color: var(--state-danger); }
+.btn-danger:hover { background: var(--state-danger-bg); }
+
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* ---------- 表单 ---------- */
+label.field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+.input, .select, textarea.input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.input:focus, .select:focus, textarea.input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(27, 36, 52, .08);
+}
+
+/* ---------- 标签（半透明马卡龙） ---------- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  background: var(--tag-gray-bg);
+  color: var(--tag-gray-fg);
+}
+.tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.tag.no-dot::before { display: none; }
+
+.tag-pink   { background: var(--tag-pink-bg);   color: var(--tag-pink-fg); }
+.tag-mint   { background: var(--tag-mint-bg);   color: var(--tag-mint-fg); }
+.tag-gray   { background: var(--tag-gray-bg);   color: var(--tag-gray-fg); }
+.tag-apricot-light { background: var(--tag-apricot-light-bg); color: var(--tag-apricot-light-fg); }
+.tag-apricot-mid   { background: var(--tag-apricot-mid-bg);   color: var(--tag-apricot-mid-fg); }
+.tag-apricot-dark  { background: var(--tag-apricot-dark-bg);  color: var(--tag-apricot-dark-fg); }
+
+.tag-high { background: var(--tag-high-bg); color: var(--tag-high-fg); }
+.tag-good { background: var(--tag-good-bg); color: var(--tag-good-fg); }
+.tag-rest { background: var(--tag-rest-bg); color: var(--tag-rest-fg); }
+
+/* 阶段标签映射 */
+.phase-menstrual { background: var(--tag-pink-bg); color: var(--tag-pink-fg); }
+.phase-follicular_pre, .phase-follicular_post { background: var(--tag-gray-bg); color: var(--tag-gray-fg); }
+.phase-ovulation_day { background: var(--tag-mint-bg); color: var(--tag-mint-fg); }
+.phase-luteal_early { background: var(--tag-apricot-light-bg); color: var(--tag-apricot-light-fg); }
+.phase-luteal_mid { background: var(--tag-apricot-mid-bg); color: var(--tag-apricot-mid-fg); }
+.phase-luteal_late { background: var(--tag-apricot-dark-bg); color: var(--tag-apricot-dark-fg); }
+
+/* ---------- 卡片 ---------- */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 18px 20px;
+}
+.card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.card-title .sub { font-size: 12px; color: var(--color-text-secondary); font-weight: 400; }
+
+/* ---------- 分段控件 ---------- */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--bg-section);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.seg button.active {
+  background: var(--bg-card);
+  color: var(--color-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(27,36,52,.08);
+}
+
+/* ---------- 表格 ---------- */
+.table-wrap { overflow-x: auto; }
+table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.tbl th {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+table.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+table.tbl tbody tr:hover { background: var(--bg-section); }
+
+/* ---------- 弹窗 ---------- */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 36, 52, .38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s;
+}
+.modal-mask.open { opacity: 1; pointer-events: auto; }
+.modal {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  padding: 24px 28px;
+  transform: translateY(8px);
+  transition: transform .18s;
+}
+.modal-mask.open .modal { transform: translateY(0); }
+.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+.modal-desc { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 16px; }
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* 表单网格 */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+.form-item { display: flex; flex-direction: column; gap: 5px; }
+.form-item.full { grid-column: 1 / -1; }
+
+/* ---------- 空态 ---------- */
+.empty-state {
+  padding: 36px 20px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.empty-state .icon { font-size: 26px; margin-bottom: 8px; }
+
+/* ---------- 分页 ---------- */
+.pagination { display: flex; align-items: center; gap: 10px; margin-top: 12px; justify-content: flex-end; font-size: 13px; color: var(--color-text-secondary); }
+.pagination button { min-width: 30px; padding: 4px 8px; }
+.pagination button.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+
+/* ---------- toast ---------- */
+.toast-wrap { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+.toast {
+  background: var(--color-primary);
+  color: #fff;
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: all .2s;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.error { background: var(--state-danger); }
+
+/* ---------- 勾选（FE-11：对勾描边不填充黑） ---------- */
+.checkmark {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--bg-card);
+  transition: all .12s;
+  flex: none;
+}
+.checkmark svg { width: 12px; height: 12px; stroke: var(--tag-mint-fg); stroke-width: 2.4; fill: none; opacity: 0; stroke-dasharray: 16; stroke-dashoffset: 16; transition: all .12s; }
+.checkmark.checked { border-color: var(--tag-mint-fg); background: var(--state-done-row); }
+.checkmark.checked svg { opacity: 1; stroke-dashoffset: 0; }

@@ -1,0 +1,25 @@
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-name">体序</div>
+    <div class="logo-en">BODY ALMANAC</div>
+  </div>
+  <div class="sidebar-section">模块</div>
+  <nav class="sidebar-nav">
+    {% for key, url, label in nav_items %}
+    <a href="{{ url }}" class="{{ 'active' if active == key else '' }}">
+      <span class="nav-ico"></span>{{ label }}
+    </a>
+    {% endfor %}
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="today-card">
+      <div class="d1">今天</div>
+      <div class="d2 num">{{ today_str }}</div>
+      <div class="d3">{{ weekday_cn }} · 周期第{{ cycle_today.cycle_day if cycle_today else '—' }}天</div>
+      {% if cycle_today and cycle_today.sport_level %}
+      <span class="tag tag-{{ cycle_today.sport_level }}">{{ cycle_today.sport_label }}</span>
+      {% endif %}
+    </div>
+    <div class="sidebar-hint">数字键 1-5 切换模块</div>
+  </div>
+</aside>

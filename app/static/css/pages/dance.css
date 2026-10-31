@@ -1,0 +1,15 @@
+/* 舞蹈记录页 */
+.dance-page .tbl td { padding: 8px 9px; }
+.dance-page .modal { width: 580px; }
+.filter-chips { display: flex; gap: 8px; align-items: center; }
+.chip {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  background: var(--bg-card);
+}
+.chip.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 500; }
+.stars { display: inline-flex; gap: 3px; color: #e0a72b; font-size: 14px; letter-spacing: 1px; }

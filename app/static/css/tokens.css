@@ -1,0 +1,54 @@
+/* Design Tokens（需求 8.1，与定稿原型一致） */
+:root {
+  /* 背景 */
+  --bg-page: #fafbfd;          /* 整页背景（冷调浅灰，不带黄） */
+  --bg-section: #f7f9fc;       /* 分区/内嵌块底色 */
+  --bg-card: #ffffff;          /* 卡片底色，配极轻投影 */
+
+  /* 主色 */
+  --color-primary: #1b2434;    /* 按钮背景、标签圆点等深色元素 */
+  --color-primary-soft: #2c3a52;
+  --color-text: #1f2430;
+  --color-text-secondary: #6b7280;
+  --color-border: #e6e9f0;
+  --color-border-strong: #d5dae4;
+
+  /* 状态色 */
+  --state-done-row: #eefaf1;   /* 已勾选（完成）行浅绿底 */
+  --state-danger: #c0392b;
+  --state-danger-bg: #fdf0ee;
+
+  /* 半透明马卡龙标签（8%~10% 透明度叠加；文字保持饱和度，对比度≥4.5:1） */
+  --tag-pink-bg: rgba(236, 112, 145, 0.10);
+  --tag-pink-fg: #c2335f;
+  --tag-mint-bg: rgba(45, 190, 155, 0.12);
+  --tag-mint-fg: #0e8f72;
+  --tag-gray-bg: rgba(120, 130, 145, 0.12);
+  --tag-gray-fg: #5a6472;
+  --tag-apricot-light-bg: rgba(245, 183, 106, 0.14);
+  --tag-apricot-light-fg: #b97a1e;
+  --tag-apricot-mid-bg: rgba(240, 165, 80, 0.16);
+  --tag-apricot-mid-fg: #a86a10;
+  --tag-apricot-dark-bg: rgba(230, 140, 60, 0.16);
+  --tag-apricot-dark-fg: #934f0d;
+
+  /* 运动三档标签 */
+  --tag-high-bg: rgba(224, 93, 56, 0.10);
+  --tag-high-fg: #c8452b;
+  --tag-good-bg: rgba(47, 143, 159, 0.12);
+  --tag-good-fg: #1f7a8c;
+  --tag-rest-bg: rgba(122, 127, 135, 0.12);
+  --tag-rest-fg: #63666d;
+
+  /* 阴影 */
+  --shadow-card: 0 1px 3px rgba(27, 36, 52, 0.04), 0 1px 2px rgba(27, 36, 52, 0.03);
+  --shadow-pop: 0 8px 28px rgba(27, 36, 52, 0.12);
+
+  /* 圆角 */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --radius-lg: 14px;
+
+  /* 布局 */
+  --sidebar-w: 216px;
+}

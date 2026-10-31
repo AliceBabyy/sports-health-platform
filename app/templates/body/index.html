@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% from "components/stat_card.html" import stat_card %}
+{% block title %}身材数据 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/body.css">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>身材数据</h1>
+  <div class="page-desc">身高体重与身材维度的连续记录，按周/月/半年/一年回溯变化趋势。</div>
+  <div class="page-head-actions">
+    <button class="btn btn-primary" id="btnAddRecord">＋ 添加记录</button>
+  </div>
+</div>
+
+{% set w = snapshot.get('weight', {}) %}
+{% set h = snapshot.get('height', {}) %}
+{% set bf = snapshot.get('body_fat', {}) %}
+<div class="stat-grid">
+  {{ stat_card('当前体重', w.value, 'kg',
+      ('较上次记录 ' + ('下降' if w.delta is not none and w.delta < 0 else '上升' if w.delta is not none and w.delta > 0 else '持平') + ' ' + (w.delta|abs|round(1)|string if w.delta is not none else '—') + ' kg') if w.value is not none else '暂无记录',
+      delta=(('↓' if w.delta is not none and w.delta < 0 else '↑' if w.delta is not none and w.delta > 0 else '—') + (w.delta|round(1)|string if w.delta is not none else '—')),
+      delta_dir=('down' if w.delta is not none and w.delta < 0 else 'up' if w.delta is not none and w.delta > 0 else 'flat')) }}
+  {{ stat_card('身高', h.value, 'cm', '固定参考 · 最近记录 ' + (h.record_date or '—')) }}
+  {{ stat_card('BMI', snapshot.bmi, '', (('健康区间 18.5~23.9 · ' + snapshot.bmi_state) if snapshot.bmi_state else '暂无体重或身高数据'), delta=None) }}
+  {{ stat_card('体脂率', bf.value, '%',
+      ('较上次记录 ' + ('下降' if bf.delta is not none and bf.delta < 0 else '上升' if bf.delta is not none and bf.delta > 0 else '持平') + ' ' + (bf.delta|abs|round(1)|string if bf.delta is not none else '—') + ' %') if bf.value is not none else '暂无记录',
+      delta=(('↓' if bf.delta is not none and bf.delta < 0 else '↑' if bf.delta is not none and bf.delta > 0 else '—') + (bf.delta|round(1)|string if bf.delta is not none else '—')),
+      delta_dir=('down' if bf.delta is not none and bf.delta < 0 else 'up' if bf.delta is not none and bf.delta > 0 else 'flat')) }}
+</div>
+
+<div class="two-col">
+  <div class="card chart-card">
+    <div class="card-title">趋势折线 <span class="sub">四档口径 · 无记录点断线不插值</span></div>
+    <div class="chart-toolbar">
+      <div class="seg" id="metricSeg">
+        <button data-metric="weight" class="active">体重</button>
+        <button data-metric="body_fat">体脂</button>
+        <button data-metric="waist">腰围</button>
+      </div>
+      <div class="seg" id="rangeSeg">
+        <button data-range="week">周</button>
+        <button data-range="month" class="active">月</button>
+        <button data-range="half_year">半年</button>
+        <button data-range="year">一年</button>
+      </div>
+    </div>
+    <div id="trendChart" style="height: 300px; width: 100%"></div>
+    <div class="chart-legend">
+      <span>当前 <b class="num" id="lgCurrent">—</b></span>
+      <span>区间均值 <b class="num" id="lgAvg">—</b></span>
+      <span>有记录 <b class="num" id="lgCount">—</b> 个点</span>
+    </div>
+  </div>
+
+  <div class="card silhouette-card">
+    <div class="card-title">身材维度 <span class="sub">最近记录 {{ snapshot.chest.record_date or '—' }}</span></div>
+    <div class="silhouette-body">
+      <svg viewBox="0 0 300 430" width="260" height="373" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <defs>
+          <linearGradient id="bodyFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#eef1f6"/><stop offset="1" stop-color="#e2e7ef"/>
+          </linearGradient>
+        </defs>
+        <!-- 人体剪影 -->
+        <path d="M150 22 a26 26 0 1 0 0.001 0.001 z" fill="url(#bodyFill)" stroke="#c9d1dd" stroke-width="1.5"/>
+        <path d="M150 46 L134 60 Q128 66 128 74 L124 66 L112 60 L118 88
+                 Q116 96 110 108 L96 128 Q92 140 96 148 Q100 156 108 150 L116 136
+                 Q112 152 112 168 L118 176 L124 170
+                 M150 46 L166 60 Q172 66 172 74 L176 66 L188 60 L182 88
+                 Q184 96 190 108 L204 128 Q208 140 204 148 Q200 156 192 150 L184 136
+                 Q188 152 188 168 L182 176 L176 170
+                 M124 170 L120 250 Q120 268 134 272 L138 272
+                 M176 170 L180 250 Q180 268 166 272 L162 272
+                 M134 272 Q150 280 166 272 L172 330 Q172 344 162 344 L150 338 L138 344 Q128 344 128 330 Z
+                 M128 344 Q126 390 122 420 L140 420 L146 370 L150 366 L154 370 L160 420 L178 420 Q174 390 172 344"
+              fill="url(#bodyFill)" stroke="#c9d1dd" stroke-width="1.5" stroke-linejoin="round"/>
+        <!-- 标注点与引线 -->
+        {% for item in [
+          ('chest', '胸围', 150, 112, 74, 108),
+          ('arm', '手臂围', 96, 140, 226, 132),
+          ('waist', '腰围', 150, 172, 74, 168),
+          ('hip', '臀围', 150, 226, 74, 226),
+          ('thigh', '大腿围', 130, 300, 226, 300),
+        ] %}
+        {% set key = item[0] %}
+        {% set val = snapshot.get(key, {}) %}
+        <circle cx="{{ item[2] }}" cy="{{ item[3] }}" r="4" fill="#1b2434"/>
+        <line x1="{{ item[2] }}" y1="{{ item[3] }}" x2="{{ item[4] }}" y2="{{ item[5] }}" stroke="#9aa4b2" stroke-width="1.2"/>
+        {% if key == 'arm' or key == 'thigh' %}
+        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="600">{{ item[1] }}</text>
+        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="700" class="num">{{ val.value if val.value is not none else '—' }}</text>
+        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 32 }}" font-size="10.5" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
+        {% else %}
+        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="600" text-anchor="end">{{ item[1] }}</text>
+        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="700" class="num" text-anchor="end">{{ val.value if val.value is not none else '—' }}</text>
+        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 32 }}" font-size="10.5" text-anchor="end" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
+        {% endif %}
+        {% endfor %}
+        <!-- 身高标注 -->
+        <line x1="98" y1="38" x2="48" y2="30" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="3 3"/>
+        <text x="42" y="28" font-size="11" fill="#1f2430" font-weight="600" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
+      </svg>
+    </div>
+    <div class="silhouette-foot">
+      <span>引线标注当前维度 · 数值旁为与上次记录的差值</span>
+      <span>目标参考线待设定（BD-13 可后置）</span>
+    </div>
+  </div>
+</div>
+
+<div class="card records-card">
+  <div class="card-title">全部记录 <span class="sub">共 <b class="num" id="recTotal">0</b> 条 · 单位 cm / kg / %</span></div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>日期</th><th>体重</th><th>体脂率</th><th>胸围</th><th>腰围</th><th>臀围</th><th>大腿围</th><th>手臂围</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="recBody"></tbody>
+    </table>
+  </div>
+  <div id="recPagination"></div>
+</div>
+
+<!-- 添加/编辑身材记录弹窗 -->
+<div class="modal-mask" id="modalBodyRecord">
+  <div class="modal">
+    <div class="modal-title" id="modalBodyTitle">添加身材记录</div>
+    <div class="modal-desc">一次记录可同时更新体重、体脂与五项围度，留空的项沿用最近一次数据。</div>
+    <form id="formBodyRecord">
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
+        <div class="form-item"><label class="field-label">体重 (kg)</label><input class="input num" type="number" step="0.1" name="weight" placeholder="留空沿用最近值"></div>
+        <div class="form-item"><label class="field-label">体脂率 (%)</label><input class="input num" type="number" step="0.1" name="body_fat" placeholder="留空沿用最近值"></div>
+        <div class="form-item"><label class="field-label">胸围 (cm)</label><input class="input num" type="number" step="0.1" name="chest" placeholder="留空沿用最近值"></div>
+        <div class="form-item"><label class="field-label">腰围 (cm)</label><input class="input num" type="number" step="0.1" name="waist" placeholder="留空沿用最近值"></div>
+        <div class="form-item"><label class="field-label">臀围 (cm)</label><input class="input num" type="number" step="0.1" name="hip" placeholder="留空沿用最近值"></div>
+        <div class="form-item"><label class="field-label">大腿围 (cm)</label><input class="input num" type="number" step="0.1" name="thigh" placeholder="留空沿用最近值"></div>
+        <div class="form-item"><label class="field-label">手臂围 (cm)</label><input class="input num" type="number" step="0.1" name="arm" placeholder="留空沿用最近值"></div>
+      </div>
+      <div class="modal-note">数据仅用于趋势分析；同日同指标重复保存将覆盖为最后一条（BD-02）。</div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalBodyRecord">取消</button>
+        <button type="submit" class="btn btn-primary">保存记录</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>window.INIT_TREND = {{ initial_trend | tojson }};</script>
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/js/body.js"></script>
+{% endblock %}

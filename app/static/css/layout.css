@@ -1,0 +1,106 @@
+/* 应用外壳布局：左侧固定导航 + 顶栏 + 内容区（FE-16） */
+.app-shell { display: flex; min-height: 100vh; }
+
+/* ---------- 侧边栏 ---------- */
+.sidebar {
+  width: var(--sidebar-w);
+  flex: none;
+  background: var(--bg-card);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+}
+.sidebar-logo { padding: 22px 20px 14px; }
+.sidebar-logo .logo-name { font-size: 17px; font-weight: 700; color: var(--color-primary); letter-spacing: .5px; }
+.sidebar-logo .logo-en { font-size: 10.5px; color: var(--color-text-secondary); letter-spacing: 1.5px; margin-top: 2px; }
+
+.sidebar-section { padding: 14px 20px 6px; font-size: 11.5px; color: var(--color-text-secondary); letter-spacing: .5px; }
+
+.sidebar-nav { padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: 13.5px;
+  text-decoration: none;
+}
+.sidebar-nav a:hover { background: var(--bg-section); text-decoration: none; }
+.sidebar-nav a.active { background: var(--bg-section); font-weight: 600; color: var(--color-primary); }
+.sidebar-nav a .nav-ico { width: 16px; height: 16px; border-radius: 5px; background: var(--color-border); flex: none; }
+
+.sidebar-bottom { margin-top: auto; padding: 16px 14px; }
+.today-card {
+  background: var(--bg-section);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.today-card .d1 { font-size: 11px; color: var(--color-text-secondary); }
+.today-card .d2 { font-size: 16px; font-weight: 600; margin: 2px 0; }
+.today-card .d3 { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 6px; }
+.sidebar-hint { margin-top: 10px; font-size: 11px; color: var(--color-text-secondary); text-align: center; }
+
+/* ---------- 主区 ---------- */
+.main { flex: 1; margin-left: var(--sidebar-w); display: flex; flex-direction: column; min-width: 0; }
+
+.topbar {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.topbar .breadcrumb { font-size: 13px; color: var(--color-text-secondary); }
+.topbar .breadcrumb b { color: var(--color-text); font-weight: 500; }
+.topbar-right { display: flex; align-items: center; gap: 14px; font-size: 13px; }
+.topbar-date { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.user-chip { display: inline-flex; align-items: center; gap: 7px; }
+.user-avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--color-primary); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+}
+.topbar .logout { color: var(--color-text-secondary); font-size: 12.5px; }
+.topbar .logout:hover { color: var(--state-danger); text-decoration: none; }
+
+.content { padding: 26px 28px 40px; max-width: 1280px; width: 100%; }
+
+.page-head { margin-bottom: 20px; }
+.page-head h1 { font-size: 21px; font-weight: 700; }
+.page-head .page-desc { margin-top: 5px; color: var(--color-text-secondary); font-size: 13px; }
+.page-head-actions { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+
+/* 汇总卡网格 */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.stat-card { background: var(--bg-card); border: 1px solid var(--color-border); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 16px 18px; }
+.stat-card .label { font-size: 12.5px; color: var(--color-text-secondary); }
+.stat-card .value { font-size: 24px; font-weight: 700; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.stat-card .value small { font-size: 13px; font-weight: 500; color: var(--color-text-secondary); }
+.stat-card .sub { font-size: 12px; color: var(--color-text-secondary); }
+.stat-card .delta { font-size: 12px; font-weight: 500; }
+.delta-up { color: var(--state-danger); }
+.delta-down { color: var(--tag-mint-fg); }
+.delta-flat { color: var(--color-text-secondary); }
+
+/* 双栏布局 */
+.two-col { display: grid; grid-template-columns: 1fr 380px; gap: 18px; align-items: start; }
+.three-row-stack { display: flex; flex-direction: column; gap: 18px; }
+
+@media (max-width: 1100px) {
+  .two-col { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}

@@ -1,0 +1,10 @@
+{% macro stat_card(label, value, unit='', sub='', delta=None, delta_dir=None) -%}
+<div class="stat-card">
+  <div class="label">{{ label }}</div>
+  <div class="value num">{{ value if value is not none else '—' }}{% if unit %}<small>{{ unit }}</small>{% endif %}</div>
+  <div class="sub">{{ sub }}</div>
+  {% if delta is not none %}
+  <div class="delta delta-{{ delta_dir if delta_dir else 'flat' }}">{{ delta }}</div>
+  {% endif %}
+</div>
+{%- endmacro %}

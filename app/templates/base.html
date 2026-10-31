@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}体序 · BODY ALMANAC{% endblock %}</title>
+<link rel="icon" href="/static/img/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/layout.css">
+{% block extra_css %}{% endblock %}
+</head>
+<body>
+{% if user is defined and user %}
+<div class="app-shell">
+  {% include "layout/sidebar.html" %}
+  <div class="main">
+    {% include "layout/topbar.html" %}
+    <main class="content">{% block content %}{% endblock %}</main>
+  </div>
+</div>
+{% else %}
+{% block standalone %}{% endblock %}
+{% endif %}
+<div class="toast-wrap" id="toastWrap"></div>
+<script src="/static/js/common.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

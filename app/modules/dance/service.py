@@ -8,6 +8,8 @@ def to_dict(row: DanceRecord) -> dict:
     return {
         "id": row.id,
         "record_date": row.record_date.isoformat(),
+        "status": row.status,
+        "remark": row.remark,
         "dance_type": row.dance_type,
         "stars": row.stars,
         "style": row.style,
@@ -25,6 +27,16 @@ def list_records(db: Session, user_id: int, page: int = 1, page_size: int = 10, 
     if dance_type:
         q = q.filter(DanceRecord.dance_type == dance_type)
     return paginate(q, page, page_size, order_by=DanceRecord.record_date.desc())
+
+
+def get_by_date(db: Session, user_id: int, record_date) -> list[DanceRecord]:
+    """某日全部行（计划 + 记录，按 id 升序）。"""
+    return (
+        db.query(DanceRecord)
+        .filter(DanceRecord.user_id == user_id, DanceRecord.record_date == record_date)
+        .order_by(DanceRecord.id)
+        .all()
+    )
 
 
 def create_record(db: Session, user_id: int, data) -> DanceRecord:
@@ -56,28 +68,33 @@ def delete_record(db: Session, user_id: int, record_id: int) -> bool:
 
 
 def stats(db: Session, user_id: int) -> dict:
-    """顶部汇总：累计课程/总时长/平均时长/平均心率/最激烈心率/平均星级/总卡路里/舞种分布。"""
-    rows = db.query(DanceRecord).filter(DanceRecord.user_id == user_id).all()
+    """顶部汇总：累计课程/总时长/平均时长/平均心率/最激烈心率/平均星级/总卡路里/舞种分布（仅统计记录态）。"""
+    rows = (
+        db.query(DanceRecord)
+        .filter(DanceRecord.user_id == user_id, DanceRecord.status == "recorded")
+        .all()
+    )
     count = len(rows)
     if not count:
         return {
             "count": 0, "total_duration_s": 0, "avg_duration_s": 0, "avg_heart_rate": None,
             "max_heart_rate": None, "avg_stars": None, "total_calories": 0.0, "dance_types": [],
         }
-    total_duration = sum(r.duration_s for r in rows)
+    total_duration = sum(r.duration_s for r in rows if r.duration_s)
     rates = [r.avg_heart_rate for r in rows if r.avg_heart_rate]
     max_rates = [r.max_heart_rate for r in rows if r.max_heart_rate]
     calories = [float(r.calories) for r in rows if r.calories is not None]
     type_count: dict[str, int] = {}
     for r in rows:
-        type_count[r.dance_type] = type_count.get(r.dance_type, 0) + 1
+        if r.dance_type:
+            type_count[r.dance_type] = type_count.get(r.dance_type, 0) + 1
     return {
         "count": count,
         "total_duration_s": total_duration,
         "avg_duration_s": round(total_duration / count),
         "avg_heart_rate": round(sum(rates) / len(rates)) if rates else None,
         "max_heart_rate": max(max_rates) if max_rates else None,
-        "avg_stars": round(sum(r.stars for r in rows) / count, 1),
+        "avg_stars": round(sum(r.stars for r in rows if r.stars) / count, 1),
         "total_calories": round(sum(calories), 1) if calories else 0.0,
         "dance_types": sorted(type_count.items(), key=lambda x: -x[1]),
     }

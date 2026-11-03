@@ -47,6 +47,10 @@ from app.modules.dance.router_pages import router as dance_pages
 from app.modules.dance.router_api import router as dance_api
 from app.modules.cycle.router_pages import router as cycle_pages
 from app.modules.cycle.router_api import router as cycle_api
+from app.modules.profile.router_pages import router as profile_pages
+from app.modules.profile.router_api import router as profile_api
+from app.modules.overview.router_pages import router as overview_pages
+from app.modules.overview.router_api import router as overview_api
 
 _include(auth_pages)
 _include(auth_api)
@@ -60,6 +64,10 @@ _include(dance_pages)
 _include(dance_api)
 _include(cycle_pages)
 _include(cycle_api)
+_include(profile_pages)
+_include(profile_api)
+_include(overview_pages)
+_include(overview_api)
 
 
 @app.get("/", include_in_schema=False)
@@ -72,4 +80,4 @@ def root(request: Request):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="127.0.0.1", port=settings.port, reload=False)
+    uvicorn.run("main:app", host=settings.host, port=settings.port, reload=False)

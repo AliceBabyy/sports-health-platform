@@ -1,5 +1,6 @@
-"""生理周期页面路由：GET /cycle。"""
+"""生理周期页面路由：GET /cycle（男性账号重定向回身材页）。"""
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.constants import PHASE_INFO, PHASE_LABELS, SPORT_LABELS
@@ -18,6 +19,8 @@ def cycle_page(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if user.gender == "男":
+        return RedirectResponse("/body", status_code=303)
     today = request.app.state.today
     calendar_data = service.calendar_month(db, user.id, today.year, today.month)
     return render_page(

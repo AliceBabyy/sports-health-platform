@@ -7,12 +7,12 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     SmallInteger,
     String,
     Text,
-    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -21,13 +21,15 @@ from database import Base
 
 
 class TrainingPlan(Base):
+    """训练计划/记录主表：一日可多个计划（TR-03 整改，按 id 区分，无 (user_id, plan_date) 唯一约束）。"""
     __tablename__ = "training_plans"
-    __table_args__ = (UniqueConstraint("user_id", "plan_date", name="uq_training_plan_user_date"),)
+    __table_args__ = (Index("ix_training_plans_user_date", "user_id", "plan_date"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     plan_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="planned")  # planned | recorded
+    remark: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 备注（计划/记录均可填）
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 开始训练时刻（仅计时路径）
     saved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 保存记录时刻
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

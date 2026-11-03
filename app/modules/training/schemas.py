@@ -1,4 +1,5 @@
 """健身训练 schemas。"""
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -16,6 +17,11 @@ class PlanItemIn(BaseModel):
 
 class PlanSaveIn(BaseModel):
     items: list[PlanItemIn] = Field(default_factory=list)
+    remark: str | None = Field(default=None, max_length=255)  # 备注（计划/记录均可填）
+
+
+class PlanCreateIn(PlanSaveIn):
+    plan_date: date
 
 
 class StartIn(BaseModel):
@@ -25,3 +31,7 @@ class StartIn(BaseModel):
 class NoteIn(BaseModel):
     status_text: str | None = Field(default=None, max_length=2000)  # 心得文本可空
     rating: int | None = Field(default=None, ge=1, le=5)
+
+
+class BatchDeleteIn(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)

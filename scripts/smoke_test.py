@@ -1,4 +1,4 @@
-"""冒烟测试：登录 + 五模块页面 + 核心 /api 主链路。
+"""冒烟测试：登录 + 七模块页面（含运动总览）+ 核心 /api 主链路（含个人信息资料/密码）。
 
 前置：服务已启动（uvicorn main:app --port 8010）。
 用法：python scripts/smoke_test.py [base_url]  默认 http://127.0.0.1:8010
@@ -69,13 +69,15 @@ def main() -> None:
         login_code, login_loc = e.code, e.headers.get("Location", "")
     check("POST /login 登录成功并跳转", login_code == 303 and login_loc == "/body", f"code={login_code} loc={login_loc}")
 
-    print("== 五模块页面 ==")
+    print("== 七模块页面 ==")
     for path, marker in [
         ("/body", "身材数据"),
+        ("/overview", 'id="ovModeSeg"'),   # 运动训练/计划 总览（侧边栏文本会误匹配，改用专属 id）
         ("/training", "健身训练"),
         ("/swim", "游泳记录"),
         ("/dance", "舞蹈记录"),
         ("/cycle", "生理周期"),
+        ("/profile", "个人信息"),
     ]:
         code, html = req("GET", path)
         check(f"GET {path} 200 且含页面标记", code == 200 and marker in html, f"code={code}")
@@ -113,6 +115,47 @@ def main() -> None:
         reg_body_page = e.code
     check("注册用户会话可直接访问 /body", reg_body_page == 200, f"code={reg_body_page}")
 
+    print("== 个人信息（新注册用户，可随意改） ==")
+
+    def reg_req(method: str, path: str, body=None) -> tuple[int, str]:
+        data = json.dumps(body).encode() if body is not None else None
+        h = {"Content-Type": "application/json"}
+        r = urllib.request.Request(BASE + path, data=data, method=method, headers=h)
+        try:
+            with reg_opener.open(r, timeout=15) as resp:
+                return resp.status, resp.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "replace")
+        except Exception as e:  # noqa: BLE001
+            return -1, str(e)
+
+    code, text = reg_req("GET", "/profile")
+    check("GET /profile 页面可访问", code == 200 and "个人信息" in text, f"code={code}")
+    code, text = reg_req("POST", "/api/profile", {"display_name": "冒烟改昵称", "gender": "男", "age": "30"})
+    ok = code == 200
+    if ok:
+        try:
+            ok = json.loads(text).get("display_name") == "冒烟改昵称"
+        except Exception:  # noqa: BLE001
+            ok = False
+    check("POST /api/profile 更新资料（昵称/性别/年龄）", ok, f"code={code} text={text[:200]}")
+    code, text = reg_req("POST", "/api/profile", {"display_name": "  ", "gender": "女", "age": "28"})
+    check("POST /api/profile 拒绝空昵称", code == 400, f"code={code}")
+    code, text = reg_req("POST", "/api/profile", {"display_name": "冒烟", "gender": "女", "age": "200"})
+    check("POST /api/profile 拒绝越界年龄", code == 400, f"code={code}")
+    code, text = reg_req("POST", "/api/profile/password", {
+        "current_password": "wrongpass", "new_password": "newpass123", "confirm_password": "newpass123",
+    })
+    check("POST /api/profile/password 拒绝错误当前密码", code == 400, f"code={code}")
+    code, text = reg_req("POST", "/api/profile/password", {
+        "current_password": "pass1234", "new_password": "newpass123", "confirm_password": "newpass123",
+    })
+    check("POST /api/profile/password 修改密码成功", code == 200, f"code={code}")
+    code, text = reg_req("POST", "/api/profile/password", {
+        "current_password": "pass1234", "new_password": "newpass456", "confirm_password": "newpass456",
+    })
+    check("POST /api/profile/password 旧密码失效后拒绝", code == 400, f"code={code}")
+
     print("== 核心 API ==")
     code, text = req("GET", "/api/body-metrics/latest")
     ok = code == 200 and "bmi" in text
@@ -131,8 +174,17 @@ def main() -> None:
     code, _ = req("GET", "/api/cycle/calendar?month=" + today[:7])
     check("GET /api/cycle/calendar", code == 200, f"code={code}")
 
-    code, text = req("GET", "/api/training/plans/" + today)
-    check("GET /api/training/plans/{date}", code == 200, f"code={code}")
+    code, text = req("GET", "/api/training/plans?plan_date=" + today)
+    check("GET /api/training/plans?plan_date=", code == 200, f"code={code}")
+
+    code, text = req("GET", "/api/overview?granularity=week&date=" + today)
+    ok = code == 200 and "days" in text and "stats" in text
+    check("GET /api/overview(周聚合)", ok, f"code={code}")
+    code, text = req("GET", "/api/overview?granularity=month&date=" + today)
+    check("GET /api/overview(月聚合)", code == 200, f"code={code}")
+    code, text = req("GET", "/api/overview/day?date=" + today)
+    ok = code == 200 and "fitness" in text and "swim" in text and "dance" in text
+    check("GET /api/overview/day(单日详情)", ok, f"code={code}")
 
     print("== 写链路（临时数据，测后即删） ==")
     # 4 表拆分：分 4 组写入（昨日基础只填体重 → 今日身高应继承昨日体重所在行的身高？不，
@@ -194,53 +246,115 @@ def main() -> None:
     code, _ = req("GET", "/api/body-metrics/trend?metric=target_weight&range=month")
     check("GET /api/body-metrics/trend 拒绝目标值", code == 400, f"code={code}")
 
-    code, text = req("POST", "/api/training/plans/" + today, {
+    # 训练：id 维度 CRUD / 一日多计划 / 批量删除（2026-11 整改）
+    code, text = req("POST", "/api/training/plans", {
+        "plan_date": today,
         "items": [
             {"exercise_name": "深蹲", "body_part": None, "weight_kg": None, "sets": None, "reps": None,
              "target_weight_kg": 65.0, "checked": False},
             {"exercise_name": "卧推", "body_part": "胸", "weight_kg": 40.0, "sets": 3, "reps": "10+8+6",
              "target_weight_kg": None, "checked": False},
-        ]
+        ],
     })
-    check("POST /api/training/plans 计划（可空字段+reps字符串）", code == 200, f"code={code}")
-    code, text = req("GET", "/api/training/plans/" + today)
+    check("POST /api/training/plans 新建计划（可空字段+reps字符串）", code == 200, f"code={code}")
+    plan_id = json.loads(text).get("plan", {}).get("id") if code == 200 else None
+
+    code2, text2 = req("POST", "/api/training/plans", {
+        "plan_date": today,
+        "items": [
+            {"exercise_name": "硬拉", "body_part": "腿", "weight_kg": 100.0, "sets": 3, "reps": "5",
+             "target_weight_kg": None, "checked": False},
+        ],
+    })
+    plan_id2 = json.loads(text2).get("plan", {}).get("id") if code2 == 200 else None
+    check("POST /api/training/plans 同日可建第二个计划（一日多计划）",
+          code2 == 200 and plan_id2 is not None and plan_id2 != plan_id, f"code={code2}")
+
+    code, text = req("GET", "/api/training/plans?plan_date=" + today)
     item_reps_ok = False
     body_part_null_ok = False
+    list_count_ok = False
     try:
         payload = json.loads(text)
-        items = (payload.get("plan") or {}).get("items") or []
-        for it in items:
-            if it.get("exercise_name") == "卧推" and it.get("reps") == "10+8+6":
-                item_reps_ok = True
-            if it.get("exercise_name") == "深蹲" and it.get("body_part") is None and it.get("weight_kg") is None:
-                body_part_null_ok = True
+        plans = payload.get("plans") or []
+        list_count_ok = len(plans) >= 2
+        for p in plans:
+            for it in p.get("items") or []:
+                if it.get("exercise_name") == "卧推" and it.get("reps") == "10+8+6":
+                    item_reps_ok = True
+                if it.get("exercise_name") == "深蹲" and it.get("body_part") is None and it.get("weight_kg") is None:
+                    body_part_null_ok = True
     except Exception:  # noqa: BLE001
         pass
-    check("GET /api/training/plans reps 原样返回且可空字段为 null", code == 200 and item_reps_ok and body_part_null_ok, f"code={code}")
-    code, _ = req("DELETE", "/api/training/plans/" + today)
-    check("DELETE /api/training/plans", code == 200, f"code={code}")
+    check("GET /api/training/plans?plan_date= 按日返回多计划且 reps 原样返回、可空字段为 null",
+          code == 200 and list_count_ok and item_reps_ok and body_part_null_ok, f"code={code}")
+
+    code, _ = req("DELETE", f"/api/training/plans/{plan_id2}")
+    check("DELETE /api/training/plans/{id} 单个删除", code == 200, f"code={code}")
+
+    code, text = req("POST", "/api/training/plans/batch-delete", {"ids": [plan_id]})
+    batch_ok = False
+    try:
+        payload = json.loads(text)
+        batch_ok = code == 200 and payload.get("deleted") == [plan_id]
+    except Exception:  # noqa: BLE001
+        pass
+    check("POST /api/training/plans/batch-delete 批量删除", batch_ok, f"code={code}")
 
     code, text = req("POST", "/api/swim-records", {
         "record_date": today, "distance_m": 500, "duration_s": 660,
         "avg_heart_rate": 130, "total_strokes": 300, "main_stroke": "freestyle", "laps": 10, "calories": 200,
     })
-    check("POST /api/swim-records", code == 200, f"code={code}")
+    check("POST /api/swim-records(记录态)", code == 200, f"code={code}")
     swim_id = json.loads(text).get("id") if code == 200 else None
+
+    code, text = req("POST", "/api/swim-records", {
+        "record_date": today, "status": "planned", "distance_m": 1000, "duration_s": 1800,
+        "main_stroke": "freestyle", "remark": "冒烟游泳计划",
+    })
+    check("POST /api/swim-records(计划态)", code == 200, f"code={code}")
+    swim_plan_id = json.loads(text).get("id") if code == 200 else None
+    code, text = req("GET", "/api/swim-records/daily?date=" + today)
+    planned_in_daily = False
+    try:
+        planned_in_daily = any(r.get("status") == "planned" for r in json.loads(text).get("list", []))
+    except Exception:  # noqa: BLE001
+        pass
+    check("GET /api/swim-records/daily(当日计划+记录)", code == 200 and planned_in_daily, f"code={code}")
 
     code, text = req("POST", "/api/dance-records", {
         "record_date": today, "dance_type": "爵士", "stars": 4, "style": "测试",
         "duration_s": 600, "avg_heart_rate": 120, "max_heart_rate": 150, "calories": 300,
     })
-    check("POST /api/dance-records", code == 200, f"code={code}")
+    check("POST /api/dance-records(记录态)", code == 200, f"code={code}")
     dance_id = json.loads(text).get("id") if code == 200 else None
+
+    code, text = req("POST", "/api/dance-records", {
+        "record_date": today, "status": "planned", "dance_type": "爵士", "stars": 4, "remark": "冒烟舞蹈计划",
+    })
+    check("POST /api/dance-records(计划态)", code == 200, f"code={code}")
+    dance_plan_id = json.loads(text).get("id") if code == 200 else None
+    code, text = req("GET", "/api/dance-records/daily?date=" + today)
+    planned_in_daily = False
+    try:
+        planned_in_daily = any(r.get("status") == "planned" for r in json.loads(text).get("list", []))
+    except Exception:  # noqa: BLE001
+        pass
+    check("GET /api/dance-records/daily(当日计划+记录)", code == 200 and planned_in_daily, f"code={code}")
 
     # 清理
     if swim_id:
         code, _ = req("DELETE", f"/api/swim-records/{swim_id}")
         check("DELETE /api/swim-records", code == 200, f"code={code}")
+    if swim_plan_id:
+        code, _ = req("DELETE", f"/api/swim-records/{swim_plan_id}")
+        check("DELETE /api/swim-records(计划态)", code == 200, f"code={code}")
     if dance_id:
         code, _ = req("DELETE", f"/api/dance-records/{dance_id}")
         check("DELETE /api/dance-records", code == 200, f"code={code}")
+    if dance_plan_id:
+        code, _ = req("DELETE", f"/api/dance-records/{dance_plan_id}")
+        check("DELETE /api/dance-records(计划态)", code == 200, f"code={code}")
     code, _ = req("DELETE", "/api/body-metrics?record_date=" + today)
     check("DELETE /api/body-metrics(按日)", code == 200, f"code={code}")
     code, _ = req("DELETE", "/api/body-metrics?record_date=" + day1)

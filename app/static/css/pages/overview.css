@@ -1,0 +1,131 @@
+/* 运动训练/计划 总览页（2026-11）：日/周/月三视图 + 单日详情弹窗 */
+.ov-date { font-size: 12.5px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.ov-view { margin-top: 4px; }
+
+.ov-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+
+/* 日视图：三运动卡片 */
+.ov-sport-card { display: flex; flex-direction: column; }
+.ov-sport-card .osc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.osc-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.osc-dot.fit { background: var(--ov-fit); }
+.osc-dot.swim { background: var(--ov-swim); }
+.osc-dot.dance { background: var(--ov-dance); }
+.osc-title { font-size: 15px; font-weight: 400; }
+.osc-count { margin-left: auto; font-size: 12px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.osc-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.osc-item {
+  padding: 8px 10px;
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: box-shadow .12s;
+  background: var(--bg-card);
+}
+.osc-item:hover { box-shadow: inset 0 0 0 0.667px var(--color-border-strong); }
+.osc-item .oi-title { color: var(--color-text); }
+.osc-item .oi-meta { font-size: 11.5px; color: var(--color-text-secondary); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.osc-foot { margin-top: 10px; }
+.osc-empty { padding: 14px 0; font-size: 12.5px; color: var(--color-text-secondary); }
+
+/* 周视图：每日条带 */
+.week-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.ws-day {
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 8px;
+  background: var(--bg-card);
+  min-width: 0;
+}
+.ws-day.is-today { box-shadow: inset 0 0 0 1.5px var(--color-border-strong); }
+.ws-day .wd-top { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
+.ws-day .wd-num { font-size: 16px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.ws-day .wd-week { font-size: 11px; color: var(--color-text-secondary); }
+.ws-day .wd-sports { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.ws-day .wd-empty { font-size: 11px; color: var(--color-text-secondary); padding: 2px 0; }
+
+/* 运动标签 chip（周/月共用）：点击打开当日详情弹窗 */
+.ov-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  user-select: none;
+  transition: filter .12s;
+}
+.ov-chip:hover { filter: brightness(.92); }
+.ov-chip .oc-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+.ov-chip.fit { background: rgba(27,36,52,.08); color: var(--ov-fit); }
+.ov-chip.swim { background: rgba(23,179,166,.12); color: var(--ov-swim); }
+.ov-chip.dance { background: rgba(232,85,140,.12); color: var(--ov-dance); }
+
+/* 月视图：日历 */
+.ov-cal { width: 100%; }
+.ov-cal-head { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; }
+.ov-cal-head span { text-align: center; font-size: 12px; color: var(--color-text-secondary); padding: 4px 0; }
+.ov-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.ov-cal-cell {
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-radius: var(--radius);
+  padding: 6px 6px 7px;
+  min-height: 58px;
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: box-shadow .12s;
+}
+.ov-cal-cell:hover { box-shadow: inset 0 0 0 0.667px var(--color-border-strong); }
+.ov-cal-cell.blank { background: transparent; box-shadow: none; cursor: default; }
+.ov-cal-cell.is-today { box-shadow: inset 0 0 0 1.5px var(--color-border-strong); }
+.ov-cal-cell .cd-num { font-size: 12px; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+.ov-cal-cell .cd-marks { display: flex; flex-direction: column; gap: 3px; }
+.ov-cal-cell .cd-empty { font-size: 10.5px; color: var(--color-text-secondary); }
+
+/* 图表卡 */
+.chart-card { margin-top: 14px; }
+.chart-fallback { font-size: 12.5px; color: var(--color-text-secondary); padding: 20px 0; text-align: center; }
+
+/* 单日详情弹窗 */
+.ov-modal { width: 640px; }
+.ov-detail-block { margin-top: 14px; }
+.ov-detail-block:first-child { margin-top: 0; }
+.ov-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ov-detail-head .od-title { font-size: 13px; }
+.ov-detail-head .od-count { font-size: 11.5px; color: var(--color-text-secondary); margin-left: auto; font-variant-numeric: tabular-nums; }
+.ov-detail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 0;
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  background: var(--bg-card);
+}
+.ov-detail-item .di-main { font-size: 12.5px; line-height: 1.6; min-width: 0; }
+.ov-detail-item .di-main .di-title { color: var(--color-text); }
+.ov-detail-item .di-main .di-meta { font-size: 11.5px; color: var(--color-text-secondary); margin-top: 1px; font-variant-numeric: tabular-nums; }
+.ov-detail-item .di-go { flex: none; }
+.ov-detail-item .di-go .btn { padding: 2px 10px; font-size: 12px; }
+.ov-detail-empty { font-size: 12px; color: var(--color-text-secondary); padding: 8px 0; }
+
+/* 响应式 */
+@media (max-width: 1100px) {
+  .ov-grid-3 { grid-template-columns: 1fr; }
+  .week-strip { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 640px) {
+  .week-strip { grid-template-columns: repeat(2, 1fr); }
+  .ov-cal-cell { min-height: 46px; }
+  .ov-cal-cell .cd-empty { display: none; }
+}

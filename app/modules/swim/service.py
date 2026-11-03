@@ -23,6 +23,8 @@ def to_dict(row: SwimRecord) -> dict:
     return {
         "id": row.id,
         "record_date": row.record_date.isoformat(),
+        "status": row.status,
+        "remark": row.remark,
         "distance_m": row.distance_m,
         "duration_s": row.duration_s,
         "pace": calc_pace(row.duration_s, row.distance_m),
@@ -41,6 +43,16 @@ def list_records(db: Session, user_id: int, page: int = 1, page_size: int = 10):
 
     q = db.query(SwimRecord).filter(SwimRecord.user_id == user_id)
     return paginate(q, page, page_size, order_by=SwimRecord.record_date.desc())
+
+
+def get_by_date(db: Session, user_id: int, record_date) -> list[SwimRecord]:
+    """某日全部行（计划 + 记录，按 id 升序）。"""
+    return (
+        db.query(SwimRecord)
+        .filter(SwimRecord.user_id == user_id, SwimRecord.record_date == record_date)
+        .order_by(SwimRecord.id)
+        .all()
+    )
 
 
 def create_record(db: Session, user_id: int, data) -> SwimRecord:
@@ -72,16 +84,20 @@ def delete_record(db: Session, user_id: int, record_id: int) -> bool:
 
 
 def stats(db: Session, user_id: int) -> dict:
-    """顶部汇总（SW-03）：总距离/次数/平均配速/累计时长/平均心率/主泳姿分布。"""
-    rows = db.query(SwimRecord).filter(SwimRecord.user_id == user_id).all()
+    """顶部汇总（SW-03）：总距离/次数/平均配速/累计时长/平均心率/主泳姿分布（仅统计记录态）。"""
+    rows = (
+        db.query(SwimRecord)
+        .filter(SwimRecord.user_id == user_id, SwimRecord.status == "recorded")
+        .all()
+    )
     count = len(rows)
     if not count:
         return {
             "count": 0, "total_distance_m": 0, "total_duration_s": 0, "avg_pace": None,
             "avg_heart_rate": None, "stroke_count": {},
         }
-    total_distance = sum(r.distance_m for r in rows)
-    total_duration = sum(r.duration_s for r in rows)
+    total_distance = sum(r.distance_m for r in rows if r.distance_m)
+    total_duration = sum(r.duration_s for r in rows if r.duration_s)
     avg_pace = calc_pace(total_duration, total_distance)  # 总时长/总距离 → 平均配速
     rates = [r.avg_heart_rate for r in rows if r.avg_heart_rate]
     stroke_count: dict[str, int] = {}

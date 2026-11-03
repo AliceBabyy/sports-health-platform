@@ -9,6 +9,7 @@ class Settings(BaseSettings):
         "postgresql+psycopg2://postgres:123456@127.0.0.1:5432/sports-health-platform"
     )
     secret_key: str = "dev-secret-key-change-me"
+    host: str = "0.0.0.0"
     port: int = 8010
     session_cookie_secure: bool = False
     session_cookie_name: str = "sh_session"

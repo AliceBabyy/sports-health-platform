@@ -1,11 +1,12 @@
-"""健身训练 service：状态机（planned → record(edit/training) → recorded）、时长计算、心得、历史。
+"""健身训练 service：id 维度 CRUD、状态机（planned → record(edit/training) → recorded）、时长计算、心得、历史。
 
+2026-11 整改：一日可多个训练计划/记录，一律按 plan_id 定位（不再按 (user_id, plan_date) 唯一）。
 状态机实现（规划 8.2）：
 - status 字段记录终态 recorded；started_at 是否存在区分「仅编辑 / 开始训练」。
-- 保存接口幂等保护：已是 recorded 拒绝再次保存；非当日拒绝 start/save。
+- 保存接口幂等保护：已是 recorded 拒绝再次保存；start/save/cancel 仅当日可执行。
 - 时长 duration_s = saved_at - started_at（后端算，接口返回秒，前端展示分钟）。
 """
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -61,6 +62,7 @@ def plan_to_dict(plan: TrainingPlan | None) -> dict | None:
         "id": plan.id,
         "plan_date": plan.plan_date.isoformat(),
         "status": plan.status,
+        "remark": plan.remark,
         "started_at": plan.started_at.isoformat() if plan.started_at else None,
         "saved_at": plan.saved_at.isoformat() if plan.saved_at else None,
         "item_count": len(items),
@@ -77,13 +79,35 @@ def plan_to_dict(plan: TrainingPlan | None) -> dict | None:
     }
 
 
-def get_plan(db: Session, user_id: int, plan_date: date) -> TrainingPlan | None:
+# ---------- 查询 ----------
+
+def get_plan(db: Session, user_id: int, plan_id: int) -> TrainingPlan | None:
+    """按 plan_id 取单个计划（校验归属）。"""
     return (
         db.query(TrainingPlan)
-        .filter(TrainingPlan.user_id == user_id, TrainingPlan.plan_date == plan_date)
+        .filter(TrainingPlan.id == plan_id, TrainingPlan.user_id == user_id)
         .first()
     )
 
+
+def get_plan_or_404(db: Session, user_id: int, plan_id: int) -> TrainingPlan:
+    plan = get_plan(db, user_id, plan_id)
+    if plan is None:
+        raise AppError(404, "训练计划不存在")
+    return plan
+
+
+def get_plans_by_date(db: Session, user_id: int, plan_date: date) -> list[TrainingPlan]:
+    """某日全部计划/记录（按创建顺序，即 id 升序）。"""
+    return (
+        db.query(TrainingPlan)
+        .filter(TrainingPlan.user_id == user_id, TrainingPlan.plan_date == plan_date)
+        .order_by(TrainingPlan.id.asc())
+        .all()
+    )
+
+
+# ---------- 写（id 维度 CRUD） ----------
 
 def replace_items(plan: TrainingPlan, items_payload) -> None:
     """整体替换计划明细（保留勾选与期望重量字段按提交值；部位/重量/组数/个数可空）。"""
@@ -103,62 +127,70 @@ def replace_items(plan: TrainingPlan, items_payload) -> None:
         )
 
 
-def save_plan(db: Session, user_id: int, plan_date: date, items_payload) -> TrainingPlan:
-    """新建/编辑计划（TR-03）。已记录（recorded）当日锁定，不可再改。"""
-    plan = get_plan(db, user_id, plan_date)
-    if plan is not None and plan.status == TR_STATUS_RECORDED:
-        raise AppError(400, "该日训练已保存为记录，当日不可再修改计划")
-    if plan is None:
-        plan = TrainingPlan(user_id=user_id, plan_date=plan_date, status=TR_STATUS_PLANNED)
-        db.add(plan)
-        db.flush()
+def create_plan(db: Session, user_id: int, plan_date: date, items_payload, remark: str | None = None) -> TrainingPlan:
+    """新建计划（TR-03）：一日可多个，无需查重。"""
+    plan = TrainingPlan(user_id=user_id, plan_date=plan_date, status=TR_STATUS_PLANNED, remark=remark or None)
+    db.add(plan)
+    db.flush()
     replace_items(plan, items_payload)
     db.commit()
     db.refresh(plan)
     return plan
 
 
-def delete_plan(db: Session, user_id: int, plan_date: date) -> bool:
-    plan = get_plan(db, user_id, plan_date)
+def update_plan(db: Session, user_id: int, plan_id: int, items_payload, remark: str | None = None) -> TrainingPlan:
+    """编辑计划（TR-03，含页面内「+ 追加一行」的落库路径）。已记录（recorded）锁定，不可再改。"""
+    plan = get_plan_or_404(db, user_id, plan_id)
+    if plan.status == TR_STATUS_RECORDED:
+        raise AppError(400, "该计划已保存为训练记录，不可再修改")
+    plan.remark = remark or None
+    replace_items(plan, items_payload)
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+
+def delete_plan(db: Session, user_id: int, plan_id: int) -> bool:
+    """删除计划（级联删 items/note）。已记录（recorded）锁定，不可删除。"""
+    plan = get_plan(db, user_id, plan_id)
     if plan is None:
         return False
     if plan.status == TR_STATUS_RECORDED:
-        raise AppError(400, "该日训练已保存为记录，不可删除")
+        raise AppError(400, "该计划已保存为训练记录，不可删除")
     db.delete(plan)
     db.commit()
     return True
 
 
-def week_plans(db: Session, user_id: int, week_start: date) -> list[dict]:
-    """周面板（TR-02）：周一~周日七天计划（含空天）。"""
-    days = [week_start + timedelta(days=i) for i in range(7)]
+def batch_delete_plans(db: Session, user_id: int, plan_ids: list[int]) -> dict:
+    """批量删除计划：仅删除未保存记录（planned）的计划；已记录的跳过并在 skipped 中返回。"""
+    plan_ids = list(dict.fromkeys(plan_ids))
     plans = (
         db.query(TrainingPlan)
-        .filter(TrainingPlan.user_id == user_id, TrainingPlan.plan_date.in_(days))
+        .filter(TrainingPlan.user_id == user_id, TrainingPlan.id.in_(plan_ids))
         .all()
     )
-    by_date = {p.plan_date: p for p in plans}
-    result = []
-    for d in days:
-        p = by_date.get(d)
-        result.append(
-            {
-                "date": d.isoformat(),
-                "plan": plan_to_dict(p) if p else None,
-            }
-        )
-    return result
+    deleted: list[int] = []
+    skipped: list[int] = []
+    for p in plans:
+        if p.status == TR_STATUS_RECORDED:
+            skipped.append(p.id)
+        else:
+            db.delete(p)
+            deleted.append(p.id)
+    db.commit()
+    return {"deleted": deleted, "skipped": skipped}
 
 
-def start_record(db: Session, user_id: int, plan_date: date, mode: str) -> TrainingPlan:
+# ---------- 状态机（按 plan_id） ----------
+
+def start_record(db: Session, user_id: int, plan_id: int, mode: str) -> TrainingPlan:
     """进入记录模式（TR-10/11/16）：仅当日可切换；training 写 started_at。"""
-    if plan_date != today_local():
+    plan = get_plan_or_404(db, user_id, plan_id)
+    if plan.plan_date != today_local():
         raise AppError(400, "仅当日计划可切换为记录模式")
-    plan = get_plan(db, user_id, plan_date)
-    if plan is None:
-        raise AppError(404, "该日尚无训练计划，请先新建计划")
     if plan.status == TR_STATUS_RECORDED:
-        raise AppError(400, "该日训练已保存为记录，不可再次进入记录模式")
+        raise AppError(400, "该计划已保存为记录，不可再次进入记录模式")
     if mode == "training":
         plan.started_at = datetime.now()
         # 仅编辑路径不写 started_at
@@ -167,16 +199,16 @@ def start_record(db: Session, user_id: int, plan_date: date, mode: str) -> Train
     return plan
 
 
-def save_record(db: Session, user_id: int, plan_date: date, items_payload) -> dict:
+def save_record(db: Session, user_id: int, plan_id: int, items_payload, remark: str | None = None) -> dict:
     """保存记录（TR-17/22）：落终值、写 saved_at、status=recorded、当日锁定。"""
-    if plan_date != today_local():
+    plan = get_plan_or_404(db, user_id, plan_id)
+    if plan.plan_date != today_local():
         raise AppError(400, "仅当日可保存训练记录")
-    plan = get_plan(db, user_id, plan_date)
-    if plan is None:
-        raise AppError(404, "该日尚无训练计划")
     if plan.status == TR_STATUS_RECORDED:
-        raise AppError(400, "该日训练已保存，请勿重复提交")
+        raise AppError(400, "该计划已保存，请勿重复提交")
     now = datetime.now()
+    if remark is not None:   # 保存记录时不传则保留计划备注
+        plan.remark = remark or None
     replace_items(plan, items_payload)
     plan.status = TR_STATUS_RECORDED
     plan.saved_at = now
@@ -195,26 +227,26 @@ def save_record(db: Session, user_id: int, plan_date: date, items_payload) -> di
     }
 
 
-def cancel_record(db: Session, user_id: int, plan_date: date) -> TrainingPlan | None:
+def cancel_record(db: Session, user_id: int, plan_id: int) -> TrainingPlan | None:
     """取消记录模式：清空 started_at，回到计划态（未保存前可退出）。"""
-    if plan_date != today_local():
-        raise AppError(400, "仅当日可取消记录模式")
-    plan = get_plan(db, user_id, plan_date)
+    plan = get_plan(db, user_id, plan_id)
     if plan is None:
         return None
+    if plan.plan_date != today_local():
+        raise AppError(400, "仅当日可取消记录模式")
     if plan.status == TR_STATUS_RECORDED:
-        raise AppError(400, "该日训练已保存，不可取消")
+        raise AppError(400, "该计划已保存，不可取消")
     plan.started_at = None
     db.commit()
     db.refresh(plan)
     return plan
 
 
-def save_note(db: Session, user_id: int, plan_date: date, status_text: str, rating: int | None) -> TrainingNote:
+def save_note(db: Session, user_id: int, plan_id: int, status_text: str, rating: int | None) -> TrainingNote:
     """训练心得（TR-24/25）：关联该次训练，可 upsert；可跳过不影响主流程。"""
-    plan = get_plan(db, user_id, plan_date)
-    if plan is None:
-        raise AppError(404, "该日无训练记录")
+    plan = get_plan_or_404(db, user_id, plan_id)
+    if plan.status != TR_STATUS_RECORDED:
+        raise AppError(400, "仅已保存的训练记录可填写心得")
     note = db.query(TrainingNote).filter(TrainingNote.plan_id == plan.id).first()
     if note is None:
         note = TrainingNote(plan_id=plan.id, status_text=status_text or None, rating=rating)
@@ -222,6 +254,7 @@ def save_note(db: Session, user_id: int, plan_date: date, status_text: str, rati
     else:
         note.status_text = status_text or None
         note.rating = rating
+    plan.note = note  # 维护双向关联：plan_to_dict 可能在写入前已把 note 缓存为 None，须回写
     db.commit()
     db.refresh(note)
     return note

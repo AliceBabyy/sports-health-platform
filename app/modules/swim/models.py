@@ -1,4 +1,4 @@
-"""swim_records 表（需求 5 章；配速/平均划频为派生字段不落库）。"""
+"""swim_records 表（需求 5 章；配速/平均划频为派生字段不落库；2026-11 支持计划态）。"""
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -14,8 +14,10 @@ class SwimRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     record_date: Mapped[date] = mapped_column(Date, nullable=False)
-    distance_m: Mapped[int] = mapped_column(Integer, nullable=False)
-    duration_s: Mapped[int] = mapped_column(Integer, nullable=False)  # 存秒，界面按分钟录入
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="recorded")  # planned | recorded
+    remark: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 备注（计划/记录均可填）
+    distance_m: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 距离（记录态必填）
+    duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 存秒，界面按分钟录入（记录态必填）
     avg_heart_rate: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_strokes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     main_stroke: Mapped[str | None] = mapped_column(String(16), nullable=True)  # 主泳姿，可空

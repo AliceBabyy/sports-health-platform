@@ -8,8 +8,8 @@
   <div class="page-desc">身高体重与身材维度的连续记录，按周/月/半年/一年回溯变化趋势；四类记录分别添加。</div>
   <div class="page-head-actions add-actions">
     <button class="btn btn-primary" id="btnAddBasic">＋ 基础记录</button>
+    <button class="btn btn-primary" id="btnAddGirth">＋ 围度记录</button>
     <button class="btn" id="btnAddGoal">＋ 期望指标</button>
-    <button class="btn" id="btnAddGirth">＋ 围度记录</button>
     <button class="btn" id="btnAddTarget">＋ 目标围度</button>
     <span class="actions-divider"></span>
     <button class="btn" id="btnImportExcel">⇧ 导入 Excel</button>
@@ -44,8 +44,8 @@
       </select>
       <div class="seg" id="rangeSeg">
         <button data-range="week">周</button>
-        <button data-range="month" class="active">月</button>
-        <button data-range="half_year">半年</button>
+        <button data-range="month">月</button>
+        <button data-range="half_year" class="active">半年</button>
         <button data-range="year">一年</button>
       </div>
     </div>
@@ -60,83 +60,104 @@
   <div class="card silhouette-card">
     <div class="card-title">身材维度 <span class="sub">最近记录 {{ snapshot.chest.record_date or '—' }}</span></div>
     <div class="silhouette-body">
-      <svg viewBox="0 0 300 430" width="260" height="373" xmlns="http://www.w3.org/2000/svg" style="display:block">
-        <defs>
-          <linearGradient id="bodyFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#f1f4f8"/><stop offset="1" stop-color="#e8ecf3"/>
-          </linearGradient>
-        </defs>
-        <!-- 人体剪影：男/女两套部件式剪影（每部件独立闭合路径，避免填充错乱）；
-             按用户性别显示，未填性别默认女 -->
-        {% set male = (user_gender == '男') %}
-        {% if male %}
-        <!-- 头 -->
-        <circle cx="150" cy="40" r="24" fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5"/>
-        <!-- 躯干（H 型：肩宽腰直） -->
-        <path d="M106 64 L112 90 L132 160 L132 250 L136 300 L164 300 L168 250 L168 160 L188 90 L194 64 Q150 56 106 64 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 左臂 -->
-        <path d="M106 64 L112 90 L108 132 L94 146 L98 156 L110 148 L122 130 L128 66 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 右臂 -->
-        <path d="M194 64 L188 90 L192 132 L206 146 L202 156 L190 148 L178 130 L172 66 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 左腿 -->
-        <path d="M136 300 L130 330 L126 344 L124 418 L142 420 L147 368 L150 364 L150 330 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 右腿 -->
-        <path d="M164 300 L170 330 L174 344 L176 418 L158 420 L153 368 L150 364 L150 330 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        {% else %}
-        <!-- 头 -->
-        <circle cx="150" cy="40" r="24" fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5"/>
-        <!-- 躯干（沙漏型：肩宽腰细臀宽） -->
-        <path d="M112 64 L118 90 L122 168 L134 252 Q136 274 132 292 L138 330 L162 330 L168 292 Q164 274 166 252 L178 168 L182 90 L188 64 Q150 56 112 64 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 左臂 -->
-        <path d="M112 64 L118 90 L110 132 L96 146 L100 156 L112 148 L122 130 L126 66 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 右臂 -->
-        <path d="M188 64 L182 90 L190 132 L204 146 L200 156 L188 148 L178 130 L174 66 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 左腿 -->
-        <path d="M134 300 L138 330 L130 344 L126 418 L142 420 L146 368 L150 366 L150 330 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        <!-- 右腿 -->
-        <path d="M166 300 L162 330 L170 344 L174 418 L158 420 L154 368 L150 366 L150 330 Z"
-              fill="url(#bodyFill)" stroke="#ccd4df" stroke-width="1.5" stroke-linejoin="round"/>
-        {% endif %}
-        <!-- 标注点与引线 -->
-        {% for item in [
-          ('chest', '胸围', 150, 112, 74, 108),
-          ('arm', '臂围', 96, 140, 226, 132),
-          ('waist', '腰围', 150, 172, 74, 168),
-          ('hip', '臀围', 150, 226, 74, 226),
-          ('thigh', '大腿围', 130, 300, 226, 300),
-        ] %}
-        {% set key = item[0] %}
-        {% set val = snapshot.get(key, {}) %}
-        <circle cx="{{ item[2] }}" cy="{{ item[3] }}" r="4" fill="#1b2434"/>
-        <line x1="{{ item[2] }}" y1="{{ item[3] }}" x2="{{ item[4] }}" y2="{{ item[5] }}" stroke="#9aa4b2" stroke-width="1.2"/>
-        {% if key == 'arm' or key == 'thigh' %}
-        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="400">{{ item[1] }}</text>
-        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="400" class="num">{{ val.value if val.value is not none else '—' }}</text>
-        <text x="{{ item[4] + 6 }}" y="{{ item[5] + 32 }}" font-size="10.5" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
-        {% else %}
-        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 3 }}" font-size="12" fill="#1f2430" font-weight="400" text-anchor="end">{{ item[1] }}</text>
-        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 18 }}" font-size="13" fill="#1b2434" font-weight="400" class="num" text-anchor="end">{{ val.value if val.value is not none else '—' }}</text>
-        <text x="{{ item[4] - 6 }}" y="{{ item[5] + 32 }}" font-size="10.5" text-anchor="end" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
-        {% endif %}
-        {% endfor %}
-        <!-- 身高标注 -->
-        <line x1="98" y1="38" x2="48" y2="30" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="3 3"/>
-        <text x="42" y="28" font-size="11" fill="#1f2430" font-weight="400" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
-      </svg>
+      {% set male = (user_gender == '男') %}
+      <!-- 剪影本体：透明背景 PNG（浅色重着色）；标注层为覆盖其上的 SVG 矢量层，锚点按轮廓边缘坐标定位 -->
+      <div class="silhouette-stage">
+        <img class="silhouette-img" src="{{ '/static/img/silhouette-male.png' if male else '/static/img/silhouette-female.png' }}" alt="身材剪影">
+        <svg viewBox="0 0 280 380" xmlns="http://www.w3.org/2000/svg">
+          {% if male %}
+          {% set pts = {
+            'chest': (92.7, 108.4, 48, 108.4),
+            'arm':   (192.1, 142.4, 232, 142.4),
+            'waist': (108.1, 172.9, 48, 172.9),
+            'hip':   (104.5, 208.7, 48, 208.7),
+            'thigh': (170.7, 271.5, 232, 271.5),
+          } %}
+          {% else %}
+          {% set pts = {
+            'chest': (98.4, 108.4, 48, 108.4),
+            'arm':   (182.3, 142.4, 232, 142.4),
+            'waist': (107.5, 172.8, 48, 172.8),
+            'hip':   (106.1, 212.0, 48, 212.0),
+            'thigh': (158.7, 271.6, 232, 271.6),
+          } %}
+          {% endif %}
+          {% for key, label in [('chest','胸围'),('arm','臂围'),('waist','腰围'),('hip','臀围'),('thigh','大腿围')] %}
+          {% set p = pts[key] %}
+          {% set val = snapshot.get(key, {}) %}
+          <circle cx="{{ p[0] }}" cy="{{ p[1] }}" r="3.5" fill="#1b2434"/>
+          <line x1="{{ p[0] }}" y1="{{ p[1] }}" x2="{{ p[2] }}" y2="{{ p[3] }}" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          {% if key == 'arm' or key == 'thigh' %}
+          <text x="{{ p[2] + 4 }}" y="{{ p[3] - 5 }}" font-size="11" fill="#6b7280">{{ label }}</text>
+          <text x="{{ p[2] + 4 }}" y="{{ p[3] + 8 }}" font-size="13" fill="#1b2434" font-weight="600" class="num">{{ val.value if val.value is not none else '—' }}</text>
+          <text x="{{ p[2] + 4 }}" y="{{ p[3] + 20 }}" font-size="10.5" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
+          {% else %}
+          <text x="{{ p[2] - 4 }}" y="{{ p[3] - 5 }}" font-size="11" fill="#6b7280" text-anchor="end">{{ label }}</text>
+          <text x="{{ p[2] - 4 }}" y="{{ p[3] + 8 }}" font-size="13" fill="#1b2434" font-weight="600" class="num" text-anchor="end">{{ val.value if val.value is not none else '—' }}</text>
+          <text x="{{ p[2] - 4 }}" y="{{ p[3] + 20 }}" font-size="10.5" text-anchor="end" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
+          {% endif %}
+          {% endfor %}
+          <!-- 身高标注 -->
+          <line x1="140" y1="28" x2="48" y2="34" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <text x="44" y="37" font-size="11" fill="#6b7280" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
+        </svg>
+      </div>
     </div>
     <div class="silhouette-foot">
       <span>引线标注当前维度 · 数值旁为与上次记录的差值</span>
       <span>目标值在「期望指标 / 目标围度」记录中维护</span>
     </div>
+  </div>
+</div>
+
+<!-- 目标与进度：期望指标 / 目标围度的最新目标值 vs 对应当前值；进度从该指标最早记录值起算 -->
+<div class="card goals-card">
+  <div class="card-title">目标与进度 <span class="sub">期望指标 · 目标围度 · 进度从该指标最早记录值起算</span></div>
+  <div class="goals-body">
+    {% if goal_progress["items"] %}
+      {% set basic_keys = ['target_weight', 'target_body_fat'] %}
+      {% set basic_items = [] %}
+      {% set girth_items = [] %}
+      {% for g in goal_progress["items"] %}
+        {% if g.key in basic_keys %}{% set _ = basic_items.append(g) %}{% else %}{% set _ = girth_items.append(g) %}{% endif %}
+      {% endfor %}
+      {% if basic_items %}
+      <div class="goals-grid goals-basic">
+        {% for g in basic_items %}
+        <div class="goal-item basic">
+          <div class="goal-top">
+            <span class="goal-label">{{ g.label }}</span>
+            <span class="goal-values">{% if g.start is not none %}起始 <b class="num">{{ g.start }}</b>{{ g.unit }} → {% endif %}目标 <b class="num">{{ g.target }}</b>{{ g.unit }} · 当前 <b class="num">{{ g.current if g.current is not none else '—' }}</b>{% if g.current is not none %}{{ g.unit }}{% endif %}</span>
+          </div>
+          <div class="goal-bar"><i class="goal-fill{{ ' ok' if g.reached else '' }}" style="width: {{ g.pct if g.pct is not none else 0 }}%"></i></div>
+          <div class="goal-foot">
+            <span class="goal-msg{{ ' ok' if g.reached else '' }}{{ ' muted' if g.current is none }}">{{ g.msg }}</span>
+            <span class="goal-pct num">{{ g.pct if g.pct is not none else '—' }}%</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if girth_items %}
+      <div class="goals-grid">
+        {% for g in girth_items %}
+        <div class="goal-item">
+          <div class="goal-top">
+            <span class="goal-label">{{ g.label }}</span>
+            <span class="goal-values">{% if g.start is not none %}起始 <b class="num">{{ g.start }}</b>{{ g.unit }} → {% endif %}目标 <b class="num">{{ g.target }}</b>{{ g.unit }} · 当前 <b class="num">{{ g.current if g.current is not none else '—' }}</b>{% if g.current is not none %}{{ g.unit }}{% endif %}</span>
+          </div>
+          <div class="goal-bar"><i class="goal-fill{{ ' ok' if g.reached else '' }}" style="width: {{ g.pct if g.pct is not none else 0 }}%"></i></div>
+          <div class="goal-foot">
+            <span class="goal-msg{{ ' ok' if g.reached else '' }}{{ ' muted' if g.current is none }}">{{ g.msg }}</span>
+            <span class="goal-pct num">{{ g.pct if g.pct is not none else '—' }}%</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% else %}
+    <div class="empty-state" style="padding:20px 0"><div class="icon">🎯</div>暂无目标，可在上方「期望指标 / 目标围度」中添加</div>
+    {% endif %}
   </div>
 </div>
 
@@ -146,7 +167,7 @@
     <table class="tbl">
       <thead>
         <tr>
-          <th>日期</th><th>身高</th><th>体重</th><th>体脂率</th><th>胸围</th><th>腰围</th><th>臀围</th><th>大腿围</th><th>目标</th><th>操作</th>
+          <th>日期</th><th>身高</th><th>体重</th><th>体脂率</th><th>胸围</th><th>腰围</th><th>臀围</th><th>大腿围</th><th>操作</th>
         </tr>
       </thead>
       <tbody id="recBody"></tbody>
@@ -197,16 +218,14 @@
   </div>
 </div>
 
-<!-- 围度：颈/肩/臂/胸/腰/臀/大腿/小腿 -->
+<!-- 围度：臂/胸/腰/臀/大腿/小腿 -->
 <div class="modal-mask" id="modalGirth">
   <div class="modal" style="width:640px">
     <div class="modal-title">添加围度记录</div>
-    <div class="modal-desc">颈围 · 肩宽 · 臂围 · 胸围 · 腰围 · 臀围 · 大腿围 · 小腿围；留空的项自动沿用该维度最近一次记录的数据。</div>
+    <div class="modal-desc">臂围 · 胸围 · 腰围 · 臀围 · 大腿围 · 小腿围；留空的项自动沿用该维度最近一次记录的数据。</div>
     <form id="formGirth">
       <div class="form-item form-date"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
       <div class="form-grid">
-        <div class="form-item"><label class="field-label">颈围 (cm)</label><input class="input num" type="number" step="0.1" name="neck"></div>
-        <div class="form-item"><label class="field-label">肩宽 (cm)</label><input class="input num" type="number" step="0.1" name="shoulder_width"></div>
         <div class="form-item"><label class="field-label">臂围 (cm)</label><input class="input num" type="number" step="0.1" name="arm"></div>
         <div class="form-item"><label class="field-label">胸围 (cm)</label><input class="input num" type="number" step="0.1" name="chest"></div>
         <div class="form-item"><label class="field-label">腰围 (cm)</label><input class="input num" type="number" step="0.1" name="waist"></div>

@@ -2,14 +2,20 @@
 
 SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **8010**（避开 8000）。
 
-V1 范围：注册/登录认证 + 五大模块（身材数据 BD / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC）。
+V1 范围：注册/登录认证 + 六大模块（身材数据 BD / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC / 个人信息 PR）。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。
 
-> 2026-10 建模整改：users 新增性别/年龄 + 注册功能（身高移除，统一走 body_basic_records）；
-> body_metric_records 宽表拆为 4 张表（基础/期望/围度/目标围度，均含 created_at/updated_at，
-> 新增记录未填字段沿用最近一次非空值）；training_plan_items 负荷四字段可空、reps 字符串化、
-> 期望突破重量计划态亦可填；training_notes.status_text、swim_records.main_stroke 可空。
-> 详见《数据库建表设计.md》。
+> 2026-11 改版：**运动训练/计划统一「计划/记录」两态 + 跨运动总览（日/周/月）+ 单日详情跳转**。
+> - 侧边栏改为分组结构：身材数据 / 运动训练·计划（健身、游泳、舞蹈）/ 生理周期 / 个人信息；
+>   总览页 `/overview` 取代原「本周/本月一览」占位菜单。
+> - 数据层：swim_records、dance_records 新增 `status`（planned|recorded，默认 recorded）+ `remark`；
+>   记录必填列（距离/时长/舞种/星级）转可空；计划态弃用笼统字符串，改为结构化字段
+>   （游泳=距离/时长/主泳姿/备注，舞蹈=舞种/星级/备注），原 `plan_text` 列已移除（内容保全至 remark）；
+>   training_plans 新增 `remark`。健身保持既有三表特殊构造不动。
+> - 接口：新增 `GET /api/overview?granularity=day|week|month&date=`（跨运动聚合）与
+>   `GET /api/overview/day?date=`（单日详情）；swim/dance 新增 `GET /api/swim-records|dance-records/daily?date=`；
+>   删除已弃用的 `GET /api/training/plans/week`（前端周面板已由总览承接，`service.week_plans` 一并移除，
+>   原测试改造为总览聚合断言）。详见《数据库建表设计.md》与本章「2026-11 改版口径」。
 
 ## 快速开始
 
@@ -44,7 +50,8 @@ SECRET_KEY=<随机生成，勿提交仓库>
 ### 4. 启动
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8010
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8010
+
 ```
 
 浏览器打开 http://127.0.0.1:8010，使用 **admin / admin123** 登录；或点击登录页下方
@@ -53,10 +60,11 @@ SECRET_KEY=<随机生成，勿提交仓库>
 ### 5. 测试
 
 ```powershell
-# 单元测试（趋势聚合 / 配速划频 / 周期阶段 / 训练状态机）
+# 单元测试（趋势聚合 / 配速划频 / 周期阶段 / 训练状态机 / 个人信息）
 .\.venv\Scripts\python.exe -m pytest tests\ -q
 
-# 端到端冒烟（需服务已启动，写链路会写入临时数据并自动清理）
+# 端到端冒烟（需服务已启动，写链路会写入临时数据并自动清理；注意：共享库中
+# 若已存在 今日/昨日 的真实身材记录，冒烟的按日清理会覆盖，跑前请留意）
 .\.venv\Scripts\python.exe scripts\smoke_test.py
 ```
 
@@ -74,17 +82,21 @@ sports-health-platform/
 │  │  ├─ auth/             # 登录/注册/登出/会话（users 表含性别年龄）
 │  │  ├─ body/             # 身材数据：4 表拆分 upsert + 未填继承 + 四档趋势 + BMI + 剪影
 │  │  ├─ training/         # 训练计划/记录模式状态机/庆祝/心得/历史
-│  │  ├─ swim/             # 游泳记录 + 配速/划频计算
-│  │  ├─ dance/            # 舞蹈记录 + 舞种汇总
-│  │  └─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 + 运动等级
-│  ├─ templates/           # Jinja2（base/侧栏/五模块页面 + auth/register）
+│  │  ├─ swim/             # 游泳记录/计划 + 配速/划频计算 + 单日视图
+│  │  ├─ dance/            # 舞蹈记录/计划 + 舞种汇总 + 单日视图
+│  │  ├─ overview/         # 运动训练/计划总览：日/周/月聚合 + 单日详情（2026-11 新增）
+│  │  ├─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 + 运动等级
+│  │  └─ profile/          # 个人信息：基本资料（昵称/性别/年龄）+ 修改密码（复用 users 表）
+│  ├─ templates/           # Jinja2（base/侧栏/七模块页面 + auth/register + profile）
 │  ├─ static/              # css / js / vendor(echarts) / img
 ├─ scripts/
 │  ├─ init_db.py           # 建表 + 账号幂等
-│  ├─ smoke_test.py        # 端到端冒烟 37 项（含注册/4 表拆分/继承/训练 reps）
+│  ├─ migrate_plan_status.py  # 2026-11：swim/dance 加 status、记录列转可空（幂等）
+│  ├─ migrate_remark.py       # 2026-11：三表加 remark、swim/dance 移除 plan_text（幂等）
+│  ├─ smoke_test.py        # 端到端冒烟 57 项（含总览/计划态/个人信息）
 │  ├─ e2e_checklist.md     # 需求编号 → 实现落点核对表
 │  └─ schema.sql           # 全量建表 DDL（整改后结构）
-└─ tests/                  # pytest 单测（35 项）
+└─ tests/                  # pytest 单测（60 项，含总览聚合 4 项）
 ```
 
 ## 需求口径（锁定实现）
@@ -101,6 +113,26 @@ sports-health-platform/
 - 训练状态机：status 只存终态 recorded；started_at 区分「仅编辑/开始训练」；时长后端算（saved_at - started_at）；已保存当日锁定
 - 周期锚点：最近月经首日；无记录时锚点=今天，锚点前日期不推算阶段
 - 心得文本（training_notes.status_text）、游泳主泳姿（swim_records.main_stroke）均可空
+
+## 2026-11 改版口径（运动训练/计划）
+
+- **统一两态**：所有运动均为「计划 planned / 记录 recorded」。健身 = 特殊构造（训练动作 items 量身定制，
+  沿用 training_plans/training_plan_items/training_notes 三表与状态机不动）；游泳/舞蹈的计划态
+  为结构化字段：游泳=距离/时长/主泳姿/备注，舞蹈=舞种/星级/备注（不再使用笼统字符串）。
+- **数据层**：`scripts/migrate_plan_status.py`（幂等）为 swim/dance 加 `status`、记录必填列转可空、
+  建 `(user_id, record_date)` 联合索引；`scripts/migrate_remark.py`（幂等）三表加 `remark`
+  （swim/dance 移除 `plan_text`，旧计划文本保全至 remark）。API 层按状态校验必填
+  （游泳计划=距离+时长+主泳姿、记录=距离+时长；舞蹈计划=舞种+星级、记录=舞种+星级+时长；泳姿合法）。
+  统计口径：stats 只统计 recorded 行；总览聚合中 planned 计 plans、recorded 计 records/时长/热量。
+- **总览**：`GET /api/overview?granularity=day|week|month&date=` 返回逐日 per-sport 计数、汇总卡与图表序列
+  （week=周一~周日逐日分钟堆叠；month=按自然周分组、跨月周只聚合月内日；day=chart 为空）；
+  `GET /api/overview/day?date=` 返回当日三运动全部条目。页面 `/overview` 默认周视图，
+  点击「某天 × 某运动」标签弹单日详情，可一键跳转 `/{sport}?date=某日`。
+- **单日页**：健身/游泳/舞蹈页支持 `?date=` 参数 + 前后翻页导航，默认当天；
+  总览跳转某日即某日；非当日健身计划不开放「开始训练」（后端同口径校验）。
+- **清理**：删除已无前端的 `GET /api/training/plans/week` 与 `service.week_plans`；
+  对应测试 `test_week_plans_multi` 改造为 `test_overview_week_includes_training`，
+  新增 `tests/test_overview.py`（聚合口径/单日详情/计划态）。
 
 ## V1 边界（需求 10.2 / 10.3）
 

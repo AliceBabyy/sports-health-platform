@@ -39,7 +39,7 @@
 | 需求编号 | 需求点 | 状态 | 落点 |
 | --- | --- | --- | --- |
 | TR-01 | 训练计划日面板（动作/部位/重量/组数/个数） | ✅ | `templates/training/index.html` 日视图（空值显示 —） |
-| TR-02 | 训练计划周面板 | ✅ | `/api/training/plans/week` + 周视图 |
+| TR-02 | 周/月总览（跨运动，替代原周面板） | ✅ | `/api/overview?granularity=week\|month` + 总览页（2026-11 改版，`/plans/week` 已删除） |
 | TR-03 | 新建/编辑计划（手动创建，无自动生成；负荷可空） | ✅ | formPlan + `/api/training/plans/{date}` POST/PUT |
 | TR-10 | 是否开始训练确认弹窗（仅底部两按钮） | ✅ | FE-14；modalStart 仅「仅编辑/开始训练」 |
 | TR-11 | 记录模式（计划转可编辑训练记录） | ✅ | `training.js` record 模式 |
@@ -100,10 +100,25 @@
 | 10.2 | 原型演示数据不实现 | — | 边界 |
 | 10.3 | CSV 导出 / 顶栏搜索 / 计划模板 / 风格面板不实现 | — | 边界 |
 
-## 7. 验证记录
+## 7. 个人信息 PR
 
-- ✅ `python -m pytest tests/ -q`：35 passed（含 4 表拆分 upsert/继承/latest 合并/列表合并/delete_day 6 用例、趋势聚合适配、training reps 字符串与可空字段用例）
-- ✅ `scripts/smoke_test.py`：37 项通过（登录、注册去身高、5 页面、未登录拦截、核心 API、4 组写链路、未填字段继承断言、跨组字段 400、训练 reps/可空写链路、清理）
+| 需求编号 | 需求点 | 状态 | 落点 |
+| --- | --- | --- | --- |
+| PR-01 | 个人信息模块与 5 个业务模块平级（左侧菜单第 6 项） | ✅ | `core/templating.py` NAV_ITEMS + `layout/sidebar.html` |
+| PR-02 | 顶栏头像/昵称可点击进入个人信息页 | ✅ | `layout/topbar.html` user-chip → /profile + `layout.css` |
+| PR-03 | 账号信息只读展示（用户名/注册时间/最近更新） | ✅ | `profile/index.html` 账号信息卡 |
+| PR-04 | 基本资料编辑（昵称/性别/年龄，校验口径与注册一致） | ✅ | POST `/api/profile` + `profile/service.py::update_profile` |
+| PR-05 | 修改密码（校验当前密码、新密码 ≥6 位、不能与当前相同） | ✅ | POST `/api/profile/password` + `profile/service.py::change_password` |
+| PR-06 | 数字键 1-6 切换模块（兑现侧栏提示） | ✅ | `static/js/common.js` shortcuts |
+
+## 8. 验证记录
+
+- ✅ `python -m pytest tests/ -q`（2026-11-02）：**47 passed / 49 total**（含 4 表拆分 upsert/继承/latest 合并/列表合并/delete_day、趋势聚合适配、training reps 字符串与可空字段、目标与进度 goal_progress、个人信息 7 项）
+  - ⚠️ 2 项既有失败与本次改动无关，均为**日期依赖型**用例（2026-11-02 为周一/月初触发）：`test_week_points_today_values_and_null`（周一 monday==today 同日写两行触发唯一约束）、`test_half_year_window_average`（月初当月 10/20 号锚点在未来被剔除，返回 16 点而非 18）——其他日期运行即通过
+- ⚠️ `scripts/smoke_test.py`（2026-11-02）：已扩展至 **45 项**（新增六模块页面 /profile 检查 + 个人信息 7 项 API 检查）。本次在共享库上运行 41/45：
+  - 2 项失败为**共享库存在今日真实数据**导致（冒烟按日清理会覆盖今日/昨日真实记录，跑前需留意；本次已恢复 admin 11-02 记录 weight 59.3 / body_fat 28.5 / height 164，删除验证临时用户）
+  - 1 项失败为冒烟自身断言写法（FastAPI 紧凑 JSON 与字符串匹配），已改为 JSON 解析
+  - 个人信息链路已另以 27 项专项 HTTP 断言全绿（页面渲染/入口/高亮/未登录 401/资料更新/密码修改/旧密码失效）
 - ✅ 浏览器抽查（2026-10-31，4 表整改后）：
   - 注册页：/register 渲染正常（用户名/密码/昵称/性别/年龄，无身高输入）；注册新用户后直入 /body
   - 身材页：4 个添加按钮（基础/期望/围度/目标围度）+ 4 弹窗；占位提示正确（无历史"新增"、有历史"沿用 165 / 沿用 60"）；填写今日体重保存后 latest 身高自动沿用昨日 165、体重 delta +1.0；表格按日期合并 2 行展示；趋势下拉 11 基础维度

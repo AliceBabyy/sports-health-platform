@@ -13,7 +13,7 @@ from app.modules.auth.models import User
 from app.modules.body import excel_io
 from app.modules.body import service as body_service
 from app.modules.body import trend_service
-from app.modules.body.schemas import MetricUpsertIn
+from app.modules.body.schemas import MetricUpdateIn, MetricUpsertIn
 from database import get_db
 
 router = APIRouter(prefix="/api/body-metrics", tags=["body"])
@@ -117,6 +117,29 @@ def upsert_group(
         raise AppError(400, f"该分组不支持字段：{'/'.join(sorted(unknown))}")
     body_service.upsert_group(db, user.id, group, payload.record_date, payload.values)
     return {"ok": True, "group": group, "record_date": payload.record_date.isoformat()}
+
+
+@router.put("/{group}/{record_date}")
+def update_group_record(
+    group: str,
+    record_date: date,
+    payload: MetricUpdateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """单条更新（基础记录 / 围度记录）：仅覆盖提交字段，未提交字段保留当日原值；当日该组无记录 → 404。"""
+    if group not in ("basic", "girth"):
+        raise AppError(400, "仅支持基础记录(basic)与围度记录(girth)的编辑")
+    if not payload.values:
+        raise AppError(400, "至少填写一个指标")
+    unknown = set(payload.values) - set(BODY_GROUPS[group])
+    if unknown:
+        raise AppError(400, f"该分组不支持字段：{'/'.join(sorted(unknown))}")
+    updated = body_service.update_group_record(db, user.id, group, record_date, payload.values)
+    if not updated:
+        name = "基础记录" if group == "basic" else "围度记录"
+        raise AppError(404, f"{record_date.isoformat()} 无{name}，无法更新")
+    return {"ok": True, "group": group, "record_date": record_date.isoformat()}
 
 
 @router.delete("")

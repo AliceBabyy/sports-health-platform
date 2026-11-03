@@ -8,6 +8,9 @@
   /* 主色 */
   --color-primary: #1b2434;    /* 按钮背景、标签圆点等深色元素 */
   --color-primary-soft: #2c3a52;
+  --color-accent: #17b3a6;              /* 清新蓝绿（初音未来发色系）：按钮描边 + 按钮字体 */
+  --color-accent-strong: #0f9d92;       /* 蓝绿 hover/加深态 */
+  --color-accent-soft: rgba(23, 179, 166, 0.10); /* 蓝绿 hover 浅底 */
   --color-text: #1f2430;
   --color-text-secondary: #6b7280;
   --color-border: rgba(27, 36, 52, 0.05);         /* 普通分割线（卡片描边/表格行线/弹窗分组等；比发丝档加深一点） */

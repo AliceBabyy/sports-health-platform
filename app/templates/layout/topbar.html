@@ -9,10 +9,10 @@
   </div>
   <div class="topbar-right">
     <span class="topbar-date num">{{ today_str }} {{ weekday_cn }}</span>
-    <span class="user-chip">
+    <a class="user-chip" href="/profile" title="个人信息">
       <span class="user-avatar">{{ (user.display_name or user.username)[:1] }}</span>
-      {{ user.display_name or user.username }}
-    </span>
+      <span class="user-chip-name">{{ user.display_name or user.username }}</span>
+    </a>
     <a class="logout" href="/logout">退出</a>
   </div>
 </header>

@@ -1,14 +1,27 @@
 {% extends "base.html" %}
 {% from "components/stat_card.html" import stat_card %}
 {% block title %}舞蹈记录 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/dance.css">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/dance.css?v=20261102">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>舞蹈记录</h1>
-  <div class="page-desc">按课程记录舞种、风格与强度，回看身体对不同舞种的适应。</div>
+  <div class="page-desc">按课程记录舞种、风格与强度，回看身体对不同舞种的适应。计划与记录统一管理。</div>
   <div class="page-head-actions">
+    <button class="btn" id="btnAddDancePlan">＋ 新建计划</button>
     <button class="btn btn-primary" id="btnAddDance">＋ 新增记录</button>
   </div>
+</div>
+
+<div class="card dance-page daily-card">
+  <div class="card-title">当日舞蹈
+    <span class="date-nav">
+      <a class="dn-btn" href="/dance?date={{ prev_date }}" title="前一天">‹</a>
+      <span class="dn-label num">{{ selected_date }}{% if not is_today %} · <a class="dn-today" href="/dance">回到今天</a>{% endif %}</span>
+      <a class="dn-btn" href="/dance?date={{ next_date }}" title="后一天">›</a>
+    </span>
+  </div>
+  <div class="daily-meta">{{ selected_date_str }}（{{ selected_weekday }}） · 计划与记录统一按日展示</div>
+  <div id="danceDaily"></div>
 </div>
 
 {% set hours = ((stats.total_duration_s or 0) / 3600) %}
@@ -20,14 +33,14 @@
 </div>
 
 <div class="card dance-page">
-  <div class="card-title">全部记录 <span class="sub">按日期倒序 · 星级为当日课程完成度自评</span>
+  <div class="card-title">全部记录 <span class="sub">计划 + 记录，按日期倒序 · 星级为当日课程完成度自评</span>
     <div class="filter-chips" id="danceFilters"></div>
   </div>
   <div class="table-wrap">
     <table class="tbl">
       <thead>
         <tr>
-          <th>日期</th><th>舞种</th><th>星级</th><th>舞蹈风格</th><th>运动时长</th><th>平均心率</th><th>最大心率</th><th>总卡路里</th><th>操作</th>
+          <th>日期</th><th>类型</th><th>舞种</th><th>星级</th><th>舞蹈风格</th><th>运动时长</th><th>平均心率</th><th>最大心率</th><th>总卡路里</th><th>操作</th>
         </tr>
       </thead>
       <tbody id="danceBody"></tbody>
@@ -36,21 +49,20 @@
   <div id="dancePagination"></div>
 </div>
 
-<!-- 新增/编辑舞蹈记录弹窗 -->
+<!-- 新增/编辑舞蹈记录/计划弹窗（入口即定状态：新增记录 / 新建计划；无弹窗内切换） -->
 <div class="modal-mask" id="modalDance">
   <div class="modal">
     <div class="modal-title" id="modalDanceTitle">新增舞蹈记录</div>
-    <div class="modal-desc">记下这节课的舞种、风格与强度，星级用于自评完成度。</div>
+    <div class="modal-desc" id="modalDanceDesc">记下这节课的舞种、风格与强度，星级用于自评完成度。</div>
     <form id="formDance">
       <div class="form-grid">
-        <div class="form-item"><label class="field-label">日期</label><input class="input" type="date" name="record_date" required></div>
+        <div class="form-item full"><label class="field-label">日期</label><input class="input" type="date" name="record_date" required></div>
         <div class="form-item"><label class="field-label">舞种</label>
-          <input class="input" name="dance_type" list="danceTypes" placeholder="如 爵士 / 街舞 / 中国舞 / 拉丁 / 芭蕾" required>
+          <input class="input" name="dance_type" list="danceTypes" placeholder="如 爵士 / 街舞 / 中国舞 / 拉丁 / 芭蕾">
           <datalist id="danceTypes">
             <option value="爵士"></option><option value="街舞"></option><option value="中国舞"></option><option value="拉丁"></option><option value="芭蕾"></option>
           </datalist>
         </div>
-        <div class="form-item"><label class="field-label">舞蹈风格</label><input class="input" name="style" placeholder="如 编舞·力量"></div>
         <div class="form-item"><label class="field-label">星级自评 (1~5)</label>
           <select class="select" name="stars">
             <option value="5">★★★★★</option>
@@ -60,7 +72,9 @@
             <option value="1">★</option>
           </select>
         </div>
-        <div class="form-item"><label class="field-label">运动时长 (分钟)</label><input class="input num" type="number" name="duration_min" min="1" step="0.1" required></div>
+        <div class="form-item"><label class="field-label">舞蹈风格</label><input class="input" name="style" placeholder="如 编舞·力量"></div>
+        <div class="form-item full"><label class="field-label">备注</label><input class="input" name="remark" maxlength="255" placeholder="如：重点练爆发力组合 / 右脚踝有点紧"></div>
+        <div class="form-item"><label class="field-label">运动时长 (分钟)</label><input class="input num" type="number" name="duration_min" min="1" step="0.1"></div>
         <div class="form-item"><label class="field-label">平均心率 (bpm)</label><input class="input num" type="number" name="avg_heart_rate" min="1"></div>
         <div class="form-item"><label class="field-label">最大心率 (bpm)</label><input class="input num" type="number" name="max_heart_rate" min="1"></div>
         <div class="form-item"><label class="field-label">总卡路里 (kcal)</label><input class="input num" type="number" step="0.1" name="calories"></div>
@@ -74,5 +88,6 @@
 </div>
 {% endblock %}
 {% block extra_js %}
+<script>window.INIT_DATE = "{{ selected_date }}";</script>
 <script src="/static/js/dance.js"></script>
 {% endblock %}

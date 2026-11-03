@@ -1,4 +1,6 @@
-"""游泳 API 路由（/api/swim-records，SW-01/02）。"""
+"""游泳 API 路由（/api/swim-records，SW-01/02；2026-11 支持计划态 + 单日查询）。"""
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -22,6 +24,17 @@ def list_swim(
 ):
     result = service.list_records(db, user.id, page, page_size)
     return {**result, "list": [service.to_dict(r) for r in result["list"]]}
+
+
+@router.get("/daily")
+def daily_swim(
+    day: date = Query(..., alias="date"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """某日全部行（计划 + 记录），供单日详情页/总览弹窗。"""
+    rows = service.get_by_date(db, user.id, day)
+    return {"date": day.isoformat(), "list": [service.to_dict(r) for r in rows]}
 
 
 @router.post("")
@@ -69,5 +82,13 @@ def swim_stats(
 
 
 def _validate(payload: SwimRecordIn):
-    if payload.main_stroke is not None and payload.main_stroke not in SWIM_STROKES:
-        raise AppError(400, "主泳姿不合法")
+    if payload.status == "recorded":
+        if payload.distance_m is None or payload.duration_s is None:
+            raise AppError(400, "记录态需填写距离与时长")
+        if payload.main_stroke is not None and payload.main_stroke not in SWIM_STROKES:
+            raise AppError(400, "主泳姿不合法")
+    else:
+        if payload.distance_m is None or payload.duration_s is None or not payload.main_stroke:
+            raise AppError(400, "计划态需填写目标距离、时长与主泳姿")
+        if payload.main_stroke not in SWIM_STROKES:
+            raise AppError(400, "主泳姿不合法")

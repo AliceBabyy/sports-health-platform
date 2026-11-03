@@ -60,6 +60,55 @@
       return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     },
     confirm(msg) { return window.confirm(msg); },
+
+    /* 统一二次确认弹窗（删除等危险操作）→ Promise<boolean>（确认 true / 取消或遮罩点击 false） */
+    confirmDialog(opts = {}) {
+      const o = {
+        title: opts.title || '确认操作',
+        message: opts.message || '',
+        confirmText: opts.confirmText || '确认',
+        cancelText: opts.cancelText || '取消',
+        danger: opts.danger !== false,
+      };
+      return new Promise(function (resolve) {
+        let mask = document.getElementById('confirmMask');
+        const finish = function (ok) {
+          const r = mask._resolve;
+          mask._resolve = null;
+          mask.classList.remove('open');
+          if (r) r(ok);
+        };
+        if (!mask) {
+          mask = document.createElement('div');
+          mask.id = 'confirmMask';
+          mask.className = 'modal-mask confirm-mask';
+          mask.innerHTML =
+            '<div class="modal confirm-modal">' +
+            '<div class="modal-title confirm-title"></div>' +
+            '<div class="modal-desc confirm-msg"></div>' +
+            '<div class="modal-actions">' +
+            '<button type="button" class="btn confirm-cancel"></button>' +
+            '<button type="button" class="btn confirm-ok"></button>' +
+            '</div></div>';
+          document.body.appendChild(mask);
+          mask.addEventListener('click', function (e) {
+            if (e.target === mask) { finish(false); return; }
+            const b = e.target.closest('button');
+            if (!b) return;
+            if (b.classList.contains('confirm-ok')) finish(true);
+            else if (b.classList.contains('confirm-cancel')) finish(false);
+          });
+        }
+        mask.querySelector('.confirm-title').textContent = o.title;
+        mask.querySelector('.confirm-msg').textContent = o.message;
+        const ok = mask.querySelector('.confirm-ok');
+        ok.textContent = o.confirmText;
+        ok.className = 'btn confirm-ok' + (o.danger ? ' danger' : '');
+        mask.querySelector('.confirm-cancel').textContent = o.cancelText;
+        mask._resolve = resolve;
+        mask.classList.add('open');
+      });
+    },
   };
   window.App = App;
   document.addEventListener('click', function (e) {
@@ -94,5 +143,33 @@
     apply();
     let timer;
     window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(apply, 120); });
+  })();
+
+  /* ---------- 侧边栏分组展开/收起（chevron，点击不跳转） ---------- */
+  (function navGroup() {
+    const nav = document.getElementById('sidebarNav');
+    if (!nav) return;
+    nav.addEventListener('click', function (e) {
+      const chev = e.target.closest('[data-toggle-group]');
+      if (!chev) return;
+      e.preventDefault();
+      const g = chev.closest('.nav-group');
+      if (g) g.classList.toggle('open');
+    });
+  })();
+
+  /* ---------- 数字键 1-7 切换模块（对应侧栏链接顺序） ---------- */
+  (function shortcuts() {
+    const links = document.querySelectorAll('.sidebar-nav a');
+    if (!links.length) return;
+    document.addEventListener('keydown', function (e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const idx = parseInt(e.key, 10);
+      if (!(idx >= 1 && idx <= links.length)) return;
+      const href = links[idx - 1].getAttribute('href');
+      if (href && href !== location.pathname) { e.preventDefault(); location.href = href; }
+    });
   })();
 })();

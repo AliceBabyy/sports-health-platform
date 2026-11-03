@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}运动训练/计划 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/overview.css?v=20261102">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>运动训练/计划</h1>
+  <div class="page-desc">日 / 周 / 月三级总览：点击任一「某天 × 某运动」查看当日详情并跳转 · 修复原「只能看当日」</div>
+  <div class="page-head-actions">
+    <div class="seg" id="ovModeSeg">
+      <button type="button" data-mode="day">日视图</button>
+      <button type="button" data-mode="week" class="active">周视图</button>
+      <button type="button" data-mode="month">月视图</button>
+    </div>
+    <span class="ov-date" id="ovDateLabel"></span>
+  </div>
+</div>
+
+<div class="stat-grid" id="ovStats"></div>
+
+<!-- 日视图：三运动当日卡片 -->
+<div id="ovDayView" class="ov-view" style="display:none">
+  <div class="ov-grid-3" id="ovDayCards"></div>
+</div>
+
+<!-- 周视图：每日条带 + 时长堆叠柱 -->
+<div id="ovWeekView" class="ov-view">
+  <div class="card">
+    <div class="card-title">本周每日运动 <span class="sub">点击任一「日期 × 运动」标签查看当日详情</span></div>
+    <div class="week-strip" id="ovWeekStrip"></div>
+  </div>
+  <div class="card chart-card">
+    <div class="card-title">本周每日运动时长 <span class="sub">单位：分钟</span></div>
+    <div class="chart" id="chartOvWeek" style="height:250px"></div>
+    <div class="chart-fallback" id="chartOvWeekFallback" style="display:none">图表组件加载失败，请刷新重试。</div>
+  </div>
+</div>
+
+<!-- 月视图：日历 + 每周时长堆叠柱 -->
+<div id="ovMonthView" class="ov-view" style="display:none">
+  <div class="card">
+    <div class="card-title">本月日历 <span class="sub">点击日期查看当日详情</span></div>
+    <div id="ovCalGrid"></div>
+    <div class="legend">
+      <span class="legend-block"><span class="sdot" style="background:var(--ov-fit)"></span>健身</span>
+      <span class="legend-block"><span class="sdot" style="background:var(--ov-swim)"></span>游泳</span>
+      <span class="legend-block"><span class="sdot" style="background:var(--ov-dance)"></span>舞蹈</span>
+    </div>
+  </div>
+  <div class="card chart-card">
+    <div class="card-title">本月每周运动时长 <span class="sub">单位：分钟</span></div>
+    <div class="chart" id="chartOvMonth" style="height:250px"></div>
+    <div class="chart-fallback" id="chartOvMonthFallback" style="display:none">图表组件加载失败，请刷新重试。</div>
+  </div>
+</div>
+
+<!-- 单日详情弹窗（总览不筛选，按标签显示，点击弹窗 + 跳转） -->
+<div class="modal-mask" id="modalOvDay">
+  <div class="modal ov-modal">
+    <div class="modal-title" id="ovModalTitle">当日详情</div>
+    <div class="modal-desc" id="ovModalDate"></div>
+    <div id="ovModalBody"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn" data-close="modalOvDay">关闭</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>window.INIT_TODAY = "{{ today }}";</script>
+<script src="/static/vendor/echarts.min.js"></script>
+<script src="/static/js/overview.js"></script>
+{% endblock %}

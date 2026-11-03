@@ -54,9 +54,14 @@
         symbol: 'circle',
         symbolSize: 5,
         showSymbol: true,
-        lineStyle: { width: 2.5, color: '#1b2434' },
-        itemStyle: { color: '#1b2434' },
-        areaStyle: { color: 'rgba(27, 36, 52, 0.05)' },
+        lineStyle: { width: 2.5, color: '#17b3a6' },
+        itemStyle: { color: '#17b3a6' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(23, 179, 166, 0.26)' },
+            { offset: 1, color: 'rgba(23, 179, 166, 0)' }
+          ])
+        },
         label: {
           show: true,
           position: 'top',
@@ -76,29 +81,28 @@
 
   /* ---------- 记录表格（按日期合并 4 组） ---------- */
   let currentPage = 1;
-
-  function targetSummary(vals) {
-    const parts = [];
-    if (vals.target_weight != null) parts.push(vals.target_weight + ' kg');
-    if (vals.target_body_fat != null) parts.push(vals.target_body_fat + ' %');
-    if (vals.target_waist != null) parts.push(vals.target_waist + ' cm');
-    return parts.length ? parts.join(' / ') : '—';
-  }
+  let rowValues = {};        // 最近一次加载页：record_date → values（编辑弹窗预填用）
+  let editState = null;      // 编辑模式：{ group, record_date }；null = 添加模式
 
   function loadRecords(page) {
     currentPage = page || 1;
+    rowValues = {};
     App.api('/api/body-metrics?page=' + currentPage + '&page_size=10').then(function (res) {
       document.getElementById('recTotal').textContent = res.total;
       const tbody = document.getElementById('recBody');
       if (res.list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="icon">📭</div>暂无身材记录，点击上方四个按钮按类别添加</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div>暂无身材记录，点击上方四个按钮按类别添加</div></td></tr>';
       } else {
         tbody.innerHTML = res.list.map(function (r) {
           const vals = r.values || {};
+          rowValues[r.record_date] = vals;
           const cells = TABLE_COLS.map(k => '<td class="num">' + (vals[k] != null ? vals[k] : '—') + '</td>').join('');
           return '<tr><td class="num">' + r.record_date + '</td>' + cells +
-            '<td class="num" style="color:var(--color-text-secondary)">' + targetSummary(vals) + '</td>' +
-            '<td class="row-actions"><button class="btn btn-sm btn-danger" data-act="del" data-date="' + r.record_date + '">删除</button></td></tr>';
+            '<td class="row-actions">' +
+            '<button class="btn btn-sm" data-act="edit-basic" data-date="' + r.record_date + '">编辑基础</button>' +
+            '<button class="btn btn-sm" data-act="edit-girth" data-date="' + r.record_date + '">编辑围度</button>' +
+            '<button class="btn btn-sm btn-danger" data-act="del" data-date="' + r.record_date + '">删除</button>' +
+            '</td></tr>';
         }).join('');
       }
       renderPagination(res);
@@ -115,6 +119,46 @@
     }
     html += '<button class="btn btn-sm" data-pg="' + (res.page + 1) + '" ' + (res.page >= res.pages ? 'disabled' : '') + '>下一页</button></div>';
     wrap.innerHTML = html;
+  }
+
+  /* ---------- 编辑（复用基础/围度弹窗，单条更新） ---------- */
+  const EDIT_GROUPS = { basic: '基础', girth: '围度' };
+  // 添加态弹窗原始文案（编辑后恢复）
+  const ADD_MODAL_TEXT = {
+    basic: {
+      title: '添加基础记录',
+      desc: '身高 · 体重 · 体脂率；留空的项自动沿用该维度最近一次记录的数据。',
+      note: '同日重复保存会覆盖当日已填的基础数据；BMI 由身高体重实时计算。',
+    },
+    girth: {
+      title: '添加围度记录',
+      desc: '臂围 · 胸围 · 腰围 · 臀围 · 大腿围 · 小腿围；留空的项自动沿用该维度最近一次记录的数据。',
+      note: '同日重复保存会覆盖当日已填的围度数据。',
+    },
+  };
+
+  function setModalText(group, title, desc, note) {
+    const modal = document.getElementById(GROUP_MODALS[group]);
+    modal.querySelector('.modal-title').textContent = title;
+    modal.querySelector('.modal-desc').textContent = desc;
+    modal.querySelector('.modal-note').textContent = note;
+  }
+
+  function openEdit(group, recordDate) {
+    const form = document.getElementById(GROUP_FORMS[group]);
+    const vals = rowValues[recordDate] || {};
+    form.reset();
+    form.record_date.value = recordDate;
+    form.record_date.max = App.todayStr();
+    form.record_date.disabled = true; // 编辑锁定日期（单条更新）
+    (GROUPS[group] || []).forEach(function (k) {
+      const el = form.elements[k];
+      if (el) el.value = vals[k] != null ? vals[k] : '';
+    });
+    const name = EDIT_GROUPS[group] || group;
+    setModalText(group, '编辑' + name + '记录', '修改 ' + recordDate + ' 的' + name + '数据；留空的项保持原值不变。', '保存后仅更新当日该组已填写的字段，未填写的字段保留原值。');
+    editState = { group: group, record_date: recordDate };
+    App.openModal(GROUP_MODALS[group]);
   }
 
   /* ---------- 4 组添加弹窗 ---------- */
@@ -139,10 +183,15 @@
 
   Object.keys(GROUP_OPENERS).forEach(function (group) {
     document.getElementById(GROUP_OPENERS[group]).addEventListener('click', function () {
+      editState = null;
       const form = document.getElementById(GROUP_FORMS[group]);
       form.reset();
+      form.record_date.disabled = false;
       form.record_date.value = App.todayStr();
       form.record_date.max = App.todayStr();
+      if (ADD_MODAL_TEXT[group]) {
+        setModalText(group, ADD_MODAL_TEXT[group].title, ADD_MODAL_TEXT[group].desc, ADD_MODAL_TEXT[group].note);
+      }
       // 占位提示：当前该维度最新值（服务端继承兜底，此处仅提示）
       App.api('/api/body-metrics/latest').then(function (snap) {
         (GROUPS[group] || []).forEach(function (key) {
@@ -169,26 +218,47 @@
         if (el && el.value !== '') values[k] = parseFloat(el.value);
       });
       if (!Object.keys(values).length) { App.toast('至少填写一个指标', true); return; }
-      const payload = { record_date: form.record_date.value, values: values };
-      App.api('/api/body-metrics/' + group, { method: 'POST', body: payload })
-        .then(function () {
-          App.closeModal(GROUP_MODALS[group]);
-          App.toast('已保存（留空项已沿用最近数据）');
-          setTimeout(function () { location.reload(); }, 400);
-        })
-        .catch(err => App.toast(err.message, true));
+      const editing = editState && editState.group === group;
+      if (editing) {
+        const date = editState.record_date;
+        App.api('/api/body-metrics/' + group + '/' + date, { method: 'PUT', body: { values: values } })
+          .then(function () {
+            App.closeModal(GROUP_MODALS[group]);
+            editState = null;
+            App.toast('已更新 ' + date + ' 的记录');
+            setTimeout(function () { location.reload(); }, 400);
+          })
+          .catch(err => App.toast(err.message, true));
+      } else {
+        const payload = { record_date: form.record_date.value, values: values };
+        App.api('/api/body-metrics/' + group, { method: 'POST', body: payload })
+          .then(function () {
+            App.closeModal(GROUP_MODALS[group]);
+            App.toast('已保存（留空项已沿用最近数据）');
+            setTimeout(function () { location.reload(); }, 400);
+          })
+          .catch(err => App.toast(err.message, true));
+      }
     });
   });
 
-  /* ---------- 删除（按日期删 4 组） ---------- */
+  /* ---------- 操作列：编辑基础 / 编辑围度 / 删除（按日期删 4 组） ---------- */
   document.getElementById('recBody').addEventListener('click', function (e) {
     const btn = e.target.closest('button[data-act]');
-    if (!btn || btn.dataset.act !== 'del') return;
+    if (!btn) return;
     const date = btn.dataset.date;
-    if (!App.confirm('确定删除 ' + date + ' 的全部身材记录吗？')) return;
-    App.api('/api/body-metrics?record_date=' + date, { method: 'DELETE' })
-      .then(function () { App.toast('已删除'); setTimeout(function () { location.reload(); }, 400); })
-      .catch(err => App.toast(err.message, true));
+    if (btn.dataset.act === 'del') {
+      App.confirmDialog({ title: '删除身材记录', message: '确定删除 ' + date + ' 的全部身材记录吗？删除后不可恢复。' })
+        .then(function (ok) {
+          if (!ok) return;
+          App.api('/api/body-metrics?record_date=' + date, { method: 'DELETE' })
+            .then(function () { App.toast('已删除'); setTimeout(function () { location.reload(); }, 400); })
+            .catch(err => App.toast(err.message, true));
+        });
+      return;
+    }
+    if (btn.dataset.act === 'edit-basic') openEdit('basic', date);
+    else if (btn.dataset.act === 'edit-girth') openEdit('girth', date);
   });
 
   document.getElementById('recPagination').addEventListener('click', function (e) {

@@ -50,11 +50,11 @@ button, input, select, textarea { font-family: inherit; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
 .btn-primary {
-  background: var(--color-primary);
-  box-shadow: none;
-  color: #fff;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+  color: var(--color-accent);
 }
-.btn-primary:hover { background: var(--color-primary-soft); box-shadow: none; }
+.btn-primary:hover { background: var(--color-accent-soft); box-shadow: inset 0 0 0 1px var(--color-accent-strong); color: var(--color-accent-strong); }
 
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-ghost:hover { background: var(--bg-section); }
@@ -225,6 +225,21 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
   margin-top: 20px;
 }
 
+/* ---------- 统一删除确认弹窗 ---------- */
+.confirm-mask { z-index: 120; } /* 高于普通弹窗，可叠加在表单弹窗之上 */
+.confirm-modal { width: 380px; }
+.confirm-modal .confirm-title { font-size: 15px; }
+.confirm-modal .confirm-msg { line-height: 1.7; margin-bottom: 2px; }
+.confirm-modal .modal-actions { justify-content: flex-end; margin-top: 18px; }
+.confirm-modal .confirm-ok.danger {
+  box-shadow: inset 0 0 0 1px var(--state-danger);
+  color: var(--state-danger);
+}
+.confirm-modal .confirm-ok.danger:hover {
+  background: var(--state-danger-bg);
+  box-shadow: inset 0 0 0 1px var(--state-danger);
+}
+
 /* 表单网格 */
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
 .form-item { display: flex; flex-direction: column; gap: 5px; }
@@ -242,7 +257,7 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
 /* ---------- 分页 ---------- */
 .pagination { display: flex; align-items: center; gap: 10px; margin-top: 12px; justify-content: flex-end; font-size: 13px; color: var(--color-text-secondary); }
 .pagination button { min-width: 30px; padding: 4px 8px; }
-.pagination button.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.pagination button.active { background: transparent; color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
 
 /* ---------- toast ---------- */
 .toast-wrap { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; }

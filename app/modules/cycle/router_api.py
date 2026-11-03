@@ -14,10 +14,17 @@ from database import get_db
 router = APIRouter(prefix="/api/cycle", tags=["cycle"])
 
 
+def _female_only(user: User = Depends(get_current_user)) -> User:
+    """性别守卫：男性账号不开放生理周期数据接口。"""
+    if user.gender == "男":
+        raise AppError(403, "男性账号不开放生理周期模块")
+    return user
+
+
 @router.get("/settings")
 def get_settings(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     s = service.get_settings(db, user.id)
     return {"cycle_length": s.cycle_length, "period_length": s.period_length}
@@ -27,7 +34,7 @@ def get_settings(
 def update_settings(
     payload: SettingsIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     s = service.update_settings(db, user.id, payload.cycle_length, payload.period_length)
     return {"cycle_length": s.cycle_length, "period_length": s.period_length}
@@ -36,7 +43,7 @@ def update_settings(
 @router.get("/periods")
 def list_periods(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     return {"list": service.list_periods(db, user.id)}
 
@@ -45,7 +52,7 @@ def list_periods(
 def create_period(
     payload: PeriodIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     row = service.create_period(db, user.id, payload.start_date, payload.end_date, payload.cycle_length, payload.period_length)
     return {"id": row.id, "start_date": row.start_date.isoformat(), "end_date": row.end_date.isoformat() if row.end_date else None}
@@ -56,7 +63,7 @@ def update_period(
     record_id: int,
     payload: PeriodUpdateIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     row = service.update_period(db, user.id, record_id, payload.start_date, payload.end_date)
     if row is None:
@@ -68,7 +75,7 @@ def update_period(
 def delete_period(
     record_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     if not service.delete_period(db, user.id, record_id):
         raise AppError(404, "记录不存在")
@@ -80,7 +87,7 @@ def set_pain(
     log_date: date,
     payload: PainIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     service.set_pain(db, user.id, log_date, payload.pain_level)
     return {"ok": True, "log_date": log_date.isoformat(), "pain_level": payload.pain_level}
@@ -90,7 +97,7 @@ def set_pain(
 def calendar(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(_female_only),
 ):
     year, month_num = month.split("-")
     return service.calendar_month(db, user.id, int(year), int(month_num))

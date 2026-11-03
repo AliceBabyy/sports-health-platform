@@ -71,3 +71,101 @@ def test_delete_day_removes_all_groups(db):
     deleted = body_service.delete_day(db, USER, _d("2026-10-20"))
     assert deleted == 2
     assert body_service.list_records(db, USER, 1, 10)["total"] == 0
+
+
+# ---------- 单条更新（基础/围度） ----------
+
+def test_update_group_record_overwrites_submitted_only(db):
+    """单条更新：只覆盖提交字段，未提交字段保留当日原值。"""
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 60.0, "height": 165.0})
+    ok = body_service.update_group_record(db, USER, "basic", _d("2026-10-20"), {"weight": 62.0})
+    assert ok is True
+    snap = body_service.latest_snapshot(db, USER)
+    assert snap["weight"]["value"] == 62.0
+    assert snap["height"]["value"] == 165.0
+
+
+def test_update_group_record_missing_row_returns_false(db):
+    """当日该组无记录 → 返回 False（API 层转 404）。"""
+    ok = body_service.update_group_record(db, USER, "basic", _d("2026-10-20"), {"weight": 62.0})
+    assert ok is False
+
+
+def test_update_girth_group_record(db):
+    body_service.upsert_group(db, USER, "girth", _d("2026-10-20"), {"waist": 70.0, "chest": 88.0})
+    ok = body_service.update_group_record(db, USER, "girth", _d("2026-10-20"), {"waist": 68.0})
+    assert ok is True
+    snap = body_service.latest_snapshot(db, USER)
+    assert snap["waist"]["value"] == 68.0
+    assert snap["chest"]["value"] == 88.0  # 未提交字段保留
+
+
+def test_update_group_record_ignores_unknown_key(db):
+    """提交不属于该组的字段：service 层直接忽略（API 层会先拒绝）。"""
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 60.0})
+    body_service.update_group_record(db, USER, "basic", _d("2026-10-20"), {"weight": 62.0, "waist": 99.0})
+    snap = body_service.latest_snapshot(db, USER)
+    assert snap["weight"]["value"] == 62.0
+    assert snap["waist"]["value"] is None
+
+
+# ---------- 目标与进度 ----------
+
+def test_goal_progress_compares_target_and_current(db):
+    """目标值与对应当前值比较：remaining = 当前 − 目标，start 为最早记录值。"""
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 60.0, "body_fat": 22.0})
+    body_service.upsert_group(db, USER, "goal", _d("2026-10-21"), {"target_weight": 55.0})
+    body_service.upsert_group(db, USER, "girth", _d("2026-10-21"), {"waist": 70.0})
+    body_service.upsert_group(db, USER, "target", _d("2026-10-22"), {"target_waist": 65.0})
+    gp = body_service.goal_progress(db, USER)
+    assert gp["total"] == 2
+    assert gp["missing"] == 6  # 其余 6 个目标未设置
+    items = {i["key"]: i for i in gp["items"]}
+    tw = items["target_weight"]
+    assert tw["label"] == "目标体重"
+    assert tw["unit"] == "kg"
+    assert tw["target"] == 55.0
+    assert tw["current"] == 60.0
+    assert tw["start"] == 60.0  # 唯一一条历史记录即起始值
+    assert tw["remaining"] == 5.0
+    assert tw["reached"] is False
+    assert tw["pct"] == 0.0  # 当前 == 起始 → 进度为 0
+    assert "继续加油" in tw["msg"]
+    twaist = items["target_waist"]
+    assert twaist["current"] == 70.0
+    assert twaist["remaining"] == 5.0
+
+
+def test_goal_progress_uses_earliest_record(db):
+    """进度从最早历史记录值起算：(起始 − 当前) / (起始 − 目标)。"""
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-01"), {"weight": 70.0})
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-10"), {"weight": 65.0})
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 60.0})
+    body_service.upsert_group(db, USER, "goal", _d("2026-10-21"), {"target_weight": 55.0})
+    gp = body_service.goal_progress(db, USER)
+    items = {i["key"]: i for i in gp["items"]}
+    tw = items["target_weight"]
+    assert tw["start"] == 70.0  # 最早一条
+    assert tw["current"] == 60.0  # 最新一条
+    assert tw["remaining"] == 5.0
+    assert tw["pct"] == round((70.0 - 60.0) / (70.0 - 55.0) * 100, 1)  # 66.7
+    assert tw["reached"] is False
+    assert "已完成" in tw["msg"] and "还差" in tw["msg"]
+
+
+def test_goal_progress_reached_at_target(db):
+    """当前值等于目标值 → reached=True、pct=100、文案为已达成。"""
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 55.0})
+    body_service.upsert_group(db, USER, "goal", _d("2026-10-21"), {"target_weight": 55.0})
+    gp = body_service.goal_progress(db, USER)
+    items = {i["key"]: i for i in gp["items"]}
+    assert items["target_weight"]["reached"] is True
+    assert items["target_weight"]["pct"] == 100
+    assert items["target_weight"]["msg"] == "已达成目标"
+
+
+def test_goal_progress_empty_when_no_goals(db):
+    gp = body_service.goal_progress(db, USER)
+    assert gp["items"] == []
+    assert gp["total"] == 0
+    assert gp["missing"] == 8

@@ -6,7 +6,7 @@ from math import ceil
 
 from sqlalchemy.orm import Session
 
-from app.core.constants import BODY_COLUMNS, BODY_GROUPS, BODY_KEYS
+from app.core.constants import BODY_COLUMNS, BODY_GROUPS, BODY_KEYS, BODY_LABELS, BODY_UNITS
 from app.modules.body.models import (
     BodyBasicGoalRecord,
     BodyBasicRecord,
@@ -23,6 +23,18 @@ GROUP_MODELS = {
 }
 
 VALID_GROUPS = ("basic", "goal", "girth", "target")
+
+# 目标指标 key → 对应当前实际指标 key（目标体重→体重、目标体脂率→体脂率、目标围度→对应围度）
+GOAL_CURRENT_KEYS = {
+    "target_weight": "weight",
+    "target_body_fat": "body_fat",
+    "target_arm": "arm",
+    "target_chest": "chest",
+    "target_waist": "waist",
+    "target_hip": "hip",
+    "target_thigh": "thigh",
+    "target_calf": "calf",
+}
 
 
 def _to_float(v) -> float | None:
@@ -81,6 +93,27 @@ def upsert_group(db: Session, user_id: int, group: str, record_date: date, value
             continue
         setattr(row, column, Decimal(str(value)))
     db.commit()
+
+
+def update_group_record(db: Session, user_id: int, group: str, record_date: date, values: dict[str, float]) -> bool:
+    """单条更新：仅覆盖提交字段，未提交字段保留当日原值；当日该组无记录返回 False。"""
+    if group not in GROUP_MODELS:
+        raise ValueError(f"未知分组：{group}")
+    model = GROUP_MODELS[group]
+    row = (
+        db.query(model)
+        .filter(model.user_id == user_id, model.record_date == record_date)
+        .first()
+    )
+    if row is None:
+        return False
+    for key in BODY_GROUPS[group]:
+        value = values.get(key)
+        if value is None:
+            continue
+        setattr(row, BODY_COLUMNS[key], Decimal(str(value)))
+    db.commit()
+    return True
 
 
 def delete_day(db: Session, user_id: int, record_date: date) -> int:
@@ -239,3 +272,72 @@ def _bmi_state(bmi: float | None) -> str | None:
     if bmi < 28:
         return "超重"
     return "肥胖"
+
+
+def _goal_progress_meta(current: float | None, target: float, start: float | None, unit: str) -> tuple:
+    """单个目标项的进度与鼓励性文案。
+
+    进度口径：从该指标最早历史记录值（start）起算，
+    进度 = (start − current) / (start − target)，目标视为下限（减重/减围）。
+    返回 (pct, reached, remaining, msg)：
+    - pct ∈ [0, 100]；口径不适用时 None；
+    - reached = 当前 ≤ 目标（含四舍五入后相等）；
+    - remaining = 当前 − 目标（>0 表示还差多少）。
+    """
+    if current is None:
+        return None, None, None, "暂无当前记录"
+    remaining = round(current - target, 1)
+    if remaining <= 0:
+        return 100, True, remaining, "已达成目标"
+    if start is None:
+        return None, False, remaining, f"还差 {remaining}{unit} 达目标"
+    denom = round(start - target, 1)
+    if denom > 0:
+        pct = round((start - current) / denom * 100, 1)
+        if pct >= 100:  # remaining>0 时不应发生，防御性收敛
+            pct = 99.9
+        if pct <= 0:
+            return 0.0, False, remaining, f"还差 {remaining}{unit} · 从起始 {start}{unit} 出发，继续加油"
+        return pct, False, remaining, f"已完成 {pct}%，还差 {remaining}{unit} 达目标"
+    # 目标值不低于起始值：该进度口径不适用，仅展示差距
+    return None, False, remaining, f"还差 {remaining}{unit} 达目标"
+
+
+def goal_progress(db: Session, user_id: int) -> dict:
+    """目标与进度：期望指标 + 目标围度的最新目标值，与对应当前实际值比较。
+
+    返回 {"items": [...], "total": n, "missing": n}：
+    - items 按目标 key 顺序，仅包含已设置目标值的项；
+    - 每项 {key, label, unit, target, current, start, pct, reached, remaining, msg}：
+      start = 该指标最早一条历史记录值（进度起算点）；
+      pct = 进度（起始→目标方向上当前所处位置，0~100，口径不适用时 None）；
+      reached = 当前 ≤ 目标；remaining = 当前 − 目标；msg = 鼓励性文案。
+    """
+    snap = latest_snapshot(db, user_id)
+    items: list[dict] = []
+    missing = 0
+    for key, current_key in GOAL_CURRENT_KEYS.items():
+        target = snap[key]["value"] if snap.get(key) else None
+        if target is None:
+            missing += 1
+            continue
+        label, unit = BODY_LABELS[key], BODY_UNITS[key]
+        current = snap[current_key]["value"] if snap.get(current_key) else None
+        series = normalize_day_values(db, user_id, current_key)
+        start = series[list(series.keys())[0]] if series else None
+        pct, reached, remaining, msg = _goal_progress_meta(current, target, start, unit)
+        items.append(
+            {
+                "key": key,
+                "label": label,
+                "unit": unit,
+                "target": target,
+                "current": current,
+                "start": start,
+                "pct": pct,
+                "reached": reached,
+                "remaining": remaining,
+                "msg": msg,
+            }
+        )
+    return {"items": items, "total": len(items), "missing": missing}

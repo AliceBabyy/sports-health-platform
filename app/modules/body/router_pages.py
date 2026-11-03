@@ -20,13 +20,14 @@ def body_page(
     user: User = Depends(get_current_user),
 ):
     snap = body_service.latest_snapshot(db, user.id)
-    initial_trend = trend_service.build_trend(db, user.id, "weight", "month")
+    initial_trend = trend_service.build_trend(db, user.id, "weight", "half_year")
     return render_page(
         request,
         "body/index.html",
         {
             "active": "body",
             "snapshot": snap,
+            "goal_progress": body_service.goal_progress(db, user.id),
             "initial_trend": initial_trend,
             "body_keys": BODY_KEYS,
             "body_labels": BODY_LABELS,

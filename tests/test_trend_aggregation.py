@@ -16,16 +16,23 @@ def _add(db, day: date, value: float, metric="weight"):
 def test_week_points_today_values_and_null(db):
     today = today_local()
     monday = today - timedelta(days=today.weekday())
-    _add(db, monday, 60.0)
     _add(db, today, 61.0)
+    if monday != today:
+        _add(db, monday, 60.0)
     points = trend_service.build_trend(db, USER, "weight", "week")["points"]
     assert len(points) == 7
-    assert points[0]["date"] == monday.isoformat() and points[0]["value"] == 60.0
     assert points[6]["date"] == (monday + timedelta(days=6)).isoformat()
-    # 中间无记录 → null（断线点）
-    for p in points[1:6]:
-        if p["date"] != today.isoformat():
+    if monday == today:
+        # 今天恰为周一（窗口首日）：首点即今日值，其余为断线
+        assert points[0]["value"] == 61.0
+        for p in points[1:6]:
             assert p["value"] is None
+    else:
+        assert points[0]["date"] == monday.isoformat() and points[0]["value"] == 60.0
+        # 中间无记录 → null（断线点）
+        for p in points[1:6]:
+            if p["date"] != today.isoformat():
+                assert p["value"] is None
 
 
 def test_same_day_multiple_take_last(db):
@@ -47,14 +54,14 @@ def service_upsert(db, day: date, value: float, metric="weight"):
 def test_half_year_window_average(db):
     today = today_local()
     anchor = today.replace(day=1)  # 本月 1 号锚点
-    if anchor > today:
-        return
     _add(db, anchor, 60.0)
     _add(db, anchor - timedelta(days=5), 61.0)
     points = trend_service.build_trend(db, USER, "weight", "half_year")["points"]
-    assert len(points) == 18
+    # 锚点数 = 6 个月 × 3 锚点(1/10/20 号) − 本月已过期的未来锚点（随运行日期变化）
+    future = sum(1 for d in (1, 10, 20) if d > today.day)
+    assert len(points) == 6 * 3 - future
     first = next(p for p in points if p["date"] == anchor.isoformat())
-    assert first["value"] == 60.5
+    assert first["value"] == 60.5  # 锚点窗口 [锚点-10天, 锚点] 内两条取均值
 
 
 def test_year_window_average_and_null(db):

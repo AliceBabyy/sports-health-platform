@@ -4,22 +4,40 @@
     <div class="logo-en">BODY ALMANAC</div>
   </div>
   <div class="sidebar-section">模块</div>
-  <nav class="sidebar-nav">
-    {% for key, url, label in nav_items %}
-    <a href="{{ url }}" class="{{ 'active' if active == key else '' }}">
-      <span class="nav-t">{{ label[:2] }}</span><span class="nav-f">{{ label }}</span>
-    </a>
+  <nav class="sidebar-nav" id="sidebarNav">
+    {% for g in nav_groups %}
+      {% if g.children %}
+      <div class="nav-group {{ 'open' if group_open == g.key else '' }}">
+        <a href="{{ g.url }}" class="nav-group-head {{ 'active' if active == g.key else '' }}">
+          <span class="nav-t">{{ g.short }}</span><span class="nav-f">{{ g.label }}</span>
+          <span class="chev" data-toggle-group title="展开/收起">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+          </span>
+        </a>
+        <div class="nav-sub">
+          {% for c in g.children %}
+          <a href="{{ c.url }}" class="{{ 'active' if active == c.key else '' }}">
+            <span class="nav-t">{{ c.short }}</span><span class="nav-f">{{ c.label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <a href="{{ g.url }}" class="{{ 'active' if active == g.key else '' }}">
+        <span class="nav-t">{{ g.short }}</span><span class="nav-f">{{ g.label }}</span>
+      </a>
+      {% endif %}
     {% endfor %}
   </nav>
   <div class="sidebar-bottom">
     <div class="today-card">
       <div class="d1">今天</div>
       <div class="d2 num">{{ today_str }}</div>
-      <div class="d3">{{ weekday_cn }} · 周期第{{ cycle_today.cycle_day if cycle_today else '—' }}天</div>
+      <div class="d3">{{ weekday_cn }}{% if cycle_today %} · 周期第{{ cycle_today.cycle_day }}天{% endif %}</div>
       {% if cycle_today and cycle_today.sport_level %}
       <span class="tag tag-{{ cycle_today.sport_level }}">{{ cycle_today.sport_label }}</span>
       {% endif %}
     </div>
-    <div class="sidebar-hint">数字键 1-5 切换模块</div>
+    <div class="sidebar-hint">数字键 1-{{ nav_count }} 切换模块</div>
   </div>
 </aside>

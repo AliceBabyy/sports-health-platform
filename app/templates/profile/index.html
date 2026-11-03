@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}个人信息 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/profile.css">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>个人信息</h1>
+  <div class="page-desc">管理账号资料与登录密码；昵称会同步显示在各页右上角。</div>
+</div>
+
+<div class="profile-wrap">
+  <!-- 账号信息（只读） -->
+  <div class="card">
+    <div class="card-title">账号信息 <span class="sub">只读</span></div>
+    <div class="profile-identity">
+      <div class="profile-avatar">{{ (user.display_name or user.username)[:1] }}</div>
+      <div>
+        <div class="profile-name">{{ user.display_name or user.username }}</div>
+        <div class="profile-username">@{{ user.username }}</div>
+      </div>
+    </div>
+    <div class="kv">
+      <div class="kv-row"><span>用户名</span><b class="num">{{ user.username }}</b></div>
+      <div class="kv-row"><span>注册时间</span><b class="num">{{ created_at }}</b></div>
+      <div class="kv-row"><span>最近更新</span><b class="num">{{ updated_at }}</b></div>
+    </div>
+  </div>
+
+  <!-- 基本资料（可编辑） -->
+  <div class="card">
+    <div class="card-title">基本资料 <span class="sub">保存后立即生效</span></div>
+    <form id="formProfile" autocomplete="off">
+      <label class="field-label">昵称</label>
+      <input class="input" name="display_name" value="{{ user.display_name }}" maxlength="32" placeholder="页面右上角展示的名字" required>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="form-item">
+          <label class="field-label">性别</label>
+          <select class="input" name="gender">
+            <option value="">未填写</option>
+            <option value="男" {% if user.gender == '男' %}selected{% endif %}>男</option>
+            <option value="女" {% if user.gender == '女' %}selected{% endif %}>女</option>
+          </select>
+        </div>
+        <div class="form-item">
+          <label class="field-label">年龄</label>
+          <input class="input" type="number" name="age" value="{{ user.age or '' }}" min="1" max="120" placeholder="岁">
+        </div>
+      </div>
+      <div class="profile-actions">
+        <button type="submit" class="btn btn-primary">保存资料</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- 修改密码 -->
+  <div class="card">
+    <div class="card-title">修改密码 <span class="sub">新密码至少 6 位</span></div>
+    <form id="formPassword" autocomplete="off">
+      <label class="field-label">当前密码</label>
+      <input class="input" type="password" name="current_password" autocomplete="current-password" required>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="form-item">
+          <label class="field-label">新密码</label>
+          <input class="input" type="password" name="new_password" minlength="6" autocomplete="new-password" required>
+        </div>
+        <div class="form-item">
+          <label class="field-label">确认新密码</label>
+          <input class="input" type="password" name="confirm_password" minlength="6" autocomplete="new-password" required>
+        </div>
+      </div>
+      <div class="profile-actions">
+        <button type="submit" class="btn btn-primary">更新密码</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="/static/js/profile.js"></script>
+{% endblock %}

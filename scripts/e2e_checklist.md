@@ -40,20 +40,18 @@
 | --- | --- | --- | --- |
 | TR-01 | 训练计划日面板（动作/部位/重量/组数/个数） | ✅ | `templates/training/index.html` 日视图（空值显示 —） |
 | TR-02 | 周/月总览（跨运动，替代原周面板） | ✅ | `/api/overview?granularity=week\|month` + 总览页（2026-11 改版，`/plans/week` 已删除） |
-| TR-03 | 新建/编辑计划（手动创建，无自动生成；负荷可空） | ✅ | formPlan + `/api/training/plans/{date}` POST/PUT |
-| TR-10 | 是否开始训练确认弹窗（仅底部两按钮） | ✅ | FE-14；modalStart 仅「仅编辑/开始训练」 |
-| TR-11 | 记录模式（计划转可编辑训练记录） | ✅ | `training.js` record 模式 |
+| TR-03 | 新建/编辑计划（手动创建，无自动生成；负荷可空） | ✅ | formPlan + `/api/training/plans` POST/PUT |
+| TR-10 | 完成训练确认弹窗（二次询问，2026-11-03 替代原开始训练确认） | ✅ | modalComplete + `/plans/{id}/complete`（仅当日） |
+| TR-11 | 计划 → 记录（一键完成训练，2026-11-03 移除计时记录模式） | ✅ | `training/service.py::complete_plan`（planned→recorded，写 saved_at） |
 | TR-12 | 组间休息/RPE 细节行（计划态） | ✅ | 日面板细节行 |
-| TR-13 | 期望突破重量列（target_weight_kg，计划/记录均可填） | ✅ | 计划表单 + 记录模式列 + schema |
+| TR-13 | 期望突破重量列（target_weight_kg，计划/记录均可填） | ✅ | 计划表单 + schema |
 | TR-14 | 组数显示 n × m（m 为字符串，如 10+8+6 原样展示） | ✅ | FE-13；reps 字符串透传 |
 | TR-15 | 勾选完成动作（对钩描边不填充黑） | ✅ | FE-11；`base.css` checkmark |
-| TR-16 | 开始训练记录开始时间 | ✅ | `training/service.py::start_record`（mode=training 写 started_at） |
-| TR-17 | 保存训练记录（后端算时长 saved_at-started_at） | ✅ | `save_record` 返回 duration_s；前端庆祝弹窗展示分钟 |
-| TR-20 | 庆祝弹窗（时长/动作数/完成动作/总容量/心得确认/取消） | ✅ | modalCelebrate（FE-15 confetti 关闭即停） |
-| TR-21 | 填写训练心得弹窗（状态文本 + 星级；文本可空） | ✅ | modalNote（status_text nullable + rating 1~5） |
-| TR-22 | 当日保存后锁定（recorded 不可再改/删/重复保存） | ✅ | 接口幂等保护（400 提示） |
-| TR-23 | 取消记录模式（未保存前可退出） | ✅ | `/plans/{date}/cancel` |
-| TR-24 | 训练历史（已保存记录 + 心得，分页） | ✅ | `/api/training/history` + 历史表格 |
+| TR-16 | （已移除）开始训练计时 / TR-17（已移除）保存记录时长 | ⛔ | 2026-11-03 记录模式下线，started_at 不再写入 |
+| TR-20 | （已移除）庆祝弹窗 / TR-21（已移除）心得填写入口 | ⛔ | 随记录模式下线；既有心得数据仍只读展示于历史 |
+| TR-22 | 当日完成后锁定（recorded 不可再改/删/重复完成） | ✅ | `complete_plan`/`update_plan`/`delete_plan` 幂等保护（400 提示） |
+| TR-23 | （已移除）取消记录模式 | ⛔ | 2026-11-03 下线 |
+| TR-24 | 训练历史（已保存记录 + 既有心得，分页） | ✅ | `/api/training/history` + 历史表格 |
 | TR-25 | 周期联动（结合生理周期给当日强度建议） | ✅ | 侧栏周期联动卡（cycle_link） |
 
 ## 3. 游泳 SW
@@ -122,6 +120,6 @@
 - ✅ 浏览器抽查（2026-10-31，4 表整改后）：
   - 注册页：/register 渲染正常（用户名/密码/昵称/性别/年龄，无身高输入）；注册新用户后直入 /body
   - 身材页：4 个添加按钮（基础/期望/围度/目标围度）+ 4 弹窗；占位提示正确（无历史"新增"、有历史"沿用 165 / 沿用 60"）；填写今日体重保存后 latest 身高自动沿用昨日 165、体重 delta +1.0；表格按日期合并 2 行展示；趋势下拉 11 基础维度
-  - 训练页：计划表单含目标重量列、reps 文本框；保存可空字段计划后日面板正确显示（— × 10+8+6、容量 0）；记录模式组件正常
+  - 训练页：计划表单含目标重量列、reps 文本框；保存可空字段计划后日面板正确显示（— × 10+8+6、容量 0）；「完成训练」二次确认弹窗正常（2026-11-03 记录模式已移除）
   - 修复记录：V1 期 3 个真实 bug 已修复（training 表头类名、周期无记录预测、锚点前日期误打阶段）；整改期无新回归
 - ✅ 数据库结构核对：users 无 height_cm（已 DROP）；body 旧宽表 body_metric_records 已 DROP；4 新表（basic/goal/girth/target）全部列 + uq_body_*_user_date 约束 + created_at/updated_at；training_plan_items 四列可空 + reps varchar；notes.status_text 可空；swim.main_stroke 可空（information_schema 逐项核对）

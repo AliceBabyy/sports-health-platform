@@ -1,9 +1,17 @@
 /* 运动训练/计划 总览页：日/周/月三视图（2026-11）。
-   数据源：GET /api/overview?granularity=day|week|month&date=；单日详情 GET /api/overview/day?date=。 */
+   数据源：GET /api/overview?granularity=day|week|month&date=；单日详情 GET /api/overview/day?date=。
+   2026-11-03 布局：日=训练计划卡(顶)→三运动卡→当日运动情况(底)；周/月=每日卡(最上)→运动情况卡(次数+时长+每日时长图)。
+   月图表粒度：按月内每日（labels=日号）。 */
 (function () {
   const App = window.App;
   const todayStr = window.INIT_TODAY || App.todayStr();
-  const state = { mode: 'week', anchor: todayStr, charts: {} };
+  const qs = new URLSearchParams(location.search);
+  const state = {
+    mode: ['day', 'week', 'month'].indexOf(qs.get('mode')) >= 0 ? qs.get('mode') : 'week',
+    anchor: qs.get('date') || todayStr,   // ?date= 指定锚定日（总览跳回时定位到添加计划的那天）
+    pickDay: null,
+    charts: {},
+  };
 
   const SPORT_META = {
     fitness: { label: '健身', cls: 'fit', url: '/training' },
@@ -25,34 +33,49 @@
     return WEEKDAY_CN[d.getDay() === 0 ? 6 : d.getDay() - 1];
   }
 
+  /* ---------- 统计块（通用） ---------- */
+  function summaryGridHtml(stats) {
+    const per = stats.per_sport;
+    return '<div class="sum-item"><div class="sum-label">运动次数</div><div class="sum-value num">' + stats.records +
+      '<small> 次</small></div><div class="sum-sub">健身 ' + per.fitness.records + ' · 游泳 ' + per.swim.records + ' · 舞蹈 ' + per.dance.records + '</div></div>' +
+      '<div class="sum-item"><div class="sum-label">运动时长</div><div class="sum-value num">' + stats.minutes +
+      '<small> 分钟</small></div><div class="sum-sub">健身 ' + per.fitness.minutes + ' · 游泳 ' + per.swim.minutes + ' · 舞蹈 ' + per.dance.minutes + '</div></div>';
+  }
+
+  function dayPlanStatHtml(stats) {
+    const per = stats.per_sport;
+    return '<div class="stat-card"><div class="label">训练计划</div><div class="value num">' + stats.plans +
+      '<small> 项</small></div><div class="sub">健身 ' + per.fitness.plans + ' · 游泳 ' + per.swim.plans + ' · 舞蹈 ' + per.dance.plans + '</div></div>';
+  }
+
+  /* 运动标签 chip（周条带 / 月日历共用）：运动名 + 记N·计M + 时长 */
+  function chipHtml(k, c, dayAttr) {
+    const m = SPORT_META[k];
+    const parts = [];
+    if (c.records) parts.push('记' + c.records);
+    if (c.plans) parts.push('计' + c.plans);
+    const cnt = parts.length ? '<em class="oc-cnt">' + parts.join(' · ') + '</em>' : '';
+    const min = c.minutes ? '<em class="oc-min">' + c.minutes + ' min</em>' : '';
+    return '<span class="ov-chip ' + m.cls + '"' + (dayAttr ? ' data-open-day="' + dayAttr + '"' : '') + '>' +
+      '<span class="oc-dot"></span>' + m.label + cnt + min + '</span>';
+  }
+
   /* ---------- 总览加载 ---------- */
   function load() {
     App.api('/api/overview?granularity=' + state.mode + '&date=' + state.anchor).then(function (res) {
-      renderStats(res.stats);
       const views = { day: 'ovDayView', week: 'ovWeekView', month: 'ovMonthView' };
       Object.keys(views).forEach(v => document.getElementById(views[v]).style.display = v === state.mode ? '' : 'none');
+      history.replaceState(null, '', '?mode=' + state.mode + '&date=' + state.anchor);
       if (state.mode === 'day') { renderDayCards(res); return; }
       if (state.mode === 'week') { renderWeek(res); return; }
       renderMonth(res);
     }).catch(e => App.toast(e.message, true));
   }
 
-  function renderStats(stats) {
-    const wrap = document.getElementById('ovStats');
-    const per = stats.per_sport;
-    wrap.innerHTML =
-      '<div class="stat-card"><div class="label">运动次数</div><div class="value num">' + stats.records +
-      '<small> 次</small></div><div class="sub">健身 ' + per.fitness.records + ' · 游泳 ' + per.swim.records + ' · 舞蹈 ' + per.dance.records + '</div></div>' +
-      '<div class="stat-card"><div class="label">训练计划</div><div class="value num">' + stats.plans +
-      '<small> 项</small></div><div class="sub">健身 ' + per.fitness.plans + ' · 游泳 ' + per.swim.plans + ' · 舞蹈 ' + per.dance.plans + '</div></div>' +
-      '<div class="stat-card"><div class="label">运动时长</div><div class="value num">' + stats.minutes +
-      '<small> 分钟</small></div><div class="sub">健身 ' + per.fitness.minutes + ' · 游泳 ' + per.swim.minutes + ' · 舞蹈 ' + per.dance.minutes + '</div></div>' +
-      '<div class="stat-card"><div class="label">消耗估算</div><div class="value num">' + stats.kcal +
-      '<small> kcal</small></div><div class="sub">游泳 + 舞蹈 · 健身暂无热量字段</div></div>';
-  }
-
-  /* ---------- 日视图：三运动卡片 ---------- */
+  /* ---------- 日视图：训练计划卡(顶) + 三运动当日卡 + 当日运动情况(底) ---------- */
   function renderDayCards(res) {
+    document.getElementById('ovDayStats').innerHTML = dayPlanStatHtml(res.stats);
+    document.getElementById('ovDaySummaryGrid').innerHTML = summaryGridHtml(res.stats);
     App.api('/api/overview/day?date=' + state.anchor).then(function (detail) {
       const wrap = document.getElementById('ovDayCards');
       wrap.innerHTML = ['fitness', 'swim', 'dance'].map(function (k) {
@@ -68,13 +91,14 @@
           : '<div class="osc-empty">当日无' + m.label + '数据</div>';
         return '<div class="card ov-sport-card"><div class="osc-head">' +
           '<span class="osc-dot ' + m.cls + '"></span><span class="osc-title">' + m.label + '</span>' +
+          '<button type="button" class="btn btn-sm osc-newplan" data-newplan="' + k + '" title="为这一天新建' + m.label + '计划">＋ 计划</button>' +
           '<span class="osc-count num">记录 ' + c.records + ' · 计划 ' + c.plans + '</span></div>' +
           '<div class="osc-list">' + listHtml + '</div></div>';
       }).join('');
     }).catch(e => App.toast(e.message, true));
   }
 
-  /* ---------- 周视图：每日条带 + 堆叠柱 ---------- */
+  /* ---------- 周视图：本周每日运动条带（最上）+ 本周运动情况（次数/时长 + 每日时长图） ---------- */
   function renderWeek(res) {
     const strip = document.getElementById('ovWeekStrip');
     const todayIdx = res.days.findIndex(d => d.date === todayStr);
@@ -83,22 +107,17 @@
       const marks = [];
       ['fitness', 'swim', 'dance'].forEach(function (k) {
         const c = d.sports[k];
-        if (c.records || c.plans) {
-          const m = SPORT_META[k];
-          const parts = [];
-          if (c.records) parts.push('记' + c.records);
-          if (c.plans) parts.push('计' + c.plans);
-          marks.push('<span class="ov-chip ' + m.cls + '" data-open-day="' + d.date + '"><span class="oc-dot"></span>' + m.label + ' ' + parts.join(' ') + '</span>');
-        }
+        if (c.records || c.plans) marks.push(chipHtml(k, c, d.date));
       });
-      return '<div class="ws-day' + (i === todayIdx ? ' is-today' : '') + '">' +
-        '<div class="wd-top"><span class="wd-num">' + parseInt(d.date.slice(8), 10) + '</span><span class="wd-week">' + wd + '</span></div>' +
+      return '<div class="ws-day' + (i === todayIdx ? ' is-today' : '') + '" data-add-day="' + d.date + '" title="为这一天添加计划">' +
+        '<div class="wd-top"><span class="wd-num">' + parseInt(d.date.slice(8), 10) + '</span><span class="wd-week">' + wd + '</span><button type="button" class="wd-add" title="为这一天添加计划">＋</button></div>' +
         '<div class="wd-sports">' + (marks.length ? marks.join('') : '<span class="wd-empty">—</span>') + '</div></div>';
     }).join('');
+    document.getElementById('ovWeekSummaryGrid').innerHTML = summaryGridHtml(res.stats);
     renderChart('chartOvWeek', 'chartOvWeekFallback', res.chart);
   }
 
-  /* ---------- 月视图：日历 + 每周堆叠柱 ---------- */
+  /* ---------- 月视图：本月日历（最上）+ 本月运动情况（次数/时长 + 每日时长图） ---------- */
   function renderMonth(res) {
     const d0 = new Date(res.date + 'T00:00:00');
     const year = d0.getFullYear(), month = d0.getMonth() + 1;
@@ -118,17 +137,11 @@
         const mk = [];
         ['fitness', 'swim', 'dance'].forEach(function (k) {
           const c = d.sports[k];
-          if (c.records || c.plans) {
-            const m = SPORT_META[k];
-            const parts = [];
-            if (c.records) parts.push('记' + c.records);
-            if (c.plans) parts.push('计' + c.plans);
-            mk.push('<span class="ov-chip ' + m.cls + '">' + m.label + ' ' + parts.join(' ') + '</span>');
-          }
+          if (c.records || c.plans) mk.push(chipHtml(k, c, iso));
         });
         marks = mk.length ? mk.join('') : '<span class="cd-empty">—</span>';
       }
-      cells += '<div class="ov-cal-cell' + (iso === todayStr ? ' is-today' : '') + '" data-open-day="' + iso + '">' +
+      cells += '<div class="ov-cal-cell' + (iso === todayStr ? ' is-today' : '') + '" data-add-day="' + iso + '" title="为这一天添加计划">' +
         '<div class="cd-num num">' + day + '</div><div class="cd-marks">' + marks + '</div></div>';
     }
 
@@ -136,6 +149,7 @@
     grid.innerHTML = '<div class="ov-cal"><div class="ov-cal-head">' +
       ['一', '二', '三', '四', '五', '六', '日'].map(w => '<span>' + w + '</span>').join('') + '</div>' +
       '<div class="ov-cal-grid">' + cells + '</div></div>';
+    document.getElementById('ovMonthSummaryGrid').innerHTML = summaryGridHtml(res.stats);
     renderChart('chartOvMonth', 'chartOvMonthFallback', res.chart);
   }
 
@@ -239,12 +253,27 @@
     });
   }
 
+  /* ---------- 为某天添加计划：选运动弹窗 → 跳对应运动页自动开新建计划表单 ---------- */
+  function sportUrl(sport, day) {
+    return SPORT_META[sport].url + '?date=' + day + '&newplan=1&fromov=1';
+  }
+  function openPicker(day) {
+    state.pickDay = day;
+    document.getElementById('ovPickDate').textContent = day + '（' + weekdayOf(day) + '） · 选择要添加哪类运动计划？';
+    App.openModal('modalOvPick');
+  }
+
   /* ---------- 事件 ---------- */
+  function syncSeg() {
+    document.querySelectorAll('#ovModeSeg button[data-mode]').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.mode === state.mode);
+    });
+  }
   document.getElementById('ovModeSeg').addEventListener('click', function (e) {
     const b = e.target.closest('button[data-mode]');
     if (!b || b.dataset.mode === state.mode) return;
     state.mode = b.dataset.mode;
-    Array.prototype.forEach.call(this.children, el => el.classList.toggle('active', el === b));
+    syncSeg();
     load();
   });
 
@@ -258,11 +287,36 @@
   bindOpenDay(document.getElementById('ovWeekStrip'));
   bindOpenDay(document.getElementById('ovCalGrid'));
 
+  /* 点日期格（非标签）→ 添加计划选择器 */
+  function bindAddDay(root) {
+    root.addEventListener('click', function (e) {
+      if (e.target.closest('[data-open-day]')) return;   // 标签→当日详情优先
+      const t = e.target.closest('[data-add-day]');
+      if (t) openPicker(t.dataset.addDay);
+    });
+  }
+  bindAddDay(document.getElementById('ovWeekStrip'));
+  bindAddDay(document.getElementById('ovCalGrid'));
+
+  /* 日视图：每运动卡头部「＋ 计划」→ 直接跳该运动页新建 */
+  document.getElementById('ovDayCards').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-newplan]');
+    if (b) location.href = sportUrl(b.dataset.newplan, state.anchor);
+  });
+
+  /* 选运动弹窗 */
+  document.getElementById('modalOvPick').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-pick]');
+    if (!b) return;
+    location.href = sportUrl(b.dataset.pick, state.pickDay);
+  });
+
   document.querySelectorAll('[data-close]').forEach(function (el) {
     el.addEventListener('click', function () { App.closeModal(el.dataset.close); });
   });
 
   /* ---------- 初始化 ---------- */
+  syncSeg();
   load();
   window.addEventListener('resize', function () {
     Object.keys(state.charts).forEach(function (k) { state.charts[k].resize(); });

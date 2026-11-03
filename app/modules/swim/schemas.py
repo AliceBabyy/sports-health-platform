@@ -21,3 +21,4 @@ class SwimRecordIn(BaseModel):
     total_strokes: int | None = Field(default=None, ge=0)
     laps: int | None = Field(default=None, ge=0)
     calories: Decimal | None = None
+    avg_stroke_rate: float | None = Field(default=None, ge=0, le=200)  # 平均划频（记录态可手填，次/分）

@@ -6,3 +6,66 @@
 .form-item { display: flex; flex-direction: column; gap: 5px; }
 .form-item.full { grid-column: 1 / -1; }
 .readonly-note { font-size: 12px; color: var(--color-text-secondary); margin-top: 12px; }
+
+/* 当日游泳行：计划=灰底虚线框，记录=浅薄荷底，一眼区分 */
+.swim-page .daily-row.is-planned {
+  background: var(--bg-section);
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-left: 3px solid var(--color-text-secondary);
+}
+.swim-page .daily-row.is-recorded {
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-left: 3px solid var(--color-accent);
+}
+
+/* 游泳档案卡（历史聚合：累计次数 + 平均/最快/最慢配速 + 最常用泳姿 + 最近一次 + 鼓励语） */
+.swim-profile { margin-top: 18px; margin-bottom: 18px; }
+.swim-profile-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.sp-item {
+  box-shadow: inset 0 0 0 0.667px var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  background: var(--bg-section, var(--bg-card));
+}
+.sp-label { font-size: 12.5px; color: var(--color-text-secondary); }
+.sp-value { font-size: 24px; font-weight: 400; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.sp-value small { font-size: 13px; font-weight: 400; color: var(--color-text-secondary); margin-left: 3px; }
+
+/* 最近一次：独立高亮区块，主数字加大 */
+.sp-latest {
+  margin-top: 14px;
+  box-shadow: inset 0 0 0 0.667px var(--color-accent);
+  border-radius: var(--radius);
+  background: var(--color-accent-soft);
+  padding: 12px 16px;
+}
+.sp-latest-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sp-latest-label {
+  font-size: 12px; color: var(--color-accent-strong); font-weight: 400;
+  background: var(--bg-card);
+  box-shadow: inset 0 0 0 0.667px var(--color-accent);
+  border-radius: 4px; padding: 1px 8px;
+}
+.sp-latest-date { font-size: 12.5px; color: var(--color-text-secondary); }
+.sp-latest-body { display: flex; flex-wrap: wrap; gap: 22px; }
+.sp-latest-stat { display: flex; align-items: baseline; gap: 4px; }
+.sp-latest-stat b { font-size: 22px; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--color-text); }
+.sp-latest-stat small { font-size: 12px; color: var(--color-text-secondary); }
+
+.sp-cheer { margin-top: 12px; font-size: 13px; color: var(--color-accent); }
+@media (max-width: 720px) {
+  .swim-profile-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 顶部按钮分隔线 + 导入弹窗辅助样式（与 training/body 一致） */
+.actions-divider { width: 1px; height: 20px; background: var(--color-border-strong); align-self: center; margin-left: auto; }
+.modal-note { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+.import-result { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.import-result .summary { font-size: 13px; margin-bottom: 10px; }
+.import-result .ok { color: #0e8f72; }
+.import-result .fail { color: var(--state-danger); }
+.import-result .tbl-wrap { max-height: 200px; overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.import-result table.tbl { font-size: 12.5px; }
+.import-result table.tbl th { white-space: nowrap; }
+.file-input { padding: 8px 10px; }

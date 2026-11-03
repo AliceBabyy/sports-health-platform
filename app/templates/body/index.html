@@ -110,53 +110,35 @@
   </div>
 </div>
 
-<!-- 目标与进度：期望指标 / 目标围度的最新目标值 vs 对应当前值；进度从该指标最早记录值起算 -->
+<!-- 达成成就：7 项指标「首次记录 → 最新记录」变化对比，展示已完成的成就（不与目标比较） -->
 <div class="card goals-card">
-  <div class="card-title">目标与进度 <span class="sub">期望指标 · 目标围度 · 进度从该指标最早记录值起算</span></div>
+  <div class="card-title">达成成就 <span class="sub">首次记录 → 最新记录 | 数据比对</span></div>
   <div class="goals-body">
-    {% if goal_progress["items"] %}
-      {% set basic_keys = ['target_weight', 'target_body_fat'] %}
-      {% set basic_items = [] %}
-      {% set girth_items = [] %}
-      {% for g in goal_progress["items"] %}
-        {% if g.key in basic_keys %}{% set _ = basic_items.append(g) %}{% else %}{% set _ = girth_items.append(g) %}{% endif %}
+    {% if achievements["has_data"] %}
+    <div class="goals-grid">
+      {% for g in achievements["items"] %}
+      <div class="goal-item">
+        <div class="goal-top">
+          <span class="goal-label">{{ g.label }}</span>
+        </div>
+        <div class="goal-change">
+          <span class="goal-num">
+            <b class="num">{{ g.start if g.start is not none else '—' }}</b>{% if g.start is not none %}<span class="unit">{{ g.unit }}</span>{% endif %}
+          </span>
+          <span class="goal-arrow-wrap">
+            <span class="goal-delta{{ ' ' + g.direction if g.has_change else ' muted' }}">{{ g.change_msg if g.has_change else '暂无完整对比' }}</span>
+            <span class="goal-arrow">→</span>
+          </span>
+          <span class="goal-num">
+            <b class="num">{{ g.current if g.current is not none else '—' }}</b>{% if g.current is not none %}<span class="unit">{{ g.unit }}</span>{% endif %}
+          </span>
+        </div>
+        <div class="goal-foot">{% if g.start_date %}<span class="goal-since">自 {{ g.start_date }} 起</span>{% endif %}</div>
+      </div>
       {% endfor %}
-      {% if basic_items %}
-      <div class="goals-grid goals-basic">
-        {% for g in basic_items %}
-        <div class="goal-item basic">
-          <div class="goal-top">
-            <span class="goal-label">{{ g.label }}</span>
-            <span class="goal-values">{% if g.start is not none %}起始 <b class="num">{{ g.start }}</b>{{ g.unit }} → {% endif %}目标 <b class="num">{{ g.target }}</b>{{ g.unit }} · 当前 <b class="num">{{ g.current if g.current is not none else '—' }}</b>{% if g.current is not none %}{{ g.unit }}{% endif %}</span>
-          </div>
-          <div class="goal-bar"><i class="goal-fill{{ ' ok' if g.reached else '' }}" style="width: {{ g.pct if g.pct is not none else 0 }}%"></i></div>
-          <div class="goal-foot">
-            <span class="goal-msg{{ ' ok' if g.reached else '' }}{{ ' muted' if g.current is none }}">{{ g.msg }}</span>
-            <span class="goal-pct num">{{ g.pct if g.pct is not none else '—' }}%</span>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-      {% if girth_items %}
-      <div class="goals-grid">
-        {% for g in girth_items %}
-        <div class="goal-item">
-          <div class="goal-top">
-            <span class="goal-label">{{ g.label }}</span>
-            <span class="goal-values">{% if g.start is not none %}起始 <b class="num">{{ g.start }}</b>{{ g.unit }} → {% endif %}目标 <b class="num">{{ g.target }}</b>{{ g.unit }} · 当前 <b class="num">{{ g.current if g.current is not none else '—' }}</b>{% if g.current is not none %}{{ g.unit }}{% endif %}</span>
-          </div>
-          <div class="goal-bar"><i class="goal-fill{{ ' ok' if g.reached else '' }}" style="width: {{ g.pct if g.pct is not none else 0 }}%"></i></div>
-          <div class="goal-foot">
-            <span class="goal-msg{{ ' ok' if g.reached else '' }}{{ ' muted' if g.current is none }}">{{ g.msg }}</span>
-            <span class="goal-pct num">{{ g.pct if g.pct is not none else '—' }}%</span>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
+    </div>
     {% else %}
-    <div class="empty-state" style="padding:20px 0"><div class="icon">🎯</div>暂无目标，可在上方「期望指标 / 目标围度」中添加</div>
+    <div class="empty-state" style="padding:20px 0"><div class="icon">🏆</div>暂无数据，可在上方「基础记录 / 围度记录」中添加后查看变化</div>
     {% endif %}
   </div>
 </div>

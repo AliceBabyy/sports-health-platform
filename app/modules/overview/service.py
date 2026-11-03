@@ -5,7 +5,7 @@
   游泳/舞蹈 status 同构（2026-11 加列）。
 - 健身时长：recorded 时按 saved_at - started_at（秒→分钟）；计划态计 0。
 - 游泳/舞蹈时长：duration_s；热量：calories（健身无热量字段，stats 热量=游泳+舞蹈）。
-- 图表序列：week → 每日分钟；month → 按周分组（跨月周只聚合月内日期）。
+- 图表序列：week → 每日分钟；month → 按月内每日分钟。
 """
 import calendar as _calendar
 from datetime import date, timedelta
@@ -102,26 +102,13 @@ def _chart_week(per_day: list[dict]) -> dict:
 
 
 def _chart_month(days: list[date], per_day: list[dict]) -> dict:
-    """按自然周（周一起）分组，跨月周只聚合月内日期。"""
-    day_map = {d: c for d, c in zip(days, per_day)}
-    first = days[0]
-    week_start = monday_of(first)
-    weeks: list[tuple[str, list[date]]] = []
-    cursor = week_start
-    while cursor <= days[-1]:
-        chunk = [cursor + timedelta(days=i) for i in range(7)]
-        inner = [c for c in chunk if c in day_map]
-        if inner:
-            label = f"{inner[0].month}.{inner[0].day:02d}–{inner[-1].month}.{inner[-1].day:02d}"
-            weeks.append((label, inner))
-        cursor += timedelta(days=7)
-    labels = [w[0] for w in weeks]
-    fitness, swim, dance = [], [], []
-    for _, inner in weeks:
-        fitness.append(sum(day_map[c]["sports"]["fitness"]["minutes"] for c in inner))
-        swim.append(sum(day_map[c]["sports"]["swim"]["minutes"] for c in inner))
-        dance.append(sum(day_map[c]["sports"]["dance"]["minutes"] for c in inner))
-    return {"labels": labels, "fitness": fitness, "swim": swim, "dance": dance}
+    """按月内每日分钟序列（labels=日号，2026-11 由按周分组改为每日）。"""
+    return {
+        "labels": [str(d.day) for d in days],
+        "fitness": [c["sports"]["fitness"]["minutes"] for c in per_day],
+        "swim": [c["sports"]["swim"]["minutes"] for c in per_day],
+        "dance": [c["sports"]["dance"]["minutes"] for c in per_day],
+    }
 
 
 def aggregate(db: Session, user_id: int, granularity: str, day: date) -> dict:

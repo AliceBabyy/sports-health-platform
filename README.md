@@ -16,6 +16,9 @@ V1 范围：注册/登录认证 + 六大模块（身材数据 BD / 健身训练 
 >   `GET /api/overview/day?date=`（单日详情）；swim/dance 新增 `GET /api/swim-records|dance-records/daily?date=`；
 >   删除已弃用的 `GET /api/training/plans/week`（前端周面板已由总览承接，`service.week_plans` 一并移除，
 >   原测试改造为总览聚合断言）。详见《数据库建表设计.md》与本章「2026-11 改版口径」。
+> - 总览布局（2026-11-03）：日视图顶部仅保留「训练计划」卡，运动次数/时长并入底部「当日运动情况」；
+>   周/月视图「每日运动」卡片置顶并加高、每条标签含时长，顶部聚合收敛为「运动次数+运动时长」并与
+>   「每日运动时长」图合并为「运动情况」卡（月视图图表按每日粒度，labels=日号）；消耗估算卡已移除。
 
 ## 快速开始
 
@@ -81,7 +84,7 @@ sports-health-platform/
 │  ├─ modules/
 │  │  ├─ auth/             # 登录/注册/登出/会话（users 表含性别年龄）
 │  │  ├─ body/             # 身材数据：4 表拆分 upsert + 未填继承 + 四档趋势 + BMI + 剪影
-│  │  ├─ training/         # 训练计划/记录模式状态机/庆祝/心得/历史
+│  │  ├─ training/         # 训练计划（「完成训练」一键转记录）/历史
 │  │  ├─ swim/             # 游泳记录/计划 + 配速/划频计算 + 单日视图
 │  │  ├─ dance/            # 舞蹈记录/计划 + 舞种汇总 + 单日视图
 │  │  ├─ overview/         # 运动训练/计划总览：日/周/月聚合 + 单日详情（2026-11 新增）
@@ -110,26 +113,26 @@ sports-health-platform/
 - 训练负荷宽松化：动作名称必填，部位/重量/组数/每组个数可空；每组个数为字符串（如 "10+8+6"），容量 = Σ 重量×组数×个数首段数字；期望突破重量计划/记录均可填
 - 七阶段：经期 N≤period_length；排卵日 N=cycle_length-14；排卵后 1~2 天排卵后期、3~6 黄体前期、7~10 黄体中期、11 起黄体后期；其余排卵期前期（默认 28/5）
 - 运动三档：疼痛 ≥2 → 适合休息（最高优先）；排卵日/排卵前后且疼痛 0 → 精力旺盛；排卵前期/黄体前中期且疼痛 ≤1 → 状态良好；其余适合休息
-- 训练状态机：status 只存终态 recorded；started_at 区分「仅编辑/开始训练」；时长后端算（saved_at - started_at）；已保存当日锁定
+- 训练状态机：planned → recorded 由「完成训练」一键完成（2026-11-03 移除计时记录模式/庆祝/心得入口）；写 saved_at、不写计时 started_at；已记录当日锁定、不可再改/删
 - 周期锚点：最近月经首日；无记录时锚点=今天，锚点前日期不推算阶段
 - 心得文本（training_notes.status_text）、游泳主泳姿（swim_records.main_stroke）均可空
 
 ## 2026-11 改版口径（运动训练/计划）
 
 - **统一两态**：所有运动均为「计划 planned / 记录 recorded」。健身 = 特殊构造（训练动作 items 量身定制，
-  沿用 training_plans/training_plan_items/training_notes 三表与状态机不动）；游泳/舞蹈的计划态
-  为结构化字段：游泳=距离/时长/主泳姿/备注，舞蹈=舞种/星级/备注（不再使用笼统字符串）。
+  沿用 training_plans/training_plan_items/training_notes 三表；计划练完点「完成训练」二次确认后转 recorded）；
+  游泳/舞蹈的计划态为结构化字段：游泳=距离/时长/主泳姿/备注，舞蹈=舞种/星级/备注（不再使用笼统字符串）。
 - **数据层**：`scripts/migrate_plan_status.py`（幂等）为 swim/dance 加 `status`、记录必填列转可空、
   建 `(user_id, record_date)` 联合索引；`scripts/migrate_remark.py`（幂等）三表加 `remark`
   （swim/dance 移除 `plan_text`，旧计划文本保全至 remark）。API 层按状态校验必填
   （游泳计划=距离+时长+主泳姿、记录=距离+时长；舞蹈计划=舞种+星级、记录=舞种+星级+时长；泳姿合法）。
   统计口径：stats 只统计 recorded 行；总览聚合中 planned 计 plans、recorded 计 records/时长/热量。
 - **总览**：`GET /api/overview?granularity=day|week|month&date=` 返回逐日 per-sport 计数、汇总卡与图表序列
-  （week=周一~周日逐日分钟堆叠；month=按自然周分组、跨月周只聚合月内日；day=chart 为空）；
+  （week=周一~周日逐日分钟堆叠；month=当月逐日分钟堆叠，labels=1..月末日号；day=chart 为空）；
   `GET /api/overview/day?date=` 返回当日三运动全部条目。页面 `/overview` 默认周视图，
   点击「某天 × 某运动」标签弹单日详情，可一键跳转 `/{sport}?date=某日`。
 - **单日页**：健身/游泳/舞蹈页支持 `?date=` 参数 + 前后翻页导航，默认当天；
-  总览跳转某日即某日；非当日健身计划不开放「开始训练」（后端同口径校验）。
+  总览跳转某日即某日；非当日健身计划不开放「完成训练」（后端同口径校验）。
 - **清理**：删除已无前端的 `GET /api/training/plans/week` 与 `service.week_plans`；
   对应测试 `test_week_plans_multi` 改造为 `test_overview_week_includes_training`，
   新增 `tests/test_overview.py`（聚合口径/单日详情/计划态）。

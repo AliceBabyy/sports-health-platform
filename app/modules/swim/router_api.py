@@ -1,18 +1,22 @@
-"""游泳 API 路由（/api/swim-records，SW-01/02；2026-11 支持计划态 + 单日查询）。"""
+"""游泳 API 路由（/api/swim-records，SW-01/02；2026-11 支持计划态 + 单日查询 + 批量导入）。"""
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.constants import SWIM_STROKES
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
-from app.modules.swim import service
+from app.modules.swim import excel_io, json_import, service
 from app.modules.swim.schemas import SwimRecordIn
 from database import get_db
 
 router = APIRouter(prefix="/api/swim-records", tags=["swim"])
+
+XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MAX_IMPORT_BYTES = 20 * 1024 * 1024
 
 
 @router.get("")
@@ -35,6 +39,65 @@ def daily_swim(
     """某日全部行（计划 + 记录），供单日详情页/总览弹窗。"""
     rows = service.get_by_date(db, user.id, day)
     return {"date": day.isoformat(), "list": [service.to_dict(r) for r in rows]}
+
+
+# 注意：静态路径必须注册在 /{record_id} 之前，否则会被动态路由遮蔽。
+
+@router.get("/template")
+def download_swim_template(
+    user: User = Depends(get_current_user),
+):
+    """下载游泳记录导入模板 xlsx：数据 Sheet（表头）+ 填写说明。"""
+    buf = excel_io.build_template()
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type=XLSX_MEDIA,
+        headers={"Content-Disposition": 'attachment; filename="swim_import_template.xlsx"'},
+    )
+
+
+@router.post("/import")
+async def import_swim(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """导入 Excel（.xlsx）：解析 → 行级校验 → 每条有效行新建一条记录（status=recorded）。
+    失败行跳过并返回明细，不阻断其他行。
+    """
+    content = await file.read()
+    if not content:
+        raise AppError(400, "文件为空")
+    if len(content) > MAX_IMPORT_BYTES:
+        raise AppError(400, "文件过大（上限 20MB）")
+    try:
+        parsed = excel_io.parse_workbook(content)
+    except ValueError as exc:
+        raise AppError(400, str(exc))
+    valid, errors = excel_io.validate_rows(parsed)
+    if not valid:
+        return {"ok": True, "imported": 0, "failed": errors}
+    imported = service.bulk_create_records(db, user.id, valid)
+    return {"ok": True, "imported": imported, "failed": errors}
+
+
+@router.post("/import-json")
+def import_swim_json(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """导入 JSON（{records: [...]}）：逐记录校验 → 每条有效记录新建一条记录（status=recorded）。"""
+    raw_records = payload.get("records") if isinstance(payload, dict) else None
+    if not raw_records or not isinstance(raw_records, list):
+        raise AppError(400, "records 数组不能为空")
+    if len(raw_records) > 500:
+        raise AppError(400, "记录数量过多（上限 500 条）")
+    valid, errors = json_import.validate_json_records(raw_records)
+    if not valid:
+        return {"ok": True, "imported": 0, "failed": errors}
+    imported = service.bulk_create_records(db, user.id, valid)
+    return {"ok": True, "imported": imported, "failed": errors}
 
 
 @router.post("")
@@ -88,7 +151,8 @@ def _validate(payload: SwimRecordIn):
         if payload.main_stroke is not None and payload.main_stroke not in SWIM_STROKES:
             raise AppError(400, "主泳姿不合法")
     else:
-        if payload.distance_m is None or payload.duration_s is None or not payload.main_stroke:
-            raise AppError(400, "计划态需填写目标距离、时长与主泳姿")
-        if payload.main_stroke not in SWIM_STROKES:
+        # 计划态：仅目标距离必填；时长、主泳姿均为可选目标
+        if payload.distance_m is None:
+            raise AppError(400, "计划态需填写目标距离")
+        if payload.main_stroke is not None and payload.main_stroke not in SWIM_STROKES:
             raise AppError(400, "主泳姿不合法")

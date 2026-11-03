@@ -169,3 +169,42 @@ def test_goal_progress_empty_when_no_goals(db):
     assert gp["items"] == []
     assert gp["total"] == 0
     assert gp["missing"] == 8
+
+
+# ---------- 达成成就 ----------
+
+def test_achievement_progress_always_returns_seven_items(db):
+    """卡片固定 7 项（体重/体脂/臂围/腰围/臀围/大腿围/小腿围，不含胸围）；无数据时 has_data=False。"""
+    ap = body_service.achievement_progress(db, USER)
+    assert [i["key"] for i in ap["items"]] == ["weight", "body_fat", "arm", "waist", "hip", "thigh", "calf"]
+    assert all(i["current"] is None and i["start"] is None for i in ap["items"])
+    assert all(i["delta"] is None and i["has_change"] is False for i in ap["items"])
+    assert ap["has_data"] is False
+
+
+def test_achievement_progress_start_is_earliest_record(db):
+    """首次 = 该指标最早一条历史记录；delta 以「首次 − 最新」计算并生成鼓励文案（不与目标比较）。"""
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-01"), {"weight": 70.0})
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-10"), {"weight": 65.0})
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 60.0})
+    body_service.upsert_group(db, USER, "girth", _d("2026-10-15"), {"waist": 80.0})
+    body_service.upsert_group(db, USER, "girth", _d("2026-10-25"), {"waist": 76.0})
+    ap = body_service.achievement_progress(db, USER)
+    items = {i["key"]: i for i in ap["items"]}
+    assert ap["has_data"] is True
+    w = items["weight"]
+    assert w["start"] == 70.0  # 最早一条
+    assert w["current"] == 60.0  # 最新一条
+    assert w["start_date"] == "2026.10.01"
+    assert w["delta"] == 10.0
+    assert w["direction"] == "down"
+    assert w["change_msg"] == "已减 10.0 kg"
+    assert w["has_change"] is True
+    assert "target" not in w  # 与目标无关，不再携带目标字段
+    wa = items["waist"]
+    assert wa["start"] == 80.0
+    assert wa["current"] == 76.0
+    assert wa["start_date"] == "2026.10.15"
+    assert wa["delta"] == 4.0
+    assert wa["change_msg"] == "已减 4.0 cm"
+    assert "chest" not in items  # 胸围不在卡片 7 项内

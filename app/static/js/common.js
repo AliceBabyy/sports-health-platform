@@ -113,7 +113,11 @@
   window.App = App;
   document.addEventListener('click', function (e) {
     const mask = e.target.closest('.modal-mask');
-    if (mask && e.target === mask) mask.classList.remove('open');
+    if (!mask || e.target !== mask) return;
+    // 含表单的弹窗：点击遮罩不关闭——避免误触空白处丢失已填内容（只能由取消/保存按钮关闭）；
+    // 纯展示类弹窗（无表单，如总览单日详情、庆祝弹窗）保持遮罩点击即关闭。
+    if (mask.querySelector('.modal form, .modal textarea, .modal input, .modal select')) return;
+    mask.classList.remove('open');
   });
 
   /* ---------- 侧边栏收起/展开（顶栏按钮 + 窄屏自动收起 + localStorage 记忆） ---------- */

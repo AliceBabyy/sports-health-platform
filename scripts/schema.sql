@@ -96,8 +96,8 @@ CREATE TABLE training_plans (
     plan_date  date         NOT NULL,
     status     varchar(16)  NOT NULL,              -- planned | recorded
     remark     varchar(255) NULL,                  -- 备注（计划/记录均可填）
-    started_at timestamp    NULL,                  -- 开始训练时刻（仅计时路径）
-    saved_at   timestamp    NULL,                  -- 保存记录时刻
+    started_at timestamp    NULL,                  -- 开始训练时刻（2026-11-03 起不再写入，仅历史 recorded 时长计算用）
+    saved_at   timestamp    NULL,                  -- 完成训练时刻
     created_at timestamp    NOT NULL DEFAULT now(),
     updated_at timestamp    NOT NULL DEFAULT now()
 );

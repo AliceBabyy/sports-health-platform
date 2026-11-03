@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}运动训练/计划 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/overview.css?v=20261102">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/overview.css?v=20261104">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>运动训练/计划</h1>
@@ -15,30 +15,34 @@
   </div>
 </div>
 
-<div class="stat-grid" id="ovStats"></div>
-
-<!-- 日视图：三运动当日卡片 -->
+<!-- 日视图：训练计划卡（顶部）→ 三运动当日卡 → 当日运动情况（底部） -->
 <div id="ovDayView" class="ov-view" style="display:none">
+  <div class="stat-grid ov-stat-single" id="ovDayStats"></div>
   <div class="ov-grid-3" id="ovDayCards"></div>
+  <div class="card summary-card" id="ovDaySummary">
+    <div class="card-title">当日运动情况 <span class="sub">运动次数与运动时长 · 仅统计运动记录</span></div>
+    <div class="summary-grid" id="ovDaySummaryGrid"></div>
+  </div>
 </div>
 
-<!-- 周视图：每日条带 + 时长堆叠柱 -->
+<!-- 周视图：本周每日运动（最上面）→ 本周运动情况（次数/时长 + 每日时长图） -->
 <div id="ovWeekView" class="ov-view">
   <div class="card">
-    <div class="card-title">本周每日运动 <span class="sub">点击任一「日期 × 运动」标签查看当日详情</span></div>
+    <div class="card-title">本周每日运动 <span class="sub">点「标签」看当日详情 · 点「日期格」为这一天添加计划</span></div>
     <div class="week-strip" id="ovWeekStrip"></div>
   </div>
-  <div class="card chart-card">
-    <div class="card-title">本周每日运动时长 <span class="sub">单位：分钟</span></div>
+  <div class="card summary-card" id="ovWeekSummary">
+    <div class="card-title">本周运动情况 <span class="sub">运动次数与运动时长 · 仅统计运动记录</span></div>
+    <div class="summary-grid" id="ovWeekSummaryGrid"></div>
     <div class="chart" id="chartOvWeek" style="height:250px"></div>
     <div class="chart-fallback" id="chartOvWeekFallback" style="display:none">图表组件加载失败，请刷新重试。</div>
   </div>
 </div>
 
-<!-- 月视图：日历 + 每周时长堆叠柱 -->
+<!-- 月视图：本月日历（最上面）→ 本月运动情况（次数/时长 + 每日时长图） -->
 <div id="ovMonthView" class="ov-view" style="display:none">
   <div class="card">
-    <div class="card-title">本月日历 <span class="sub">点击日期查看当日详情</span></div>
+    <div class="card-title">本月日历 <span class="sub">点「标签」看当日详情 · 点「日期格」为这一天添加计划</span></div>
     <div id="ovCalGrid"></div>
     <div class="legend">
       <span class="legend-block"><span class="sdot" style="background:var(--ov-fit)"></span>健身</span>
@@ -46,8 +50,9 @@
       <span class="legend-block"><span class="sdot" style="background:var(--ov-dance)"></span>舞蹈</span>
     </div>
   </div>
-  <div class="card chart-card">
-    <div class="card-title">本月每周运动时长 <span class="sub">单位：分钟</span></div>
+  <div class="card summary-card" id="ovMonthSummary">
+    <div class="card-title">本月运动情况 <span class="sub">运动次数与运动时长 · 仅统计运动记录</span></div>
+    <div class="summary-grid" id="ovMonthSummaryGrid"></div>
     <div class="chart" id="chartOvMonth" style="height:250px"></div>
     <div class="chart-fallback" id="chartOvMonthFallback" style="display:none">图表组件加载失败，请刷新重试。</div>
   </div>
@@ -64,9 +69,25 @@
     </div>
   </div>
 </div>
+
+<!-- 添加计划：选运动弹窗（点某天 → 选运动 → 跳对应运动页新建该日计划） -->
+<div class="modal-mask" id="modalOvPick">
+  <div class="modal ov-modal">
+    <div class="modal-title">添加训练计划</div>
+    <div class="modal-desc" id="ovPickDate"></div>
+    <div class="ov-pick-grid">
+      <button type="button" class="ov-pick-btn" data-pick="fitness"><span class="op-label">健身</span><span class="op-sub">量身定制训练动作</span></button>
+      <button type="button" class="ov-pick-btn" data-pick="swim"><span class="op-label">游泳</span><span class="op-sub">距离 · 时长 · 主泳姿</span></button>
+      <button type="button" class="ov-pick-btn" data-pick="dance"><span class="op-label">舞蹈</span><span class="op-sub">舞种 · 星级</span></button>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn" data-close="modalOvPick">取消</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>window.INIT_TODAY = "{{ today }}";</script>
 <script src="/static/vendor/echarts.min.js"></script>
-<script src="/static/js/overview.js"></script>
+<script src="/static/js/overview.js?v=20261105"></script>
 {% endblock %}

@@ -1,27 +1,37 @@
-"""健身训练 API 路由（TR-01~03、TR-10~17、TR-22、TR-24；2026-11 整改：id 维度 CRUD）。
+"""健身训练 API 路由（TR-01~03、TR-24；2026-11 整改：id 维度 CRUD；2026-11-03 移除记录模式状态机）。
 
 一日可多个训练计划/记录，接口一律按 plan_id 定位：
 - GET  /plans?plan_date=      某日全部计划列表
-- POST /plans                  新建计划（body: plan_date + items）
+- POST /plans                  新建计划（body: plan_date + items + remark）
+- GET  /plans/template         下载 Excel 导入模板（2026-11-04 新增）
+- POST /plans/import           批量导入训练计划（.xlsx，按日期分组建计划）
 - GET/PUT/DELETE /plans/{plan_id}  单个计划查询/编辑/删除（已记录锁定）
 - POST /plans/batch-delete     批量删除（仅 planned，已记录的跳过）
-- POST /plans/{plan_id}/start|save|cancel|note  状态机与心得
-注意：/plans/batch-delete 必须在 /plans/{plan_id} 之前声明。
+- POST /plans/{plan_id}/complete  一键完成训练（planned → recorded，2026-11-04 起不限当日）
+- POST /plans/{plan_id}/copy-to-today  一键复用：以历史计划/记录为模板在今日新建计划（2026-11-04）
+注意：/plans/template、/plans/import、/plans/batch-delete 等静态路径必须注册在
+/plans/{plan_id} 之前，否则会被动态路由遮蔽（同段路径、同方法）。
 周/月跨运动总览已迁移至 /api/overview（2026-11），本模块不再提供 /plans/week。
 """
 from datetime import date
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
+from app.core.constants import today_local
 from app.modules.auth.models import User
-from app.modules.training import service
-from app.modules.training.schemas import BatchDeleteIn, NoteIn, PlanCreateIn, PlanSaveIn, StartIn
+from app.modules.training import excel_io, json_import, service
+from app.modules.training.schemas import BatchDeleteIn, PlanCreateIn, PlanItemIn, PlanSaveIn
 from database import get_db
 
 router = APIRouter(prefix="/api/training", tags=["training"])
+
+XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MAX_IMPORT_BYTES = 20 * 1024 * 1024  # 导入文件上限 20MB
 
 
 @router.get("/plans")
@@ -57,6 +67,118 @@ def batch_delete(
     return service.batch_delete_plans(db, user.id, payload.ids)
 
 
+# ---------- Excel 导入（2026-11-04 新增，参考身材模块） ----------
+# 注意：静态路径必须注册在 /plans/{plan_id} 之前，否则会被动态路由遮蔽（同段路径、同方法）。
+
+@router.get("/plans/template")
+def download_plan_template(
+    user: User = Depends(get_current_user),
+):
+    """下载导入模板 xlsx：训练计划数据 Sheet（表头）+ 填写说明。"""
+    buf = excel_io.build_template()
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type=XLSX_MEDIA,
+        headers={"Content-Disposition": 'attachment; filename="training_plan_import_template.xlsx"'},
+    )
+
+
+@router.post("/plans/import")
+async def import_plans(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """导入 Excel（.xlsx）：解析 → 行级校验 → 按计划日期分组，每组新建一条训练记录。
+
+    每行一个动作；同日期多行合并为一条记录（动作按行序）；2026-11-04 起导入数据 status 直接为 recorded
+    （训练记录），导入不会修改已存在的计划/记录。失败行不阻断其他行。
+    """
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise AppError(400, "仅支持 .xlsx 文件")
+    content = await file.read()
+    if not content:
+        raise AppError(400, "文件为空")
+    if len(content) > MAX_IMPORT_BYTES:
+        raise AppError(400, "文件过大（上限 20MB）")
+    try:
+        parsed = excel_io.parse_workbook(content)
+    except ValueError as exc:
+        raise AppError(400, str(exc))
+    valid, errors = excel_io.validate_rows(parsed)
+    if not valid:
+        return {"ok": True, "plans_created": 0, "items_imported": 0, "failed": errors}
+
+    # 按计划日期分组，保持文件行序（dict 保持插入顺序）
+    groups: dict[date, list[dict]] = {}
+    for row in valid:
+        groups.setdefault(row["plan_date"], []).append(row)
+
+    plans_created = 0
+    items_imported = 0
+    for plan_date, rows in groups.items():
+        remark = next((r["remark"] for r in rows if r["remark"]), None)  # 取该组首个非空备注
+        items = [
+            PlanItemIn(
+                exercise_name=r["exercise_name"],
+                body_part=r["body_part"],
+                weight_kg=r["weight_kg"],
+                sets=r["sets"],
+                reps=r["reps"],
+                target_weight_kg=r["target_weight_kg"],
+            )
+            for r in rows
+        ]
+        service.create_plan(db, user.id, plan_date, items, remark=remark, status=service.TR_STATUS_RECORDED)
+        plans_created += 1
+        items_imported += len(items)
+    return {"ok": True, "plans_created": plans_created, "items_imported": items_imported, "failed": errors}
+
+
+@router.post("/plans/import-json")
+def import_plans_json(
+    payload: dict,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """导入 JSON（{plans: [...]}）：逐计划校验 → 每个有效计划新建一条训练记录。
+
+    语义与 Excel 导入一致：2026-11-04 起导入数据 status 直接为 recorded；不会修改已存在的计划/记录；
+    失败计划跳过（含失败明细），不阻断其他计划。
+    """
+    raw_plans = payload.get("plans")
+    if not isinstance(raw_plans, list):
+        raise AppError(400, "请求体需包含 plans 数组")
+    if not raw_plans:
+        raise AppError(400, "plans 数组不能为空")
+    if len(raw_plans) > 200:
+        raise AppError(400, "计划数量过多（上限 200 个）")
+    valid, errors = json_import.validate_json_plans(raw_plans)
+    if not valid:
+        return {"ok": True, "plans_created": 0, "items_imported": 0, "failed": errors}
+    plans_created = 0
+    items_imported = 0
+    for plan_in in valid:
+        service.create_plan(db, user.id, plan_in.plan_date, plan_in.items, remark=plan_in.remark, status=service.TR_STATUS_RECORDED)
+        plans_created += 1
+        items_imported += len(plan_in.items)
+    return {"ok": True, "plans_created": plans_created, "items_imported": items_imported, "failed": errors}
+
+
+@router.post("/plans/{plan_id}/copy-to-today")
+def copy_plan_to_today(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """一键复用：以历史计划/记录为模板，在今日新建一个 planned 计划（2026-11-04）。
+
+    用于训练历史「一键设为当日计划」：复用以前的训练内容。
+    """
+    plan = service.copy_plan_to_date(db, user.id, plan_id, today_local())
+    return {"plan": service.plan_to_dict(plan)}
+
+
 @router.get("/plans/{plan_id}")
 def get_plan(
     plan_id: int,
@@ -90,47 +212,13 @@ def delete_plan(
     return {"ok": True}
 
 
-@router.post("/plans/{plan_id}/start")
-def start_record(
-    plan_id: int,
-    payload: StartIn,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    plan = service.start_record(db, user.id, plan_id, payload.mode)
-    return {"plan": service.plan_to_dict(plan), "mode": payload.mode}
-
-
-@router.post("/plans/{plan_id}/save")
-def save_record(
-    plan_id: int,
-    payload: PlanSaveIn,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    return service.save_record(db, user.id, plan_id, payload.items, payload.remark)
-
-
-@router.post("/plans/{plan_id}/note")
-def save_note(
-    plan_id: int,
-    payload: NoteIn,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    service.save_note(db, user.id, plan_id, payload.status_text, payload.rating)
-    return {"ok": True}
-
-
-@router.post("/plans/{plan_id}/cancel")
-def cancel_record(
+@router.post("/plans/{plan_id}/complete")
+def complete_plan(
     plan_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    plan = service.cancel_record(db, user.id, plan_id)
-    if plan is None:
-        raise AppError(404, "训练计划不存在")
+    plan = service.complete_plan(db, user.id, plan_id)
     return {"plan": service.plan_to_dict(plan)}
 
 

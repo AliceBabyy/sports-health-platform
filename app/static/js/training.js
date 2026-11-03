@@ -1,38 +1,20 @@
-/* 健身训练页：今日训练卡片（一计划一卡片、一行一动作）+ 记录模式 + 庆祝 + 心得
-   2026-11 整改：一日可多个训练计划，按 id 定位；一个计划一张卡片（今日训练/今日训练2…），
+/* 健身训练页：一个训练计划一张卡片、卡片内一行一个动作；练完点「完成训练」转训练记录（2026-11-03 移除计时记录模式/庆祝/心得）。
+   2026-11 整改：一日可多个训练计划，按 id 定位；一个计划一张卡片（当日训练/当日训练2…），
    卡片内每个动作一行；卡片内「＋ 添加训练动作」=编辑该计划（追加动作行），顶部「＋ 新建计划」=新建整个计划。 */
 (function () {
   const App = window.App;
   const todayStr = App.todayStr();
   const viewDate = window.INIT_DATE || todayStr;   // 当前查看日期（总览跳转 / 前后翻页）
-  const isToday = window.INIT_IS_TODAY === true;    // 仅当日开放记录模式（后端强校验）
+  const qs = new URLSearchParams(location.search);
+  const fromOv = qs.get('fromov') === '1';        // 是否从总览点日期格「＋ 计划」过来
+  const isToday = window.INIT_IS_TODAY === true;    // 仅当日开放「完成训练」（后端强校验）
 
   const state = {
-    plans: window.INIT_PLANS || [],   // 今日计划列表（view 模式）
-    plan: null,                       // 记录模式中的计划
-    recordPlanId: null,               // 记录模式计划 id
+    plans: window.INIT_PLANS || [],   // 当日计划列表（planned 在前、recorded 沉底）
     editingPlanId: null,              // 计划编辑器：null=新建，否则编辑该 id
-    mode: 'view',                     // view | record
-    started: false,
-    startedAtMs: null,
-    timer: null,
-    saveResult: null,
-    noteRating: 0,
+    completingPlanId: null,           // 待完成训练的计划 id
     historyPage: 1,
   };
-
-  /* 初始化：若存在 started_at 且未保存的计划 → 恢复记录模式（仅当日可能） */
-  (function resume() {
-    if (!isToday) return;
-    const p = state.plans.find(x => x.status !== 'recorded' && x.started_at);
-    if (p) {
-      state.plan = p;
-      state.recordPlanId = p.id;
-      state.mode = 'record';
-      state.started = true;
-      state.startedAtMs = Date.parse(p.started_at);
-    }
-  })();
 
   /* ---------- 工具 ---------- */
   function parseReps(reps) {
@@ -55,22 +37,11 @@
     return null;
   }
 
-  /* ---------- 渲染日面板 ---------- */
+  /* ---------- 渲染日面板：一个计划一张卡片 ---------- */
   function renderDay() {
-    if (state.mode === 'record' && state.plan) { renderRecord(); return; }
-    renderPlansView();
-  }
-
-  /* ---- view：一个计划一张卡片，卡片内每个动作一行；卡片操作=编辑/删除/记录，卡内追加=编辑该计划 ---- */
-  function renderPlansView() {
     const wrap = document.getElementById('planWrap');
-    const statusTag = document.getElementById('statusTag');
-    const foot = document.getElementById('dayFoot');
     const summary = document.getElementById('daySummary');
-
-    statusTag.style.display = 'none';
-    foot.style.display = 'none';
-    document.getElementById('timerLabel').textContent = '';
+    if (!wrap || !summary) return;
 
     // 排序：未记录（planned）在前、已记录沉底，组内按 id（创建顺序）
     const plans = state.plans.slice().sort(function (a, b) {
@@ -97,14 +68,12 @@
   function planCardHtml(p, idx) {
     const recorded = p.status === 'recorded';
     const items = p.items || [];
-    // 已记录计划为历史快照：不提供编辑/删除/记录/追加入口（编辑与追加在后端也会被拒绝）
-    // 非当日：不提供「开始训练」（后端仅允许当日开启计时）
+    // 已记录计划为历史快照：卡片内不提供操作（编辑/删除/设为今日计划入口在训练历史列表）
+    // 2026-11-04 起「完成训练」不限当日：任意日期的计划均可一键转记录
     const actions = recorded ? '' :
       '<button type="button" class="btn btn-sm" data-act="edit" data-id="' + p.id + '">编辑</button>' +
       '<button type="button" class="btn btn-sm btn-danger" data-act="del" data-id="' + p.id + '">删除</button>' +
-      (isToday
-        ? '<button type="button" class="btn btn-sm btn-primary" data-act="record" data-id="' + p.id + '">开始训练</button>'
-        : '<span class="pc-date-note">仅当日可开始训练</span>');
+      '<button type="button" class="btn btn-sm btn-primary" data-act="complete" data-id="' + p.id + '">完成训练</button>';
     const rows = items.length
       ? items.map(itemRowHtml).join('')
       : '<tr><td colspan="6" class="pc-empty">' + (recorded ? '暂无动作数据' : '暂无动作，点击下方「＋ 添加训练动作」添加。') + '</td></tr>';
@@ -134,39 +103,11 @@
       '<td class="num">' + (it.target_weight_kg != null ? it.target_weight_kg : '—') + '</td></tr>';
   }
 
-  /* ---- record：单个计划的记录表格（勾选/编辑/删除行 + 取消/保存） ---- */
-  function renderRecord() {
-    const wrap = document.getElementById('planWrap');
-    const statusTag = document.getElementById('statusTag');
-    const foot = document.getElementById('dayFoot');
-    const summary = document.getElementById('daySummary');
-    const volLabel = document.getElementById('volLabel');
-
-    statusTag.style.display = 'inline-flex';
-    foot.style.display = 'flex';
-    const items = state.plan.items;
-    volLabel.textContent = computeVolume(items);
-    summary.innerHTML = '训练进行中，可随时调整动作与实际重量';
-    wrap.innerHTML = '<table class="tbl training-tbl"><thead><tr>' +
-      '<th style="width:34px">#</th><th>动作</th><th>部位</th><th>重量 kg</th><th>组数 × 每组个数</th><th>期望突破重量</th><th></th></tr></thead><tbody>' +
-      items.map(function (it, i) {
-        return '<tr class="' + (it.checked ? 'row-done' : '') + '" data-idx="' + i + '">' +
-          '<td><span class="checkmark ' + (it.checked ? 'checked' : '') + '" data-act="check"><svg viewBox="0 0 12 12"><path d="M2 6.5 L4.5 9 L10 3"/></svg></span></td>' +
-          '<td><input class="tin wide done-text" data-f="exercise_name" value="' + App.escapeHtml(it.exercise_name) + '"></td>' +
-          '<td><input class="tin" data-f="body_part" value="' + App.escapeHtml(it.body_part || '') + '"></td>' +
-          '<td><input class="tin num" type="number" step="0.5" min="0" data-f="weight_kg" value="' + (it.weight_kg != null ? it.weight_kg : '') + '"></td>' +
-          '<td style="white-space:nowrap"><input class="tin num" type="number" min="1" data-f="sets" value="' + (it.sets != null ? it.sets : '') + '"><span style="margin:0 4px;color:var(--color-text-secondary)">×</span><input class="tin" style="width:64px" data-f="reps" value="' + App.escapeHtml(it.reps != null ? it.reps : '') + '"></td>' +
-          '<td><input class="tin num" type="number" step="0.5" min="0" data-f="target_weight_kg" value="' + (it.target_weight_kg != null ? it.target_weight_kg : '') + '" placeholder="如 75"></td>' +
-          '<td class="action-cell"><button class="btn btn-sm btn-danger" data-act="delrow">删除</button></td></tr>';
-      }).join('') + '</tbody></table>';
-    renderOverview([state.plan]);
-    startTimerIfNeeded();
-  }
-
   function renderOverview(plans) {
     const list = document.getElementById('overviewList');
+    if (!list) return;
     if (!plans || !plans.length) {
-      list.innerHTML = '<div class="empty-state" style="padding:18px 0">今日暂无计划</div>';
+      list.innerHTML = '<div class="empty-state" style="padding:18px 0">当日暂无计划</div>';
       return;
     }
     const items = plans.reduce(function (a, p) { return a.concat(p.items || []); }, []);
@@ -182,20 +123,7 @@
     list.innerHTML = rows.map(r => '<div class="ov-row"><span class="k">' + r[0] + '</span><span class="v num">' + r[1] + '</span></div>').join('');
   }
 
-  function startTimerIfNeeded() {
-    clearInterval(state.timer);
-    const label = document.getElementById('timerLabel');
-    if (!state.started) { label.textContent = ''; return; }
-    function upd() {
-      const el = Math.floor((Date.now() - state.startedAtMs) / 1000);
-      const m = Math.floor(el / 60), s = el % 60;
-      label.textContent = "  · 已计时 " + m + "'" + String(s).padStart(2, '0') + '"';
-    }
-    upd();
-    state.timer = setInterval(upd, 1000);
-  }
-
-  /* ---------- 今日卡片：行操作（卡内追加 / 编辑 / 删除 / 记录） ---------- */
+  /* ---------- 计划卡：行操作（卡内追加 / 编辑 / 删除 / 完成训练） ---------- */
   document.getElementById('planWrap').addEventListener('click', function (e) {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
@@ -213,154 +141,31 @@
         });
       return;
     }
-    if (btn.dataset.act === 'record') {
-      state.recordPlanId = plan.id;
-      App.openModal('modalStart');
+    if (btn.dataset.act === 'complete') {
+      state.completingPlanId = plan.id;
+      App.openModal('modalComplete');
     }
   });
 
-  /* ---------- 进入记录模式 ---------- */
-  document.getElementById('btnModeTraining').addEventListener('click', function () { startMode(); });
-
-  function startMode() {
-    App.closeModal('modalStart');
-    App.api('/api/training/plans/' + state.recordPlanId + '/start', { method: 'POST', body: { mode: 'training' } })
-      .then(function (res) {
-        state.plan = res.plan;
-        state.recordPlanId = res.plan.id;
-        state.mode = 'record';
-        state.started = true;
-        state.startedAtMs = Date.now();
-        renderDay();
-        App.toast('开始训练，计时中');
+  /* ---------- 完成训练（二次确认 → planned → recorded，仅当日，后端强校验） ---------- */
+  document.getElementById('btnConfirmComplete').addEventListener('click', function () {
+    const id = state.completingPlanId;
+    if (!id) return;
+    App.api('/api/training/plans/' + id + '/complete', { method: 'POST', body: {} })
+      .then(function () {
+        App.closeModal('modalComplete');
+        App.toast('已标记为完成训练');
+        setTimeout(function () { location.reload(); }, 400);
       })
-      .catch(e => App.toast(e.message, true));
-  }
-
-  /* ---------- 记录模式交互（勾选/删除行/输入联动） ---------- */
-  document.getElementById('planWrap').addEventListener('click', function (e) {
-    if (state.mode !== 'record') return;
-    const btn = e.target.closest('[data-act]');
-    if (!btn) return;
-    const row = btn.closest('tr');
-    const idx = parseInt(row.dataset.idx, 10);
-    if (btn.dataset.act === 'check') {
-      state.plan.items[idx].checked = !state.plan.items[idx].checked;
-      renderDay();
-      return;
-    }
-    if (btn.dataset.act === 'delrow') {
-      App.confirmDialog({ title: '删除训练动作', message: '删除该行训练动作？' })
-        .then(function (ok) {
-          if (!ok) return;
-          state.plan.items.splice(idx, 1);
-          renderDay();
-        });
-    }
+      .catch(err => App.toast(err.message, true));
   });
 
-  document.getElementById('planWrap').addEventListener('input', function (e) {
-    if (state.mode !== 'record') return;
-    const t = e.target.closest('input[data-f]');
-    if (!t) return;
-    const row = t.closest('tr');
-    const idx = parseInt(row.dataset.idx, 10);
-    const f = t.dataset.f;
-    const it = state.plan.items[idx];
-    if (f === 'exercise_name' || f === 'body_part' || f === 'reps') it[f] = t.value;
-    else if (f === 'weight_kg' || f === 'target_weight_kg') it[f] = t.value === '' ? null : parseFloat(t.value);
-    else if (f === 'sets') it[f] = t.value === '' ? null : parseInt(t.value, 10);
-    if (['weight_kg', 'sets', 'reps'].includes(f)) {
-      document.getElementById('volLabel').textContent = computeVolume(state.plan.items);
-      renderOverview([state.plan]);
-    }
-  });
-
-  /* ---------- 取消 / 保存记录 ---------- */
-  document.getElementById('btnCancelRecord').addEventListener('click', function () {
-    clearInterval(state.timer);
-    App.api('/api/training/plans/' + state.recordPlanId + '/cancel', { method: 'POST', body: {} })
-      .then(function () { location.reload(); })
-      .catch(e => { App.toast(e.message, true); location.reload(); });
-  });
-
-  document.getElementById('btnSaveRecord').addEventListener('click', function () {
-    const items = state.plan.items.map(function (it, i) {
-      return {
-        exercise_name: (it.exercise_name || '').trim(),
-        body_part: (it.body_part || '').trim() || null,
-        weight_kg: it.weight_kg != null ? it.weight_kg : null,
-        sets: it.sets != null ? it.sets : null,
-        reps: (it.reps != null && it.reps !== '') ? String(it.reps) : null,
-        target_weight_kg: it.target_weight_kg != null ? it.target_weight_kg : null,
-        checked: !!it.checked,
-      };
-    });
-    if (!items.some(i => i.exercise_name)) { App.toast('至少保留一条动作', true); return; }
-    document.getElementById('btnSaveRecord').disabled = true;
-    App.api('/api/training/plans/' + state.recordPlanId + '/save', { method: 'POST', body: { items: items } })
-      .then(function (res) {
-        state.saveResult = res;
-        state.plan = res.plan;
-        state.mode = 'view';
-        clearInterval(state.timer);
-        if (res.duration_s != null) {
-          showCelebrate(res);
-        } else {
-          App.toast('已保存训练记录');
-          setTimeout(function () { location.reload(); }, 600);
-        }
-      })
-      .catch(e => { document.getElementById('btnSaveRecord').disabled = false; App.toast(e.message, true); });
-  });
-
-  /* ---------- 庆祝弹窗（TR-20~23） ---------- */
-  function showCelebrate(res) {
-    document.getElementById('celebrateDuration').textContent = Math.max(1, Math.round(res.duration_s / 60));
-    document.getElementById('celebrateItems').textContent = res.item_count;
-    document.getElementById('celebrateMeta').textContent = '完成 ' + res.completed_count + ' 个动作 · 总容量 ' + res.total_volume.toFixed(0) + ' kg · ' + (state.plan.plan_date || todayStr);
-    App.openModal('modalCelebrate');
-    window.Confetti.launch();
-  }
-  document.getElementById('btnNoteLater').addEventListener('click', function () {
-    App.closeModal('modalCelebrate');
-    window.Confetti.stop();
-    setTimeout(function () { location.reload(); }, 300);
-  });
-  document.getElementById('btnNoteConfirm').addEventListener('click', function () {
-    App.closeModal('modalCelebrate');
-    window.Confetti.stop();
-    openNote();
-  });
-
-  /* ---------- 心得（TR-24/25） ---------- */
-  function openNote() {
-    state.noteRating = 0;
-    document.getElementById('formNote').reset();
-    Array.prototype.forEach.call(document.querySelectorAll('#starPicker span'), s => s.classList.remove('on'));
-    App.openModal('modalNote');
-  }
-  document.getElementById('starPicker').addEventListener('click', function (e) {
-    const s = e.target.closest('span'); if (!s) return;
-    state.noteRating = parseInt(s.dataset.s, 10);
-    Array.prototype.forEach.call(this.children, el => el.classList.toggle('on', parseInt(el.dataset.s, 10) <= state.noteRating));
-  });
-  document.getElementById('formNote').addEventListener('submit', function (e) {
-    e.preventDefault();
-    App.api('/api/training/plans/' + state.recordPlanId + '/note', {
-      method: 'POST',
-      body: { status_text: e.target.elements.status_text.value.trim(), rating: state.noteRating || null }
-    }).then(function () {
-      App.closeModal('modalNote');
-      App.toast('心得已保存');
-      setTimeout(function () { location.reload(); }, 500);
-    }).catch(err => App.toast(err.message, true));
-  });
-
-  /* ---------- 新建/编辑计划（TR-03；顶部「＋ 新建计划」=新建整个计划，卡内「＋ 添加训练动作」=编辑该计划并追加动作行） ---------- */
+  /* ---------- 新建/编辑计划（顶部「＋ 新建计划」=新建整个计划，卡内「＋ 添加训练动作」=编辑该计划并追加动作行） ---------- */
   function openPlan(plan, appendMode) {
     state.editingPlanId = plan ? plan.id : null;
-    document.getElementById('modalPlanTitle').textContent = plan ? (appendMode ? '添加训练动作' : '编辑计划') : '新建计划';
+    document.getElementById('modalPlanTitle').textContent = plan
+      ? (plan.status === 'recorded' ? '编辑记录' : (appendMode ? '添加训练动作' : '编辑计划'))
+      : '新建计划';
     const form = document.getElementById('formPlan');
     form.reset();
     const dateInput = form.elements.plan_date;
@@ -381,6 +186,12 @@
     const div = document.createElement('div');
     div.className = 'plan-form-item';
     div.innerHTML =
+      '<span class="drag-handle" draggable="true" title="拖动排序">' +
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">' +
+          '<circle cx="8" cy="6" r="1.4"/><circle cx="16" cy="6" r="1.4"/>' +
+          '<circle cx="8" cy="12" r="1.4"/><circle cx="16" cy="12" r="1.4"/>' +
+          '<circle cx="8" cy="18" r="1.4"/><circle cx="16" cy="18" r="1.4"/>' +
+        '</svg></span>' +
       '<input class="input" name="exercise_name" placeholder="动作名称" value="' + App.escapeHtml(it.exercise_name || '') + '">' +
       '<input class="input" name="body_part" placeholder="部位" value="' + App.escapeHtml(it.body_part || '') + '">' +
       '<input class="input num" type="number" step="0.5" min="0" name="weight_kg" value="' + (it.weight_kg != null ? it.weight_kg : '') + '">' +
@@ -392,8 +203,48 @@
       App.confirmDialog({ title: '删除动作行', message: '删除该行动作？' })
         .then(function (ok) { if (ok) div.remove(); });
     });
+    // 拖拽排序：手柄拖动，dragover 定位插入点，drop 按新顺序重排 DOM（保存按 DOM 顺序提交）
+    const handle = div.querySelector('.drag-handle');
+    handle.addEventListener('dragstart', function (e) {
+      e.dataTransfer.setData('text/plain', '');
+      e.dataTransfer.effectAllowed = 'move';
+      div.classList.add('dragging');
+    });
+    handle.addEventListener('dragend', function () {
+      div.classList.remove('dragging');
+      clearRowDragOver();
+    });
     wrap.appendChild(div);
   }
+  const planRowsWrap = document.getElementById('planRows');
+  function clearRowDragOver() {
+    Array.prototype.forEach.call(planRowsWrap.querySelectorAll('.drag-over-before, .drag-over-after'), function (r) {
+      r.classList.remove('drag-over-before', 'drag-over-after');
+    });
+    planRowsWrap._dropPos = null;
+  }
+  planRowsWrap.addEventListener('dragover', function (e) {
+    const over = e.target.closest('.plan-form-item');
+    if (!over) return;
+    e.preventDefault();                 // 允许放置
+    e.dataTransfer.dropEffect = 'move';
+    if (over.classList.contains('dragging')) return;   // 源行自身不划线
+    const rect = over.getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    if (planRowsWrap._dropPos && planRowsWrap._dropPos.row === over && planRowsWrap._dropPos.after === after) return;
+    clearRowDragOver();
+    over.classList.add(after ? 'drag-over-after' : 'drag-over-before');
+    planRowsWrap._dropPos = { row: over, after: after };
+  });
+  planRowsWrap.addEventListener('drop', function (e) {
+    e.preventDefault();
+    const src = planRowsWrap.querySelector('.plan-form-item.dragging');
+    const pos = planRowsWrap._dropPos;
+    clearRowDragOver();
+    if (!src || !pos || pos.row === src) return;
+    if (pos.after) pos.row.after(src); else pos.row.before(src);
+    App.toast('动作顺序已调整，保存后生效');
+  });
   document.getElementById('btnNewPlan').addEventListener('click', function () { openPlan(null); });
   document.getElementById('btnAddRow').addEventListener('click', function () { addPlanRow({}); });
   document.getElementById('formPlan').addEventListener('submit', function (e) {
@@ -429,17 +280,26 @@
       .then(function () {
         App.closeModal('modalPlan');
         App.toast('计划已保存');
-        setTimeout(function () { location.reload(); }, 500);
+        setTimeout(function () {
+          // 从总览点日期格「＋ 计划」过来的：保存后跳回总览当天
+          if (fromOv) {
+            location.href = '/overview?date=' + viewDate + '&mode=week';
+          } else {
+            location.reload();
+          }
+        }, 500);
       })
       .catch(err => App.toast(err.message, true));
   });
 
   /* ---------- 训练历史 ---------- */
+  let historyPage = 1;
   function loadHistory(page) {
+    historyPage = page;
     App.api('/api/training/history?page=' + page + '&page_size=5').then(function (res) {
       const body = document.getElementById('historyBody');
       if (!res.list.length) {
-        body.innerHTML = '<tr><td colspan="6"><div class="empty-state">暂无训练记录</div></td></tr>';
+        body.innerHTML = '<tr><td colspan="7"><div class="empty-state">暂无训练记录</div></td></tr>';
       } else {
         body.innerHTML = res.list.map(function (p) {
           let dur = '—';
@@ -456,7 +316,12 @@
             '<td class="num">' + dur + '</td>' +
             '<td class="num">' + p.item_count + ' 个</td>' +
             '<td class="num" style="color:var(--color-text-secondary)">完成 ' + p.completed_count + '/' + p.item_count + ' · ' + p.total_volume + ' kg</td>' +
-            '<td>' + noteHtml + '</td></tr>';
+            '<td>' + noteHtml + '</td>' +
+            '<td><div class="plan-actions">' +
+              '<button type="button" class="btn btn-sm" data-hact="reuse" data-id="' + p.id + '">设为今日计划</button>' +
+              '<button type="button" class="btn btn-sm" data-hact="edit" data-id="' + p.id + '">编辑</button>' +
+              '<button type="button" class="btn btn-sm btn-danger" data-hact="del" data-id="' + p.id + '">删除</button>' +
+            '</div></td></tr>';
         }).join('');
       }
       const wrap = document.getElementById('historyPagination');
@@ -475,12 +340,166 @@
     if (b && !b.disabled) loadHistory(parseInt(b.dataset.pg, 10));
   });
 
+  /* ---------- 训练历史行操作：设为今日计划 / 编辑 / 删除（2026-11-04） ---------- */
+  document.getElementById('historyBody').addEventListener('click', function (e) {
+    const btn = e.target.closest('button[data-hact]');
+    if (!btn) return;
+    const id = parseInt(btn.dataset.id, 10);
+    if (btn.dataset.hact === 'reuse') {
+      App.api('/api/training/plans/' + id + '/copy-to-today', { method: 'POST', body: {} })
+        .then(function () {
+          App.toast('已复用为今日计划');
+          setTimeout(function () { location.reload(); }, 400);
+        })
+        .catch(err => App.toast(err.message, true));
+      return;
+    }
+    if (btn.dataset.hact === 'edit') {
+      App.api('/api/training/plans/' + id, { method: 'GET' })
+        .then(function (data) { openPlan(data.plan); })
+        .catch(err => App.toast(err.message, true));
+      return;
+    }
+    if (btn.dataset.hact === 'del') {
+      App.confirmDialog({ title: '删除训练记录', message: '确定删除该训练记录？其下的动作明细将一并删除。' })
+        .then(function (ok) {
+          if (!ok) return;
+          App.api('/api/training/plans/' + id, { method: 'DELETE' })
+            .then(function () { App.toast('记录已删除'); loadHistory(historyPage); })
+            .catch(err => App.toast(err.message, true));
+        });
+    }
+  });
+
   /* ---------- 关闭按钮 ---------- */
   document.querySelectorAll('[data-close]').forEach(function (el) {
-    el.addEventListener('click', function () { App.closeModal(el.dataset.close); window.Confetti && window.Confetti.stop(); });
+    el.addEventListener('click', function () { App.closeModal(el.dataset.close); });
+  });
+
+  /* ---------- Excel / JSON 导入（2026-11-04 新增：两个独立入口按钮） ---------- */
+  const importExcelBtn = document.getElementById('btnImportExcel');
+  const importJsonBtn = document.getElementById('btnImportJson');
+  const importForm = document.getElementById('formImport');
+  const importFile = document.getElementById('importFile');
+  const importJsonText = document.getElementById('importJsonText');
+  const importExcelPane = document.getElementById('importExcelPane');
+  const importJsonPane = document.getElementById('importJsonPane');
+  const importSubmit = document.getElementById('importSubmit');
+  const importCancel = document.getElementById('importCancel');
+  const importDone = document.getElementById('importDone');
+  const importResult = document.getElementById('importResult');
+  let importMode = 'excel';   // 'excel' | 'json'
+  let importCreated = 0;   // 本次导入新建的计划数（决定关闭时是否刷新）
+
+  // 打开导入弹窗：重置状态，按入口按钮切换面板（Excel 文件 / JSON 文本）
+  function openImport(mode) {
+    importMode = mode;
+    importForm.reset();
+    importJsonText.value = '';
+    importResult.style.display = 'none';
+    importResult.innerHTML = '';
+    importSubmit.disabled = false;
+    importSubmit.textContent = '开始导入';
+    importCancel.style.display = '';
+    importDone.style.display = 'none';
+    importCreated = 0;
+    importExcelPane.style.display = mode === 'excel' ? '' : 'none';
+    importJsonPane.style.display = mode === 'json' ? '' : 'none';
+    App.openModal('modalImport');
+  }
+  importExcelBtn.addEventListener('click', function () { openImport('excel'); });
+  importJsonBtn.addEventListener('click', function () { openImport('json'); });
+
+  // 导入：Excel 走 multipart 上传（App.api 仅支持 JSON，此处原生 fetch）；JSON 走 App.api
+  importForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (importMode === 'json') {
+      let body;
+      try { body = JSON.parse(importJsonText.value); }
+      catch (err) { App.toast('JSON 格式不正确：' + err.message, true); return; }
+      if (!body || !Array.isArray(body.plans) || !body.plans.length) { App.toast('需包含非空 plans 数组', true); return; }
+      importSubmit.disabled = true;
+      importSubmit.textContent = '导入中…';
+      App.api('/api/training/plans/import-json', { method: 'POST', body: body })
+        .then(function (data) { showImportResult(data); })
+        .catch(function (err) {
+          App.toast(err.message, true);
+          importSubmit.disabled = false;
+          importSubmit.textContent = '开始导入';
+        });
+      return;
+    }
+    const file = importFile.files[0];
+    if (!file) { App.toast('请先选择 .xlsx 文件', true); return; }
+    const fd = new FormData();
+    fd.append('file', file);
+    importSubmit.disabled = true;
+    importSubmit.textContent = '导入中…';
+    fetch('/api/training/plans/import', { method: 'POST', body: fd })
+      .then(function (res) {
+        return res.json().catch(function () { return null; }).then(function (body) {
+          if (res.status === 401) { location.href = '/login'; throw new Error('未登录'); }
+          if (!res.ok) throw new Error((body && body.error) ? body.error : ('请求失败（' + res.status + '）'));
+          return body;
+        });
+      })
+      .then(function (data) { showImportResult(data); })
+      .catch(function (err) {
+        App.toast(err.message, true);
+        importSubmit.disabled = false;
+        importSubmit.textContent = '开始导入';
+      });
+  });
+
+  // 导入结果：全部成功 → 关闭并刷新；存在失败 → 弹窗内展示明细，由「完成」按钮关闭并刷新
+  function showImportResult(data) {
+    const failed = data.failed || [];
+    importCreated = data.plans_created || 0;
+    const items = data.items_imported || 0;
+    const ok = importCreated > 0;
+    let html = '<div class="summary">';
+    if (!failed.length) {
+      html += '<span class="ok">导入成功：' + importCreated + ' 条训练记录已导入（共 ' + items + ' 个动作）</span>';
+    } else {
+      html += '<span class="fail">导入完成：' + importCreated + ' 条记录成功，' + failed.length + ' 行失败已跳过</span>';
+    }
+    html += '</div>';
+    if (failed.length) {
+      html += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>工作表</th><th>行</th><th>列</th><th>原因</th></tr></thead><tbody>';
+      failed.forEach(function (f) {
+        html += '<tr><td>' + App.escapeHtml(f.sheet) + '</td><td class="num">' + f.row + '</td>' +
+          '<td>' + App.escapeHtml(f.column || '—') + '</td><td>' + App.escapeHtml(f.reason) + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    importResult.innerHTML = html;
+    importResult.style.display = 'block';
+
+    if (!failed.length) {
+      App.toast('已导入 ' + importCreated + ' 条训练记录');
+      setTimeout(function () { location.reload(); }, 500);
+    } else {
+      importSubmit.disabled = true;
+      importSubmit.textContent = '开始导入';
+      importCancel.style.display = 'none';
+      importDone.style.display = '';
+      if (ok) App.toast('已导入 ' + importCreated + ' 条记录，另有 ' + failed.length + ' 行失败');
+      else App.toast('导入失败 ' + failed.length + ' 行，请修正后重试', true);
+    }
+  }
+
+  // 「完成」：关闭弹窗；本次有成功写入则刷新
+  importDone.addEventListener('click', function () {
+    App.closeModal('modalImport');
+    if (importCreated > 0) setTimeout(function () { location.reload(); }, 200);
   });
 
   /* ---------- 初始化 ---------- */
   renderDay();
   loadHistory(1);
+  /* 从总览点日期格「＋ 计划」过来（?newplan=1）：自动弹出新建计划表单，日期已由 ?date= 带入 */
+  if (qs.get('newplan') === '1') {
+    openPlan(null);
+    history.replaceState(null, '', location.pathname + '?date=' + viewDate);
+  }
 })();

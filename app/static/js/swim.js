@@ -5,6 +5,8 @@
   const App = window.App;
   let currentPage = 1, editingId = null, formMode = 'recorded';
   const viewDate = window.INIT_DATE || App.todayStr();   // 当日视图日期（总览跳转 / 前后翻页）
+  const qs = new URLSearchParams(location.search);
+  const fromOv = qs.get('fromov') === '1';               // 是否从总览点日期格「＋ 计划」过来
   const dailyWrap = document.getElementById('swimDaily');
 
   function fmtDur(sec) { return sec != null ? App.fmtClock(sec) : '—'; }
@@ -29,7 +31,7 @@
             plans.map(function (r) {
               const meta = (r.distance_m != null ? r.distance_m + ' m' : '—') + ' · ' + fmtDur(r.duration_s) +
                 (r.main_stroke_label ? ' · ' + App.escapeHtml(r.main_stroke_label) : '');
-              return '<div class="daily-row" data-id="' + r.id + '">' +
+              return '<div class="daily-row is-planned" data-id="' + r.id + '">' +
                 '<div class="daily-main">' + meta + remarkHtml(r) + '</div>' +
                 '<div class="daily-actions">' +
                 '<button class="btn btn-sm btn-primary" data-daily="todo" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>去记录</button>' +
@@ -42,7 +44,7 @@
             records.map(function (r) {
               const meta = r.distance_m + ' m · ' + fmtDur(r.duration_s) + (r.pace != null ? ' · 配速 ' + r.pace + ' min/100m' : '') +
                 (r.main_stroke_label ? ' · ' + App.escapeHtml(r.main_stroke_label) : '') + (r.calories != null ? ' · ' + r.calories + ' kcal' : '');
-              return '<div class="daily-row" data-id="' + r.id + '">' +
+              return '<div class="daily-row is-recorded" data-id="' + r.id + '">' +
                 '<div class="daily-main">' + meta + remarkHtml(r) + '</div>' +
                 '<div class="daily-actions">' +
                 '<button class="btn btn-sm" data-daily="edit" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>编辑</button>' +
@@ -117,12 +119,16 @@
   function applyFormMode(mode) {
     formMode = mode;
     const f = document.getElementById('formSwim');
-    f.elements.distance_m.required = true;    // 计划/记录都需要距离
-    f.elements.duration_min.required = true;  // 计划/记录都需要时长
-    f.elements.main_stroke.required = mode === 'planned';  // 计划需指定主泳姿目标
+    f.elements.distance_m.required = true;                  // 计划/记录都需要距离
+    f.elements.duration_min.required = (mode === 'recorded'); // 计划态时长非必填
+    f.elements.main_stroke.required = false;                 // 主泳姿均非必填
+    // 计划态隐藏：平均心率 / 总划水 / 趟数 / 平均划频 / 活动卡路里
+    document.querySelectorAll('#formSwim .only-record').forEach(function (el) {
+      el.style.display = mode === 'planned' ? 'none' : '';
+    });
     document.getElementById('modalSwimDesc').textContent = mode === 'planned'
-      ? '计划 = 目标（距离 / 时长 / 主泳姿 / 备注），完成后可一键「去记录」补全实测数据。'
-      : '配速会根据距离与时长自动计算，保存后可在列表中继续修改。';
+      ? '计划 = 目标距离（必填）；时长与主泳姿选填，完成后可一键「去记录」补全实测。'
+      : '配速会根据距离与时长自动计算；平均划频可手填，留空则自动估算。';
   }
 
   function openForm(row, mode) {
@@ -145,6 +151,7 @@
       form.elements.total_strokes.value = row.total_strokes != null ? row.total_strokes : '';
       form.elements.laps.value = row.laps != null ? row.laps : '';
       form.elements.calories.value = row.calories != null ? row.calories : '';
+      form.elements.avg_stroke_rate.value = row.avg_stroke_rate != null ? row.avg_stroke_rate : '';
     }
     App.openModal('modalSwim');
   }
@@ -190,6 +197,7 @@
       total_strokes: planned ? null : (form.elements.total_strokes.value !== '' ? parseInt(form.elements.total_strokes.value, 10) : null),
       laps: planned ? null : (form.elements.laps.value !== '' ? parseInt(form.elements.laps.value, 10) : null),
       calories: planned ? null : (form.elements.calories.value !== '' ? parseFloat(form.elements.calories.value) : null),
+      avg_stroke_rate: planned ? null : (form.elements.avg_stroke_rate.value !== '' ? parseFloat(form.elements.avg_stroke_rate.value) : null),
     };
     const req = editingId
       ? App.api('/api/swim-records/' + editingId, { method: 'PUT', body: payload })
@@ -197,7 +205,14 @@
     req.then(function () {
       App.closeModal('modalSwim');
       App.toast(planned ? '计划已保存' : '记录已保存');
-      setTimeout(function () { location.reload(); }, 400);
+      setTimeout(function () {
+        // 从总览点日期格「＋ 计划」过来的：保存后跳回总览当天
+        if (fromOv) {
+          location.href = '/overview?date=' + viewDate + '&mode=week';
+        } else {
+          location.reload();
+        }
+      }, 400);
     }).catch(err => App.toast(err.message, true));
   });
 
@@ -205,7 +220,124 @@
     el.addEventListener('click', function () { App.closeModal(el.dataset.close); });
   });
 
+  /* ---------- 导入（Excel / JSON） ---------- */
+  const importExcelBtn = document.getElementById('btnImportExcel');
+  const importJsonBtn = document.getElementById('btnImportJson');
+  const importForm = document.getElementById('formImport');
+  const importFile = document.getElementById('importFile');
+  const importJsonText = document.getElementById('importJsonText');
+  const importExcelPane = document.getElementById('importExcelPane');
+  const importJsonPane = document.getElementById('importJsonPane');
+  const importSubmit = document.getElementById('importSubmit');
+  const importCancel = document.getElementById('importCancel');
+  const importDone = document.getElementById('importDone');
+  const importResult = document.getElementById('importResult');
+  let importMode = 'excel';
+  let importCreated = 0;
+
+  function resetImport() {
+    importForm.reset();
+    importJsonText.value = '';
+    importResult.style.display = 'none';
+    importResult.innerHTML = '';
+    importSubmit.disabled = false;
+    importSubmit.textContent = '开始导入';
+    importCancel.style.display = '';
+    importDone.style.display = 'none';
+  }
+  function openImport(mode) {
+    resetImport();
+    importMode = mode;
+    importExcelPane.style.display = mode === 'excel' ? '' : 'none';
+    importJsonPane.style.display = mode === 'json' ? '' : 'none';
+    App.openModal('modalImport');
+  }
+  importExcelBtn.addEventListener('click', function () { openImport('excel'); });
+  importJsonBtn.addEventListener('click', function () { openImport('json'); });
+
+  function showImportResult(data) {
+    const failed = data.failed || [];
+    importCreated = data.imported || 0;
+    let html = '<div class="summary">';
+    if (!failed.length) {
+      html += '<span class="ok">导入成功：' + importCreated + ' 条游泳记录已导入</span>';
+    } else {
+      html += '<span class="fail">导入完成：' + importCreated + ' 条成功，' + failed.length + ' 行失败已跳过</span>';
+    }
+    html += '</div>';
+    if (failed.length) {
+      html += '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>工作表</th><th>行</th><th>列</th><th>原因</th></tr></thead><tbody>';
+      failed.forEach(function (f) {
+        html += '<tr><td>' + App.escapeHtml(f.sheet) + '</td><td class="num">' + f.row + '</td>' +
+          '<td>' + App.escapeHtml(f.column || '—') + '</td><td>' + App.escapeHtml(f.reason) + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    importResult.innerHTML = html;
+    importResult.style.display = 'block';
+
+    if (!failed.length) {
+      App.toast('已导入 ' + importCreated + ' 条游泳记录');
+      setTimeout(function () { location.reload(); }, 500);
+    } else {
+      importSubmit.disabled = true;
+      importSubmit.textContent = '开始导入';
+      importCancel.style.display = 'none';
+      importDone.style.display = '';
+      if (importCreated > 0) App.toast('已导入 ' + importCreated + ' 条，另有 ' + failed.length + ' 行失败');
+      else App.toast('导入失败 ' + failed.length + ' 行，请修正后重试', true);
+    }
+  }
+
+  importForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (importMode === 'json') {
+      let body;
+      try { body = JSON.parse(importJsonText.value); }
+      catch (err) { App.toast('JSON 格式不正确：' + err.message, true); return; }
+      if (!body || !Array.isArray(body.records) || !body.records.length) { App.toast('需包含非空 records 数组', true); return; }
+      importSubmit.disabled = true;
+      importSubmit.textContent = '导入中…';
+      App.api('/api/swim-records/import-json', { method: 'POST', body: body })
+        .then(function (data) { showImportResult(data); })
+        .catch(function (err) {
+          App.toast(err.message, true);
+          importSubmit.disabled = false;
+          importSubmit.textContent = '开始导入';
+        });
+      return;
+    }
+    const file = importFile.files[0];
+    if (!file) { App.toast('请先选择 .xlsx 文件', true); return; }
+    const fd = new FormData();
+    fd.append('file', file);
+    importSubmit.disabled = true;
+    importSubmit.textContent = '导入中…';
+    fetch('/api/swim-records/import', { method: 'POST', body: fd })
+      .then(function (res) {
+        return res.json().catch(function () { return null; }).then(function (body) {
+          if (!res.ok || !body) throw new Error((body && body.detail) || '导入失败');
+          showImportResult(body);
+        });
+      })
+      .catch(function (err) {
+        App.toast(err.message, true);
+        importSubmit.disabled = false;
+        importSubmit.textContent = '开始导入';
+      });
+  });
+
+  importDone.addEventListener('click', function () {
+    App.closeModal('modalImport');
+    if (importCreated > 0) setTimeout(function () { location.reload(); }, 200);
+  });
+
   /* ---------- 初始化 ---------- */
   loadDaily();
   load(1);
+  /* 从总览点日期格「＋ 计划」过来（?newplan=1）：自动弹出新建计划表单，日期已由 ?date= 带入 */
+  if (qs.get('newplan') === '1') {
+    openForm(null, 'planned');
+    history.replaceState(null, '', location.pathname + '?date=' + viewDate);
+  }
 })();

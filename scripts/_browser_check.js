@@ -103,6 +103,7 @@ async function main() {
     const s = await post('/api/swim-records', { record_date: '${iso}', status: 'planned', distance_m: 1000, duration_s: 1800, main_stroke: 'freestyle', remark: '自由泳 1000m · 30 分钟' });
     if (s.id) ids.swim = s.id;
     const dp = await post('/api/dance-records', { record_date: '${iso}', status: 'planned', dance_type: '拉丁', stars: 3, remark: '拉丁课 60 分钟' });
+    if (dp.id) ids.dancePlan = dp.id;
     const d = await post('/api/dance-records', { record_date: '${iso}', dance_type: '爵士', stars: 4, duration_s: 3600, calories: 200 });
     if (d.id) ids.dance = d.id;
     return ids;
@@ -117,17 +118,18 @@ async function main() {
     const q = s => document.querySelectorAll(s).length;
     const txt = s => { const el = document.querySelector(s); return el ? el.textContent.trim() : ''; };
     return {
-      stats: q('#ovStats .stat-card'),
+      stats: q('#ovWeekSummary .sum-item'),
       days: q('#ovWeekStrip .ws-day'),
       chips: q('#ovWeekStrip .ov-chip'),
+      chipMins: q('#ovWeekStrip .ov-chip .oc-min'),
       chartCanvas: q('#chartOvWeek canvas'),
       groupOpen: document.querySelector('.nav-group.open') ? true : false,
       breadcrumb: txt('.breadcrumb'),
       segWeekActive: document.querySelector('#ovModeSeg button.active') ? document.querySelector('#ovModeSeg button.active').textContent : ''
     };
   })()`);
-  check('总览默认周视图：4 统计卡 + 7 天条带', ovWeek.stats === 4 && ovWeek.days === 7, JSON.stringify(ovWeek));
-  check('周视图出现当日运动标签（健身/游泳/舞蹈）', ovWeek.chips >= 3, 'chips=' + ovWeek.chips);
+  check('总览默认周视图：本周运动情况 2 聚合 + 7 天条带', ovWeek.stats === 2 && ovWeek.days === 7, JSON.stringify(ovWeek));
+  check('周视图出现当日运动标签（健身/游泳/舞蹈，含时长）', ovWeek.chips >= 3 && ovWeek.chipMins >= 3, 'chips=' + ovWeek.chips + ' mins=' + ovWeek.chipMins);
   check('周图表 canvas 渲染（ECharts）', ovWeek.chartCanvas >= 1, 'canvas=' + ovWeek.chartCanvas);
   check('侧边栏「运动训练/计划」分组默认展开', ovWeek.groupOpen === true, '');
   check('面包屑显示「运动训练/计划」', ovWeek.breadcrumb.indexOf('运动训练/计划') >= 0, ovWeek.breadcrumb);
@@ -155,31 +157,56 @@ async function main() {
     cells: document.querySelectorAll('#ovCalGrid .ov-cal-cell:not(.blank)').length,
     marks: document.querySelectorAll('#ovCalGrid .ov-chip').length,
     chartCanvas: document.querySelectorAll('#chartOvMonth canvas').length,
-    monthStats: document.querySelectorAll('#ovStats .stat-card').length
+    monthStats: document.querySelectorAll('#ovMonthSummary .sum-item').length
   }))()`);
-  check('月视图：日历格子 ≥28、当月运动标签、月图表渲染', ovMonth.cells >= 28 && ovMonth.marks >= 3 && ovMonth.chartCanvas >= 1 && ovMonth.monthStats === 4, JSON.stringify(ovMonth));
+  check('月视图：日历格子 ≥28、当月运动标签、月图表渲染、本月运动情况 2 聚合', ovMonth.cells >= 28 && ovMonth.marks >= 3 && ovMonth.chartCanvas >= 1 && ovMonth.monthStats === 2, JSON.stringify(ovMonth));
 
   // 6. 日视图
   await ev(`document.querySelector('#ovModeSeg button[data-mode="day"]').click()`);
   await sleep(1400);
   const ovDay = await ev(`(() => ({
     cards: document.querySelectorAll('#ovDayCards .ov-sport-card').length,
-    items: document.querySelectorAll('#ovDayCards .osc-item').length
+    items: document.querySelectorAll('#ovDayCards .osc-item').length,
+    planStat: document.querySelectorAll('#ovDayStats .stat-card').length,
+    daySummary: document.querySelectorAll('#ovDaySummary .sum-item').length
   }))()`);
-  check('日视图：三运动卡片 + 条目', ovDay.cards === 3 && ovDay.items >= 3, JSON.stringify(ovDay));
+  check('日视图：训练计划卡 + 三运动卡片 + 当日运动情况 2 聚合', ovDay.planStat === 1 && ovDay.cards === 3 && ovDay.items >= 3 && ovDay.daySummary === 2, JSON.stringify(ovDay));
   await ev(`document.querySelector('#ovModeSeg button[data-mode="week"]').click()`);
   await sleep(1000);
 
-  // 7. 健身单日页：翻页导航 + 计划卡（当日有“开始训练”按钮）
+  // 7. 健身单日页：翻页导航 + 计划卡 + 「完成训练」按钮（2026-11-03：记录模式已移除）
   await cdp.cmd('Page.navigate', { url: BASE + '/training?date=' + iso });
   await sleep(1600);
   const training = await ev(`(() => ({
     nav: document.querySelectorAll('.date-nav .dn-btn').length,
     cards: document.querySelectorAll('.plan-card').length,
+    completeBtn: document.querySelectorAll('.plan-card [data-act="complete"]').length,
     recordBtn: document.querySelectorAll('.plan-card [data-act="record"]').length,
     breadcrumb: (document.querySelector('.breadcrumb') || {}).textContent || ''
   }))()`);
-  check('健身页：单日翻页导航 + 当日计划卡 + 「开始训练」', training.nav === 2 && training.cards >= 1 && training.recordBtn >= 1, JSON.stringify(training));
+  check('健身页：单日翻页导航 + 当日计划卡 + 「完成训练」按钮（无开始训练）',
+    training.nav === 2 && training.cards >= 1 && training.completeBtn >= 1 && training.recordBtn === 0, JSON.stringify(training));
+
+  // 7b. 翻页跳转验证（修复：?date= 参数与路由对齐后，点「前一天」应真正跳到上一日）
+  await ev(`document.querySelector('.date-nav .dn-btn').click()`);   // 点击触发整页导航，先返回
+  await sleep(900);
+  const flipTraining = await ev(`(() => ({ url: location.href, initDate: window.INIT_DATE, isToday: window.INIT_IS_TODAY }))()`);
+  check('健身页翻页：点「前一天」跳到上一日（?date 生效）',
+    flipTraining.url.indexOf('date=') >= 0 && flipTraining.initDate !== '${iso}', JSON.stringify(flipTraining));
+
+  // 7c. 完成训练弹窗：点「完成训练」→ 二次确认弹窗出现 → 取消（不真正转 recorded，避免留下不可删数据）
+  await cdp.cmd('Page.navigate', { url: BASE + '/training?date=' + iso });
+  await sleep(1500);
+  const completeModal = await ev(`(async () => {
+    const btn = document.querySelector('.plan-card [data-act="complete"]');
+    if (!btn) return { opened: false };
+    btn.click();
+    await new Promise(r => setTimeout(r, 500));
+    const m = document.getElementById('modalComplete');
+    return { opened: !!(m && m.classList.contains('open')), title: (m && m.querySelector('.modal-title') || {}).textContent || '' };
+  })()`);
+  check('健身页完成训练：点按钮弹「确认完成训练」二次确认', completeModal.opened === true && completeModal.title.indexOf('确认完成训练') >= 0, JSON.stringify(completeModal));
+  await ev(`document.querySelector('#modalComplete [data-close]').click()`);
 
   // 8. 游泳页：当日卡片（计划/记录两态）+ 结构化字段展示；弹窗无切换 seg
   await cdp.cmd('Page.navigate', { url: BASE + '/swim?date=' + iso });
@@ -198,6 +225,13 @@ async function main() {
     swim.dailyCard && swim.planBlock >= 1 && swim.todoBtn >= 1 && swim.segBtns === 0 && swim.planMeta.indexOf('m') >= 0 && swim.planMeta.indexOf('自由泳') >= 0 && swim.typeCol && swim.nav === 2 && swim.breadcrumb.indexOf('游泳') >= 0,
     JSON.stringify(swim));
 
+  // 8b. 游泳页翻页跳转验证
+  await ev(`document.querySelector('.date-nav .dn-btn').click()`);
+  await sleep(900);
+  const flipSwim = await ev(`(() => ({ url: location.href, initDate: window.INIT_DATE }))()`);
+  check('游泳页翻页：点「前一天」跳到上一日（?date 生效）',
+    flipSwim.url.indexOf('date=') >= 0 && flipSwim.initDate !== '${iso}', JSON.stringify(flipSwim));
+
   // 9. 舞蹈页：同上（当日有 拉丁计划 + 爵士记录；弹窗无 seg）
   await cdp.cmd('Page.navigate', { url: BASE + '/dance?date=' + iso });
   await sleep(1600);
@@ -205,13 +239,20 @@ async function main() {
     dailyCard: document.getElementById('danceDaily') ? true : false,
     blocks: document.querySelectorAll('#danceDaily .daily-block').length,
     todoBtn: document.querySelectorAll('#danceDaily [data-daily="todo"]').length,
-    planMeta: (document.querySelector('#danceDaily .daily-block .daily-main') || {}).textContent || '',
+    planMeta: (function(){ const ms = document.querySelectorAll('#danceDaily .daily-block .daily-main'); for (const el of ms) if (el.textContent.indexOf('拉丁') >= 0) return el.textContent; return ''; })(),
     segBtns: document.querySelectorAll('#danceStatusSeg button').length,
     typeCol: (function(){ const ths = document.querySelectorAll('.card table.tbl th'); for (const t of ths) if (t.textContent === '类型') return true; return false; })(),
     nav: document.querySelectorAll('.date-nav .dn-btn').length
   }))()`);
   check('舞蹈页：当日卡片(计划+记录)、结构化计划行、无弹窗 seg、类型列、翻页',
     dance.dailyCard && dance.blocks >= 2 && dance.todoBtn >= 1 && dance.segBtns === 0 && dance.planMeta.indexOf('拉丁') >= 0 && dance.typeCol && dance.nav === 2, JSON.stringify(dance));
+
+  // 9b. 舞蹈页翻页跳转验证
+  await ev(`document.querySelector('.date-nav .dn-btn').click()`);
+  await sleep(900);
+  const flipDance = await ev(`(() => ({ url: location.href, initDate: window.INIT_DATE }))()`);
+  check('舞蹈页翻页：点「前一天」跳到上一日（?date 生效）',
+    flipDance.url.indexOf('date=') >= 0 && flipDance.initDate !== '${iso}', JSON.stringify(flipDance));
 
   // 10. 其他页面无回归：/body 侧边栏结构
   await cdp.cmd('Page.navigate', { url: BASE + '/body' });
@@ -228,6 +269,7 @@ async function main() {
   if (seeded.training) await ev(`fetch('${BASE}/api/training/plans/' + ${seeded.training}, { method: 'DELETE', credentials: 'include' })`);
   if (seeded.swim) await ev(`fetch('${BASE}/api/swim-records/' + ${seeded.swim}, { method: 'DELETE', credentials: 'include' })`);
   if (seeded.dance) await ev(`fetch('${BASE}/api/dance-records/' + ${seeded.dance}, { method: 'DELETE', credentials: 'include' })`);
+  if (seeded.dancePlan) await ev(`fetch('${BASE}/api/dance-records/' + ${seeded.dancePlan}, { method: 'DELETE', credentials: 'include' })`);
   check('清理种子数据', true, '');
 
   // 12. JS 运行时错误汇总（遍历全程收集）

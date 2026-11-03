@@ -1,4 +1,4 @@
-"""健身训练单测（TR，2026-11 整改：id 维度 CRUD / 一日多计划）：状态迁移、时长计算、记录后锁定、取消计时、多计划、批量删除。"""
+"""健身训练单测（TR，2026-11 整改：id 维度 CRUD / 一日多计划；2026-11-03：移除计时记录模式，改「完成训练」一键转 recorded）。"""
 from datetime import date
 
 import pytest
@@ -54,78 +54,50 @@ def test_update_plan_edits_items(db):
     assert data2["items"][0]["reps"] == "10+8+6"
 
 
-def test_update_recorded_rejected(db):
+def test_update_recorded_allowed_keeps_checked(db):
+    """2026-11-04 起已记录可编辑：update 替换动作明细，并按 sort 保留原勾选状态（checked）。"""
     plan = service.create_plan(db, USER, _today(), [ITEM])
-    service.save_record(db, USER, plan.id, [ITEM])
-    with pytest.raises(AppError):
-        service.update_plan(db, USER, plan.id, [ITEM_MIX])
-
-
-def test_start_edit_vs_training(db):
-    plan = service.create_plan(db, USER, _today(), [ITEM])
-    edit = service.start_record(db, USER, plan.id, "edit")
-    assert edit.started_at is None
-    train = service.start_record(db, USER, plan.id, "training")
-    assert train.started_at is not None
-
-
-def test_other_date_plan_start_rejected(db):
-    """非当日计划不可切换为记录模式。"""
-    plan = service.create_plan(db, USER, date(2020, 1, 1), [ITEM])
-    with pytest.raises(AppError):
-        service.start_record(db, USER, plan.id, "training")
-
-
-def test_save_record_locks_and_duration(db):
-    from datetime import datetime, timedelta
-
-    plan = service.create_plan(db, USER, _today(), [ITEM])
-    service.start_record(db, USER, plan.id, "training")
-    plan.started_at = datetime.now() - timedelta(minutes=33)
+    service.complete_plan(db, USER, plan.id)
+    plan.items[0].checked = True   # 模拟训练时勾选
     db.commit()
-    result = service.save_record(db, USER, plan.id, [ITEM])
-    assert result["item_count"] == 1
-    assert result["duration_s"] is not None and 1980 <= result["duration_s"] <= 2040
-    assert result["total_volume"] == 70 * 5 * 8
-    assert service.get_plan(db, USER, plan.id).status == TR_STATUS_RECORDED
-    # 幂等保护：再次保存拒绝
-    with pytest.raises(AppError):
-        service.save_record(db, USER, plan.id, [ITEM])
-    # 已记录不可再修改计划 / 删除
-    with pytest.raises(AppError):
-        service.update_plan(db, USER, plan.id, [ITEM])
-    with pytest.raises(AppError):
-        service.delete_plan(db, USER, plan.id)
+    plan2 = service.update_plan(db, USER, plan.id, [ITEM_MIX, ITEM_EMPTY])
+    assert plan2.id == plan.id
+    data = service.plan_to_dict(plan2)
+    assert data["item_count"] == 2
+    assert data["items"][0]["exercise_name"] == "杠铃卧推"
+    assert data["items"][0]["checked"] is True    # 第 1 个动作勾选保留
+    assert data["items"][1]["checked"] is False
+    assert data["status"] == TR_STATUS_RECORDED
 
 
-def test_save_record_edit_path_no_duration(db):
+def test_complete_plan_flow(db):
+    """完成训练：planned → recorded，写 saved_at（无计时 started_at）；重复完成拒绝；2026-11-04 起不限当日。"""
+    from datetime import datetime
+
     plan = service.create_plan(db, USER, _today(), [ITEM])
-    service.start_record(db, USER, plan.id, "edit")
-    result = service.save_record(db, USER, plan.id, [ITEM])
-    assert result["duration_s"] is None
-
-
-def test_cancel_clears_started_at(db):
-    plan = service.create_plan(db, USER, _today(), [ITEM])
-    service.start_record(db, USER, plan.id, "training")
-    plan2 = service.cancel_record(db, USER, plan.id)
-    assert plan2.started_at is None
-    assert plan2.status == TR_STATUS_PLANNED
-
-
-def test_note_save_and_read(db):
-    plan = service.create_plan(db, USER, _today(), [ITEM])
-    service.save_record(db, USER, plan.id, [ITEM])
-    service.save_note(db, USER, plan.id, "状态很好", 5)
-    data = service.plan_to_dict(service.get_plan(db, USER, plan.id))
-    assert data["note"]["status_text"] == "状态很好"
-    assert data["note"]["rating"] == 5
-
-
-def test_note_requires_recorded(db):
-    plan = service.create_plan(db, USER, _today(), [ITEM])
+    assert plan.started_at is None
+    done = service.complete_plan(db, USER, plan.id)
+    assert done.status == TR_STATUS_RECORDED
+    assert done.saved_at is not None
+    assert done.started_at is None          # 2026-11-03 起不再写计时起点
+    data = service.plan_to_dict(done)
+    assert data["item_count"] == 1 and data["total_volume"] == 70 * 5 * 8
+    # 幂等保护：已记录再次完成拒绝
     with pytest.raises(AppError):
-        service.save_note(db, USER, plan.id, "还没练", 3)
+        service.complete_plan(db, USER, plan.id)
+    # 2026-11-04 起已记录可修改 / 可删除
+    updated = service.update_plan(db, USER, plan.id, [ITEM_MIX])
+    assert updated.status == TR_STATUS_RECORDED
+    assert service.delete_plan(db, USER, plan.id) is True
+    assert service.get_plan(db, USER, plan.id) is None
+
+
+def test_other_date_complete_allowed(db):
+    """2026-11-04 起移除「仅当日」限制：任意日期的计划均可标记为完成训练。"""
+    plan = service.create_plan(db, USER, date(2020, 1, 1), [ITEM])
+    done = service.complete_plan(db, USER, plan.id)
+    assert done.status == TR_STATUS_RECORDED
+    assert done.saved_at is not None
 
 
 def test_delete_and_batch_delete(db):
@@ -137,7 +109,7 @@ def test_delete_and_batch_delete(db):
     assert service.get_plan(db, USER, p1.id) is None
     assert service.delete_plan(db, USER, p1.id) is False  # 不存在返回 False
     # 批量删除：p3 已保存记录 → 跳过
-    service.save_record(db, USER, p3.id, [ITEM_EMPTY])
+    service.complete_plan(db, USER, p3.id)
     res = service.batch_delete_plans(db, USER, [p2.id, p3.id, 999])
     assert set(res["deleted"]) == {p2.id}
     assert set(res["skipped"]) == {p3.id}
@@ -151,10 +123,40 @@ def test_delete_and_batch_delete(db):
 def test_history_only_recorded(db):
     p1 = service.create_plan(db, USER, _today(), [ITEM])
     h = service.history(db, USER)
-    assert h["total"] == 0  # 未保存不进入历史
-    service.save_record(db, USER, p1.id, [ITEM])
+    assert h["total"] == 0  # 未完成不进入历史
+    service.complete_plan(db, USER, p1.id)
     h = service.history(db, USER)
     assert h["total"] == 1
+
+
+def test_copy_plan_to_date_reuse_old_plan(db):
+    """一键设为当日计划（2026-11-04）：以历史记录为模板在目标日期新建 planned 计划，原记录不动。
+
+    支持任意日期计划/记录作为模板；勾选状态不复用。
+    """
+    src = service.create_plan(db, USER, date(2026, 10, 20), [ITEM, ITEM_MIX], remark="旧计划")
+    service.complete_plan(db, USER, src.id)
+    src.items[0].checked = True
+    db.commit()
+
+    new_plan = service.copy_plan_to_date(db, USER, src.id, _today())
+    assert new_plan.id != src.id
+    assert new_plan.status == TR_STATUS_PLANNED
+    assert new_plan.plan_date == _today()
+    assert new_plan.remark == "旧计划"                       # 备注复用
+    assert [i.exercise_name for i in new_plan.items] == ["杠铃深蹲", "杠铃卧推"]
+    assert all(i.checked is False for i in new_plan.items)   # 勾选不复用
+    assert new_plan.items[0].weight_kg == 70
+
+    # 原记录保持 recorded 不动
+    old = service.get_plan(db, USER, src.id)
+    assert old.status == TR_STATUS_RECORDED
+    assert len(old.items) == 2
+    # 非当日 planned 计划也可作为模板复用
+    p2 = service.create_plan(db, USER, date(2026, 10, 21), [ITEM_MIX])
+    copied = service.copy_plan_to_date(db, USER, p2.id, _today())
+    assert copied.items[0].exercise_name == "杠铃卧推"
+    assert len(service.get_plans_by_date(db, USER, _today())) == 2
 
 
 def test_overview_week_includes_training(db):
@@ -165,7 +167,8 @@ def test_overview_week_includes_training(db):
     monday = monday_of(_today())
     service.create_plan(db, USER, monday, [ITEM])
     p2 = service.create_plan(db, USER, monday, [ITEM_MIX])
-    service.save_record(db, USER, p2.id, [ITEM_MIX])
+    # 2026-11-04 起「完成训练」不限当日：本周一（≠今天）也可直接转记录
+    service.complete_plan(db, USER, p2.id)
     res = overview.aggregate(db, USER, "week", _today())
     assert len(res["days"]) == 7
     day0 = res["days"][0]

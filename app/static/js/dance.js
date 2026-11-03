@@ -5,6 +5,8 @@
   const App = window.App;
   let currentPage = 1, editingId = null, filterType = null, formMode = 'recorded';
   const viewDate = window.INIT_DATE || App.todayStr();   // 当日视图日期（总览跳转 / 前后翻页）
+  const qs = new URLSearchParams(location.search);
+  const fromOv = qs.get('fromov') === '1';               // 是否从总览点日期格「＋ 计划」过来
   const dailyWrap = document.getElementById('danceDaily');
 
   const STAR_TEXT = ['', '★', '★★', '★★★', '★★★★', '★★★★★'];
@@ -213,7 +215,14 @@
     req.then(function () {
       App.closeModal('modalDance');
       App.toast(planned ? '计划已保存' : '记录已保存');
-      setTimeout(function () { location.reload(); }, 400);
+      setTimeout(function () {
+        // 从总览点日期格「＋ 计划」过来的：保存后跳回总览当天
+        if (fromOv) {
+          location.href = '/overview?date=' + viewDate + '&mode=week';
+        } else {
+          location.reload();
+        }
+      }, 400);
     }).catch(err => App.toast(err.message, true));
   });
 
@@ -227,4 +236,9 @@
   }).catch(function () {});
   loadDaily();
   load(1);
+  /* 从总览点日期格「＋ 计划」过来（?newplan=1）：自动弹出新建计划表单，日期已由 ?date= 带入 */
+  if (qs.get('newplan') === '1') {
+    openForm(null, 'planned');
+    history.replaceState(null, '', location.pathname + '?date=' + viewDate);
+  }
 })();

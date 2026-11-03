@@ -22,7 +22,7 @@ def dance_page(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-    day: date | None = Query(None),
+    day: date | None = Query(None, alias="date"),  # 前端链接统一 ?date=（2026-11-03 修：参数名与链接不一致致翻页失效）
 ):
     selected = day or today_local()
     stats = service.stats(db, user.id)

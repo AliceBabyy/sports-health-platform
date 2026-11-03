@@ -1,6 +1,6 @@
 """健身训练页面路由：GET /training（单日视图 + 前后翻页，?date= 指定某日；默认今天）。
 
-2026-11 改版：支持从总览页按 ?date= 跳转到任意一日；记录模式仍仅对当日开放（后端强校验）。
+2026-11 改版：支持从总览页按 ?date= 跳转到任意一日；「完成训练」仅对当日开放（后端强校验，2026-11-03 移除记录模式）。
 """
 from datetime import date, timedelta
 
@@ -29,7 +29,7 @@ def training_page(
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-    day: date | None = Query(None),
+    day: date | None = Query(None, alias="date"),  # 前端链接统一 ?date=（2026-11-03 修：参数名与链接不一致致翻页失效）
 ):
     today = today_local()
     selected = day or today

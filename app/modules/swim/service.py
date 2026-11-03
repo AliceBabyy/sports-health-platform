@@ -20,6 +20,10 @@ def calc_stroke_rate(total_strokes: int | None, duration_s: int) -> float | None
 
 
 def to_dict(row: SwimRecord) -> dict:
+    # 平均划频：优先取用户手填值；未填时由总划水/时长派生
+    avg_stroke_rate = row.avg_stroke_rate
+    if avg_stroke_rate is None:
+        avg_stroke_rate = calc_stroke_rate(row.total_strokes, row.duration_s)
     return {
         "id": row.id,
         "record_date": row.record_date.isoformat(),
@@ -33,7 +37,7 @@ def to_dict(row: SwimRecord) -> dict:
         "main_stroke": row.main_stroke,
         "main_stroke_label": SWIM_STROKE_LABELS.get(row.main_stroke, row.main_stroke),
         "laps": row.laps,
-        "avg_stroke_rate": calc_stroke_rate(row.total_strokes, row.duration_s),
+        "avg_stroke_rate": avg_stroke_rate,
         "calories": float(row.calories) if row.calories is not None else None,
     }
 
@@ -83,11 +87,29 @@ def delete_record(db: Session, user_id: int, record_id: int) -> bool:
     return True
 
 
+def bulk_create_records(db: Session, user_id: int, rows: list[dict]) -> int:
+    """批量导入记录（status 固定 recorded），rows 为已校验的字段 dict，返回成功条数。"""
+    count = 0
+    for data in rows:
+        row = SwimRecord(user_id=user_id, status="recorded", **data)
+        db.add(row)
+        count += 1
+    db.commit()
+    return count
+
+
 def stats(db: Session, user_id: int) -> dict:
-    """顶部汇总（SW-03）：总距离/次数/平均配速/累计时长/平均心率/主泳姿分布（仅统计记录态）。"""
+    """游泳档案聚合（SW-03）：仅统计记录态。
+
+    返回累计次数/距离/时长/平均配速，以及：
+    - fastest_pace / slowest_pace：历史记录中最快 / 最慢配速（min/100m，越小越快）
+    - top_stroke / top_stroke_label：出现次数最多的主泳姿
+    - latest：最近一次游泳记录的成绩摘要（日期/距离/时长/配速/泳姿/划频）
+    """
     rows = (
         db.query(SwimRecord)
         .filter(SwimRecord.user_id == user_id, SwimRecord.status == "recorded")
+        .order_by(SwimRecord.record_date.desc(), SwimRecord.id.desc())
         .all()
     )
     count = len(rows)
@@ -95,14 +117,40 @@ def stats(db: Session, user_id: int) -> dict:
         return {
             "count": 0, "total_distance_m": 0, "total_duration_s": 0, "avg_pace": None,
             "avg_heart_rate": None, "stroke_count": {},
+            "fastest_pace": None, "slowest_pace": None,
+            "top_stroke": None, "top_stroke_label": None,
+            "latest": None,
         }
     total_distance = sum(r.distance_m for r in rows if r.distance_m)
     total_duration = sum(r.duration_s for r in rows if r.duration_s)
     avg_pace = calc_pace(total_duration, total_distance)  # 总时长/总距离 → 平均配速
     rates = [r.avg_heart_rate for r in rows if r.avg_heart_rate]
+
+    # 各记录配速（仅取距离/时长齐全的），用于最快/最慢
+    paces = [p for r in rows if (p := calc_pace(r.duration_s, r.distance_m)) is not None]
+    fastest_pace = min(paces) if paces else None
+    slowest_pace = max(paces) if paces else None
+
+    # 主泳姿分布（忽略空值）→ 最多
     stroke_count: dict[str, int] = {}
     for r in rows:
-        stroke_count[r.main_stroke] = stroke_count.get(r.main_stroke, 0) + 1
+        if r.main_stroke:
+            stroke_count[r.main_stroke] = stroke_count.get(r.main_stroke, 0) + 1
+    top_stroke = max(stroke_count, key=stroke_count.get) if stroke_count else None
+
+    # 最新一次记录（rows 已按日期倒序）
+    latest_row = rows[0]
+    latest = {
+        "record_date": latest_row.record_date.isoformat(),
+        "distance_m": latest_row.distance_m,
+        "duration_s": latest_row.duration_s,
+        "pace": calc_pace(latest_row.duration_s, latest_row.distance_m),
+        "main_stroke": latest_row.main_stroke,
+        "main_stroke_label": SWIM_STROKE_LABELS.get(latest_row.main_stroke, latest_row.main_stroke),
+        "avg_stroke_rate": latest_row.avg_stroke_rate
+        if latest_row.avg_stroke_rate is not None
+        else calc_stroke_rate(latest_row.total_strokes, latest_row.duration_s),
+    }
     return {
         "count": count,
         "total_distance_m": total_distance,
@@ -110,4 +158,9 @@ def stats(db: Session, user_id: int) -> dict:
         "avg_pace": avg_pace,
         "avg_heart_rate": round(sum(rates) / len(rates)) if rates else None,
         "stroke_count": stroke_count,
+        "fastest_pace": fastest_pace,
+        "slowest_pace": slowest_pace,
+        "top_stroke": top_stroke,
+        "top_stroke_label": SWIM_STROKE_LABELS.get(top_stroke) if top_stroke else None,
+        "latest": latest,
     }

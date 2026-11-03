@@ -30,8 +30,8 @@ class TrainingPlan(Base):
     plan_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="planned")  # planned | recorded
     remark: Mapped[str | None] = mapped_column(String(255), nullable=True)  # 备注（计划/记录均可填）
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 开始训练时刻（仅计时路径）
-    saved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 保存记录时刻
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 开始训练时刻（2026-11-03 起不再写入，仅历史 recorded 时长计算用）
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # 完成训练时刻
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

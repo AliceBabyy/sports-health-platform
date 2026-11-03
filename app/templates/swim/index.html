@@ -1,14 +1,16 @@
 {% extends "base.html" %}
-{% from "components/stat_card.html" import stat_card %}
 {% block title %}游泳记录 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/swim.css?v=20261102">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/swim.css?v=20261104b">{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>游泳记录</h1>
+  <h1>游泳</h1>
   <div class="page-desc">按次记录距离、配速与划水效率，用于观察有氧能力的变化。计划与记录统一管理。</div>
   <div class="page-head-actions">
     <button class="btn" id="btnAddSwimPlan">＋ 新建计划</button>
     <button class="btn btn-primary" id="btnAddSwim">＋ 新增记录</button>
+    <span class="actions-divider"></span>
+    <button class="btn" id="btnImportExcel">⇧ 导入 Excel</button>
+    <button class="btn" id="btnImportJson">⇧ 导入 JSON</button>
   </div>
 </div>
 
@@ -24,13 +26,53 @@
   <div id="swimDaily"></div>
 </div>
 
-<div class="stat-grid">
-  {% set km = ((stats.total_distance_m or 0) / 1000) %}
-  {{ stat_card('累计距离', ('%.2f'|format(km)), 'km', (stats.count|string) + ' 次下水') }}
-  {{ stat_card('平均配速', ('—' if stats.avg_pace is none else stats.avg_pace|string), 'min/100m', '按全部记录总距离与总时长计算') }}
-  {{ stat_card('累计时长', ('%.1f'|format((stats.total_duration_s or 0) / 3600)), 'h', (('平均 ' ~ ((stats.total_duration_s // (stats.count if stats.count else 1) // 60)) ~ ' 分钟/次') if stats.count else '暂无记录')) }}
-  {{ stat_card('平均心率', (stats.avg_heart_rate if stats.avg_heart_rate is not none else '—'), 'bpm', '主泳姿分布见列表上方') }}
+{% if stats.count %}
+{% set lat = stats.latest %}
+{% set lat_dur_min = (lat.duration_s or 0) // 60 %}
+{% set lat_dur_sec = (lat.duration_s or 0) % 60 %}
+<div class="card swim-page swim-profile">
+  <div class="card-title">游泳档案 <span class="sub">历史记录汇总 · 仅统计已完成的记录 · 共 {{ stats.count }} 次下水</span></div>
+  <div class="swim-profile-grid">
+    <div class="sp-item">
+      <div class="sp-label">累计下水次数</div>
+      <div class="sp-value num">{{ stats.count }}<small>次</small></div>
+    </div>
+    <div class="sp-item">
+      <div class="sp-label">平均配速</div>
+      <div class="sp-value num">{{ stats.avg_pace if stats.avg_pace is not none else '—' }}{% if stats.avg_pace is not none %}<small>min/100m</small>{% endif %}</div>
+    </div>
+    <div class="sp-item">
+      <div class="sp-label">最快配速</div>
+      <div class="sp-value num">{{ stats.fastest_pace if stats.fastest_pace is not none else '—' }}{% if stats.fastest_pace is not none %}<small>min/100m</small>{% endif %}</div>
+    </div>
+    <div class="sp-item">
+      <div class="sp-label">最慢配速</div>
+      <div class="sp-value num">{{ stats.slowest_pace if stats.slowest_pace is not none else '—' }}{% if stats.slowest_pace is not none %}<small>min/100m</small>{% endif %}</div>
+    </div>
+    <div class="sp-item">
+      <div class="sp-label">最常用泳姿</div>
+      <div class="sp-value num">{{ stats.top_stroke_label or '—' }}</div>
+    </div>
+  </div>
+  <div class="sp-latest">
+    <div class="sp-latest-head">
+      <span class="sp-latest-label">最近一次</span>
+      <span class="sp-latest-date num">{{ lat.record_date }}{% if lat.main_stroke_label %} · {{ lat.main_stroke_label }}{% endif %}</span>
+    </div>
+    <div class="sp-latest-body">
+      {% if lat.distance_m %}<span class="sp-latest-stat"><b class="num">{{ lat.distance_m }}</b><small>m</small></span>{% endif %}
+      {% if lat.duration_s %}<span class="sp-latest-stat"><b class="num">{{ lat_dur_min }}:{{ '%02d'|format(lat_dur_sec) }}</b><small>时长</small></span>{% endif %}
+      {% if lat.pace is not none %}<span class="sp-latest-stat"><b class="num">{{ lat.pace }}</b><small>min/100m</small></span>{% endif %}
+    </div>
+  </div>
+  <div class="sp-cheer">游过的每一米都在变强，继续保持，下一次再快一点点。</div>
 </div>
+{% else %}
+<div class="card swim-page swim-profile">
+  <div class="card-title">游泳档案 <span class="sub">历史记录汇总</span></div>
+  <div class="empty-state" style="padding:10px 0">还没有游泳记录，新增一条记录后，这里会自动汇总你的平均 / 最快 / 最慢配速与常用泳姿。</div>
+</div>
+{% endif %}
 
 <div class="card swim-page">
   <div class="card-title">全部记录 <span class="sub">计划 + 记录，按日期倒序 · 可分页查看</span>
@@ -74,13 +116,13 @@
           </select>
         </div>
         <div class="form-item full"><label class="field-label">备注</label><input class="input" name="remark" maxlength="255" placeholder="如：重点练换气节奏 / 泳镜漏水"></div>
-        <div class="form-item"><label class="field-label">平均心率 (bpm)</label><input class="input num" type="number" name="avg_heart_rate" min="1"></div>
-        <div class="form-item"><label class="field-label">总划水次数</label><input class="input num" type="number" name="total_strokes" min="0"></div>
-        <div class="form-item"><label class="field-label">趟数</label><input class="input num" type="number" name="laps" min="0"></div>
-        <div class="form-item"><label class="field-label">平均划频 (次/分) 只读</label><input class="input num" name="avg_stroke_rate" readonly></div>
-        <div class="form-item"><label class="field-label">活动卡路里 (kcal)</label><input class="input num" type="number" step="0.1" name="calories"></div>
+        <div class="form-item only-record"><label class="field-label">平均心率 (bpm)</label><input class="input num" type="number" name="avg_heart_rate" min="1"></div>
+        <div class="form-item only-record"><label class="field-label">总划水次数</label><input class="input num" type="number" name="total_strokes" min="0"></div>
+        <div class="form-item only-record"><label class="field-label">趟数</label><input class="input num" type="number" name="laps" min="0"></div>
+        <div class="form-item only-record"><label class="field-label">平均划频 (次/分)</label><input class="input num" type="number" step="0.1" min="0" name="avg_stroke_rate" placeholder="选填，留空自动估算"></div>
+        <div class="form-item only-record"><label class="field-label">活动卡路里 (kcal)</label><input class="input num" type="number" step="0.1" name="calories"></div>
       </div>
-      <div class="readonly-note">配速 = 时长 ÷ 距离 × 100，保留 1 位小数；平均划频 = 总划水次数 ÷（时长/60）。两者由后端计算，前端只读展示。</div>
+      <div class="readonly-note">配速 = 时长 ÷ 距离 × 100，由系统自动计算；平均划频可手填，不填时由总划水次数 ÷（时长/60）自动估算。</div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalSwim">取消</button>
         <button type="submit" class="btn btn-primary">保存</button>
@@ -88,8 +130,38 @@
     </form>
   </div>
 </div>
+
+<!-- Excel / JSON 导入弹窗：每行一条游泳记录，导入后按「已完成记录」保存 -->
+<div class="modal-mask" id="modalImport">
+  <div class="modal" style="width:640px">
+    <div class="modal-title" id="importModalTitle">导入游泳记录</div>
+    <div class="modal-desc">每行一条游泳记录；导入的数据将直接作为「已完成记录」保存，不会改动已存在的记录。</div>
+    <form id="formImport" novalidate>
+      <div id="importExcelPane">
+        <div class="form-item">
+          <label class="field-label">选择文件（.xlsx）</label>
+          <input class="input file-input" type="file" name="file" id="importFile" accept=".xlsx" required>
+        </div>
+        <div class="modal-note">表头须与模板一致。没有模板？<a href="/api/swim-records/template">下载导入模板</a>（含填写说明与示例）。</div>
+      </div>
+      <div id="importJsonPane" style="display:none">
+        <div class="form-item">
+          <label class="field-label">粘贴 JSON（{&quot;records&quot;: [...]}）</label>
+          <textarea class="input" id="importJsonText" rows="8" style="font-family:monospace;font-size:12px" placeholder='{"records":[{"record_date":"2026-11-03","distance_m":1500,"duration_min":25,"main_stroke":"自由泳"}]}'></textarea>
+        </div>
+        <div class="modal-note">格式：{&quot;records&quot;:[{&quot;record_date&quot;:&quot;YYYY-MM-DD&quot;,&quot;distance_m&quot;:1500,&quot;duration_min&quot;:25,&quot;main_stroke&quot;:&quot;自由泳&quot;,&quot;avg_heart_rate&quot;:135,&quot;total_strokes&quot;:600,&quot;laps&quot;:30,&quot;avg_stroke_rate&quot;:24,&quot;calories&quot;:320,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条。</div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>
+        <button type="submit" class="btn btn-primary" id="importSubmit">开始导入</button>
+        <button type="button" class="btn btn-primary" id="importDone" style="display:none">完成</button>
+      </div>
+    </form>
+    <div id="importResult" class="import-result" style="display:none"></div>
+  </div>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>window.INIT_DATE = "{{ selected_date }}";</script>
-<script src="/static/js/swim.js"></script>
+<script src="/static/js/swim.js?v=20261104b"></script>
 {% endblock %}

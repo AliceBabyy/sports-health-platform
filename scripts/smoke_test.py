@@ -186,21 +186,22 @@ def main() -> None:
     ok = code == 200 and "fitness" in text and "swim" in text and "dance" in text
     check("GET /api/overview/day(单日详情)", ok, f"code={code}")
 
-    print("== 写链路（临时数据，测后即删） ==")
+    print("== 写链路（临时数据，测后即删，使用冒烟注册的临时用户，绝不触碰真实账号数据） ==")
     # 4 表拆分：分 4 组写入（昨日基础只填体重 → 今日身高应继承昨日体重所在行的身高？不，
     # 继承按字段回溯：今日只填身高，体重应沿用昨日的体重）
+    # 2026-11-03 修复：写删全部走 reg_req（临时注册用户），与 admin 真实身材数据彻底隔离。
     day1 = (date.today() - timedelta(days=1)).isoformat()
-    code, _ = req("POST", "/api/body-metrics/basic", {
+    code, _ = reg_req("POST", "/api/body-metrics/basic", {
         "record_date": day1,
         "values": {"weight": 60.0},
     })
     check("POST /api/body-metrics/basic（昨日仅体重）", code == 200, f"code={code}")
-    code, _ = req("POST", "/api/body-metrics/basic", {
+    code, _ = reg_req("POST", "/api/body-metrics/basic", {
         "record_date": today,
         "values": {"height": 165.0},
     })
     check("POST /api/body-metrics/basic（今日仅身高）", code == 200, f"code={code}")
-    code, text = req("GET", "/api/body-metrics/latest")
+    code, text = reg_req("GET", "/api/body-metrics/latest")
     ok = code == 200 and '"weight"' in text and '"height"' in text and "bmi" in text
     check("GET /api/body-metrics/latest 合并 4 组字段", ok, f"code={code}")
     try:
@@ -211,39 +212,39 @@ def main() -> None:
         inherited_ok = bmi_ok = False
     check("未填字段继承最近值（体重=60 沿用）且 BMI 可算", inherited_ok and bmi_ok, f"text={text[:200]}")
 
-    code, _ = req("POST", "/api/body-metrics/goal", {
+    code, _ = reg_req("POST", "/api/body-metrics/goal", {
         "record_date": today,
         "values": {"target_weight": 55.0, "target_body_fat": 20.0},
     })
     check("POST /api/body-metrics/goal", code == 200, f"code={code}")
-    code, _ = req("POST", "/api/body-metrics/girth", {
+    code, _ = reg_req("POST", "/api/body-metrics/girth", {
         "record_date": today,
         "values": {"waist": 68.0, "chest": 88.0, "arm": 30.0, "hip": 92.0},
     })
     check("POST /api/body-metrics/girth", code == 200, f"code={code}")
-    code, _ = req("POST", "/api/body-metrics/target", {
+    code, _ = reg_req("POST", "/api/body-metrics/target", {
         "record_date": today,
         "values": {"target_waist": 65.0},
     })
     check("POST /api/body-metrics/target", code == 200, f"code={code}")
 
-    code, _ = req("POST", "/api/body-metrics/basic", {
+    code, _ = reg_req("POST", "/api/body-metrics/basic", {
         "record_date": today,
         "values": {"waist": 99.0},
     })
     check("POST /api/body-metrics/basic 拒绝不属于该组的字段", code == 400, f"code={code}")
 
-    code, text = req("GET", "/api/body-metrics/latest")
+    code, text = reg_req("GET", "/api/body-metrics/latest")
     ok = code == 200 and '"target_weight"' in text and '"target_waist"' in text and '"waist"' in text
     check("GET /api/body-metrics/latest 含目标与围度字段", ok, f"code={code}")
 
-    code, text = req("GET", "/api/body-metrics")
+    code, text = reg_req("GET", "/api/body-metrics")
     ok = code == 200 and '"total"' in text
     check("GET /api/body-metrics 列表（按日期合并）", ok, f"code={code}")
 
-    code, _ = req("GET", "/api/body-metrics/trend?metric=body_fat&range=month")
+    code, _ = reg_req("GET", "/api/body-metrics/trend?metric=body_fat&range=month")
     check("GET /api/body-metrics/trend(非 weight 指标)", code == 200, f"code={code}")
-    code, _ = req("GET", "/api/body-metrics/trend?metric=target_weight&range=month")
+    code, _ = reg_req("GET", "/api/body-metrics/trend?metric=target_weight&range=month")
     check("GET /api/body-metrics/trend 拒绝目标值", code == 400, f"code={code}")
 
     # 训练：id 维度 CRUD / 一日多计划 / 批量删除（2026-11 整改）
@@ -355,9 +356,9 @@ def main() -> None:
     if dance_plan_id:
         code, _ = req("DELETE", f"/api/dance-records/{dance_plan_id}")
         check("DELETE /api/dance-records(计划态)", code == 200, f"code={code}")
-    code, _ = req("DELETE", "/api/body-metrics?record_date=" + today)
+    code, _ = reg_req("DELETE", "/api/body-metrics?record_date=" + today)
     check("DELETE /api/body-metrics(按日)", code == 200, f"code={code}")
-    code, _ = req("DELETE", "/api/body-metrics?record_date=" + day1)
+    code, _ = reg_req("DELETE", "/api/body-metrics?record_date=" + day1)
     check("DELETE /api/body-metrics(按日·昨日)", code == 200, f"code={code}")
 
     print(f"\n结果：通过 {passed} / {passed + failed}")

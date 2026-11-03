@@ -21,10 +21,11 @@ def _seed(db):
     monday = monday_of(today_local())
     training_service.create_plan(db, USER, monday, [ITEM])
     p2 = training_service.create_plan(db, USER, monday, [ITEM])
-    training_service.start_record(db, USER, p2.id, "training")
+    # 直接落 recorded（绕过「仅当日可保存」校验，本周一 ≠ 今天时仍成立）：started 30 分钟前 → saved 现在
+    p2.status = TR_STATUS_RECORDED
     p2.started_at = datetime.now() - timedelta(minutes=30)
+    p2.saved_at = datetime.now()
     db.commit()
-    training_service.save_record(db, USER, p2.id, [ITEM])
 
     swim_service.create_record(
         db,
@@ -100,8 +101,13 @@ def test_month_aggregate_spans_days(db):
     row = next(d for d in res["days"] if d["date"] == monday.isoformat())
     assert row["sports"]["fitness"]["records"] == 1
     assert res["stats"]["records"] == 3
-    # 图表按周分组（跨月周只聚合月内日）
-    assert res["chart"] is not None and len(res["chart"]["labels"]) >= 4
+    # 图表按月内每日序列（labels=日号），周一当日分钟值落在对应索引
+    assert res["chart"] is not None and len(res["chart"]["labels"]) == last
+    idx = monday.day - 1
+    assert res["chart"]["labels"][idx] == str(monday.day)
+    assert res["chart"]["fitness"][idx] == 30
+    assert res["chart"]["swim"][idx] == 30
+    assert res["chart"]["dance"][idx] == 60
 
 
 def test_day_detail_includes_status_and_fields(db):

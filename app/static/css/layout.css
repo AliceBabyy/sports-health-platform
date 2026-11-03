@@ -41,12 +41,17 @@
   height: 18px;
   border-radius: 4px;
   color: var(--color-text-secondary);
-  transition: transform .15s, background .15s;
+  transition: transform .25s ease, background .15s;
 }
 .nav-group-head .chev:hover { background: var(--color-border); color: var(--color-text); }
 .nav-group.open .nav-group-head .chev { transform: rotate(90deg); }
-.nav-group .nav-sub { display: none; flex-direction: column; gap: 1px; padding-left: 8px; margin: 1px 0 3px; }
-.nav-group.open .nav-sub { display: flex; }
+/* 子菜单：展开/收起用 max-height+opacity 过渡，替代瞬间 display 切换 */
+.nav-group .nav-sub {
+  display: flex; flex-direction: column; gap: 1px; padding-left: 8px; margin: 1px 0 3px;
+  max-height: 0; overflow: hidden; opacity: 0;
+  transition: max-height .28s ease, opacity .2s ease .05s;
+}
+.nav-group.open .nav-sub { max-height: 220px; opacity: 1; }
 .nav-sub a { padding-left: 20px !important; font-size: 13px; border-left: 1px solid var(--color-border); border-radius: 0 6px 6px 0; }
 .nav-sub a.active { border-left-color: var(--color-primary); color: var(--color-primary); }
 .app-shell.sidebar-collapsed .nav-group .nav-sub { display: none !important; }

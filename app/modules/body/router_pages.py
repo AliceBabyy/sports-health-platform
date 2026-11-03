@@ -27,7 +27,7 @@ def body_page(
         {
             "active": "body",
             "snapshot": snap,
-            "goal_progress": body_service.goal_progress(db, user.id),
+            "achievements": body_service.achievement_progress(db, user.id),
             "initial_trend": initial_trend,
             "body_keys": BODY_KEYS,
             "body_labels": BODY_LABELS,

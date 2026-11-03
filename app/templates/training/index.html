@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block title %}健身训练 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261102">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261104">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>健身训练</h1>
-  <div class="page-desc">一个训练计划一张卡片，卡片内每个动作一行；训练记录在计划之上实时校准。</div>
+  <div class="page-desc">一个训练计划一张卡片，卡片内每个动作一行；练完点「完成训练」转为训练记录。</div>
   <div class="page-head-actions">
     <button class="btn" id="btnNewPlan">＋ 新建计划</button>
+    <span class="actions-divider"></span>
+    <button class="btn" id="btnImportExcel">⇧ 导入 Excel</button>
+    <button class="btn" id="btnImportJson">⇧ 导入 JSON</button>
   </div>
 </div>
 
@@ -16,8 +19,8 @@
     <div class="card" id="dayPanel">
       <div class="day-head">
         <div>
-          <div class="day-title">当日训练 <span class="tag tag-good" id="statusTag" style="display:none">记录模式</span></div>
-          <div class="day-sub"><span>{{ selected_date_str }} · {{ selected_weekday }}</span><span id="timerLabel" class="num" style="font-variant-numeric:tabular-nums"></span></div>
+          <div class="day-title">当日训练</div>
+          <div class="day-sub"><span>{{ selected_date_str }} · {{ selected_weekday }}</span></div>
           <div class="day-summary" id="daySummary"></div>
         </div>
         <div class="date-nav">
@@ -27,22 +30,18 @@
         </div>
       </div>
       <div class="table-wrap" id="planWrap" style="margin-top:14px"></div>
-      <div class="day-foot" id="dayFoot" style="display:none">
-        <span class="note">记录模式仅对当日计划开放，保存后计划即转为训练记录（FE-14 弹窗确认后进入）</span>
-        <div style="display:flex;align-items:center;gap:14px">
-          <span>总容量 <b class="vol num" id="volLabel">0</b> kg</span>
-          <button class="btn" id="btnCancelRecord">取消</button>
-          <button class="btn btn-primary" id="btnSaveRecord">保存记录</button>
-        </div>
+      <div class="day-ov">
+        <div class="day-ov-title">训练概览 <span class="sub">{{ selected_date_str }}</span></div>
+        <div class="ov-list" id="overviewList"></div>
       </div>
     </div>
 
     <!-- 训练历史 -->
     <div class="card">
-      <div class="card-title">训练历史 <span class="sub">已保存的训练记录 · 含心得</span></div>
+      <div class="card-title">训练历史 <span class="sub">已保存的训练记录</span></div>
       <div class="table-wrap history-table">
         <table class="tbl">
-          <thead><tr><th>日期</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>心得</th></tr></thead>
+          <thead><tr><th>日期</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>心得</th><th>操作</th></tr></thead>
           <tbody id="historyBody"></tbody>
         </table>
       </div>
@@ -51,10 +50,6 @@
   </div>
 
   <div>
-    <div class="card">
-      <div class="card-title">训练概览 <span class="sub">今日</span></div>
-      <div class="ov-list" id="overviewList"></div>
-    </div>
     {% if cycle_link %}
     <div class="card cycle-card">
       <div class="card-title">周期联动 <span class="tag tag-{{ cycle_link.sport_level }}">{{ cycle_link.sport_label }}</span></div>
@@ -68,53 +63,45 @@
   </div>
 </div>
 
-<!-- 是否开始训练确认弹窗（仅「开始训练」，进入后按实际训练调整动作/重量/组数） -->
-<div class="modal-mask start-modal" id="modalStart">
+<!-- 完成训练确认弹窗（计划 → 训练记录，二次确认） -->
+<div class="modal-mask start-modal" id="modalComplete">
   <div class="modal">
-    <div class="modal-title">是否开始训练？</div>
-    <div class="modal-desc">开始训练后进入计时记录模式，你可以按实际训练情况调整动作、重量与组数。</div>
+    <div class="modal-title">确认完成训练？</div>
+    <div class="modal-desc">确认后该计划将转为训练记录，可在训练历史中回看；训练历史中可对记录再编辑、删除或一键复用为今日计划。</div>
     <div class="modal-actions">
-      <button class="btn" data-close="modalStart">取消</button>
-      <button class="btn btn-primary" id="btnModeTraining">开始训练</button>
+      <button class="btn" data-close="modalComplete">取消</button>
+      <button class="btn btn-primary" id="btnConfirmComplete">确认完成训练</button>
     </div>
   </div>
 </div>
 
-<!-- 庆祝弹窗 -->
-<div class="modal-mask celebrate-modal" id="modalCelebrate">
-  <div class="modal">
-    <div class="celebrate-title">恭喜你，又是自律的一天 🎉</div>
-    <div class="celebrate-sub">本次训练已保存，记录可在训练历史中回看。</div>
-    <div class="celebrate-stats">
-      <div class="celebrate-stat"><div class="cs-num num" id="celebrateDuration">—</div><div class="cs-label">本次训练时长</div></div>
-      <div class="celebrate-stat"><div class="cs-num num" id="celebrateItems">—</div><div class="cs-label">本次训练动作</div></div>
-    </div>
-    <div class="celebrate-meta" id="celebrateMeta"></div>
-    <div class="celebrate-ask">是否填写训练心得？</div>
-    <div class="modal-actions">
-      <button class="btn" id="btnNoteLater">取消</button>
-      <button class="btn btn-primary" id="btnNoteConfirm">确认</button>
-    </div>
-  </div>
-</div>
-
-<!-- 心得表单弹窗 -->
-<div class="modal-mask note-modal" id="modalNote">
-  <div class="modal">
-    <div class="modal-title">填写训练心得</div>
-    <div class="modal-desc">记录当下的训练状态与效果，方便下一次对比调整。</div>
-    <form id="formNote">
-      <label class="field-label">训练状态</label>
-      <textarea class="input" name="status_text" rows="3" placeholder="例如：睡眠7小时，热身充分，深蹲最后一组接近力竭。"></textarea>
-      <div style="margin-top:12px" class="field-label">训练效果理想程度 <span style="font-weight:400">（点击星星评分）</span></div>
-      <div class="star-picker" id="starPicker">
-        <span data-s="1">★</span><span data-s="2">★</span><span data-s="3">★</span><span data-s="4">★</span><span data-s="5">★</span>
+<!-- Excel / JSON 导入弹窗：每行一个动作，同日期多行合并为一个训练计划 -->
+<div class="modal-mask" id="modalImport">
+  <div class="modal" style="width:640px">
+    <div class="modal-title" id="importModalTitle">导入训练计划</div>
+    <div class="modal-desc">每行/每个动作都属于一个计划；同一「计划日期」的多条会合并为一个训练计划。导入的数据将直接作为训练记录保存，不会改动已存在的计划/记录。</div>
+    <form id="formImport" novalidate>
+      <div id="importExcelPane">
+        <div class="form-item">
+          <label class="field-label">选择文件（.xlsx）</label>
+          <input class="input file-input" type="file" name="file" id="importFile" accept=".xlsx" required>
+        </div>
+        <div class="modal-note">表头须与模板一致。没有模板？<a href="/api/training/plans/template">下载导入模板</a>（含填写说明与示例）。</div>
+      </div>
+      <div id="importJsonPane" style="display:none">
+        <div class="form-item">
+          <label class="field-label">粘贴 JSON（{&quot;plans&quot;: [...]}）</label>
+          <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder="{&quot;plans&quot;:[{&quot;plan_date&quot;:&quot;2026-11-04&quot;,&quot;remark&quot;:&quot;练胸&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;杠铃卧推&quot;,&quot;body_part&quot;:&quot;胸&quot;,&quot;weight_kg&quot;:40,&quot;sets&quot;:3,&quot;reps&quot;:&quot;10+8+6&quot;,&quot;target_weight_kg&quot;:50}]}]}"></textarea>
+        </div>
+        <div class="modal-note">格式：{&quot;plans&quot;:[{&quot;plan_date&quot;:&quot;YYYY-MM-DD&quot;,&quot;remark&quot;:&quot;可选&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;必填&quot;,&quot;body_part&quot;:&quot;可选&quot;,&quot;weight_kg&quot;:&quot;可选&quot;,&quot;sets&quot;:&quot;可选&quot;,&quot;reps&quot;:&quot;可选&quot;,&quot;target_weight_kg&quot;:&quot;可选&quot;}]}]}，最多 200 个计划。</div>
       </div>
       <div class="modal-actions">
-        <button type="button" class="btn" data-close="modalNote">稍后再说</button>
-        <button type="submit" class="btn btn-primary">保存心得</button>
+        <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>
+        <button type="submit" class="btn btn-primary" id="importSubmit">开始导入</button>
+        <button type="button" class="btn btn-primary" id="importDone" style="display:none">完成</button>
       </div>
     </form>
+    <div id="importResult" class="import-result" style="display:none"></div>
   </div>
 </div>
 
@@ -133,7 +120,7 @@
         <input class="input" name="remark" maxlength="255" placeholder="如：今天练腿 / 关注深蹲腰部发力" style="width:100%">
       </div>
       <div class="plan-form-head" style="font-size:12px;color:var(--color-text-secondary);font-weight:400">
-        <span>动作名称</span><span>部位</span><span>重量 kg</span><span>组数</span><span>每组个数</span><span>目标重量</span><span></span>
+        <span></span><span>动作名称</span><span>部位</span><span>重量 kg</span><span>组数</span><span>每组个数</span><span>目标重量</span><span></span>
       </div>
       <div id="planRows"></div>
       <button type="button" class="btn btn-sm" id="btnAddRow">＋ 添加一行</button>
@@ -150,6 +137,5 @@
 window.INIT_DATE = "{{ selected_date }}";
 window.INIT_IS_TODAY = {{ 'true' if is_today else 'false' }};
 </script>
-<script src="/static/js/confetti.js"></script>
-<script src="/static/js/training.js"></script>
+<script src="/static/js/training.js?v=20261107"></script>
 {% endblock %}

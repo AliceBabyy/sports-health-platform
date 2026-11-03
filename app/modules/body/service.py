@@ -341,3 +341,59 @@ def goal_progress(db: Session, user_id: int) -> dict:
             }
         )
     return {"items": items, "total": len(items), "missing": missing}
+
+
+# 达成成就 · 进度：卡片展示的 7 项指标（体重/体脂/臂围/腰围/臀围/大腿围/小腿围，不含胸围）
+ACHIEVEMENT_KEYS = ["weight", "body_fat", "arm", "waist", "hip", "thigh", "calf"]
+
+
+def achievement_progress(db: Session, user_id: int) -> dict:
+    """达成成就：7 项指标「首次记录 → 最新记录」变化对比，展示已完成的成就（不与目标比较、不设进度）。
+
+    返回 {"items": [...], "has_data": bool}：
+    - items 固定 7 项（顺序同 ACHIEVEMENT_KEYS），每项
+      {key, label, unit, current, start, start_date, delta, direction, change_msg, has_change}：
+      start/start_date = 该指标最早一条历史记录值及其日期；current = 最新值；
+      delta = start − current（保留 1 位小数，正=下降）；direction ∈ down/up/same；
+      change_msg 为鼓励性文案（已减 Xunit / 较最初上升 Xunit / 与最初持平）；
+      start 或 current 缺失 → delta/direction/change_msg/has_change 为 None/False；
+    - has_data = 至少一项有当前或起始值（卡片据此决定空态）。
+    """
+    snap = latest_snapshot(db, user_id)
+    items: list[dict] = []
+    for key in ACHIEVEMENT_KEYS:
+        label, unit = BODY_LABELS[key], BODY_UNITS[key]
+        current = snap[key]["value"] if snap.get(key) else None
+        series = normalize_day_values(db, user_id, key)
+        start = series[list(series.keys())[0]] if series else None
+        start_date = series and list(series.keys())[0]
+        delta = direction = change_msg = None
+        has_change = False
+        if start is not None and current is not None:
+            delta = round(start - current, 1)
+            has_change = True
+            if delta > 0:
+                direction = "down"
+                change_msg = f"已减 {delta} {unit}"
+            elif delta < 0:
+                direction = "up"
+                change_msg = f"较最初上升 {-delta} {unit}"
+            else:
+                direction = "same"
+                change_msg = "与最初持平"
+        items.append(
+            {
+                "key": key,
+                "label": label,
+                "unit": unit,
+                "current": current,
+                "start": start,
+                "start_date": start_date.strftime("%Y.%m.%d") if start_date else None,
+                "delta": delta,
+                "direction": direction,
+                "change_msg": change_msg,
+                "has_change": has_change,
+            }
+        )
+    has_data = any(it["current"] is not None or it["start"] is not None for it in items)
+    return {"items": items, "has_data": has_data}

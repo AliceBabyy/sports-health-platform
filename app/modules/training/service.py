@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import TR_STATUS_PLANNED, TR_STATUS_RECORDED, today_local
 from app.core.exceptions import AppError
-from app.modules.training.models import TrainingPlan, TrainingPlanItem
+from app.modules.training.models import TrainingNote, TrainingPlan, TrainingPlanItem
 
 
 def _item_dict(item: TrainingPlanItem) -> dict:
@@ -72,11 +72,43 @@ def plan_to_dict(plan: TrainingPlan | None) -> dict | None:
         "body_parts_summary": " + ".join(body_parts) if body_parts else "",
         "items": [_item_dict(i) for i in items],
         "note": (
-            {"id": plan.note.id, "status_text": plan.note.status_text, "rating": plan.note.rating}
+            {
+                "id": plan.note.id,
+                "rating": plan.note.rating,
+                "best_movement": plan.note.best_movement,
+                "reflection": plan.note.reflection,
+                "next_steps": plan.note.next_steps,
+                "status_text": plan.note.status_text,  # 旧版自由文本，仅历史数据
+            }
             if plan.note
             else None
         ),
     }
+
+
+# ---------- 练后心得（1:1，2026-11） ----------
+
+def get_note(db: Session, user_id: int, plan_id: int) -> TrainingNote | None:
+    plan = get_plan(db, user_id, plan_id)
+    return plan.note if plan else None
+
+
+def upsert_note(db: Session, user_id: int, plan_id: int, *, rating, best_movement, reflection, next_steps):
+    """心得 upsert：计划归属校验 → 有则改、无则建。rating 限定 1~5。"""
+    plan = get_plan_or_404(db, user_id, plan_id)
+    if rating is not None and not (1 <= rating <= 5):
+        raise AppError(400, "自我评估需为 1~5 星")
+    note = plan.note
+    if note is None:
+        note = TrainingNote(plan_id=plan.id)
+        plan.note = note
+    note.rating = rating
+    note.best_movement = best_movement or None
+    note.reflection = reflection or None
+    note.next_steps = next_steps or None
+    db.commit()
+    db.refresh(note)
+    return note
 
 
 # ---------- 查询 ----------
@@ -147,13 +179,14 @@ def create_plan(
     return plan
 
 
-def update_plan(db: Session, user_id: int, plan_id: int, items_payload, remark: str | None = None) -> TrainingPlan:
+def update_plan(db: Session, user_id: int, plan_id: int, plan_date: date, items_payload, remark: str | None = None) -> TrainingPlan:
     """编辑计划/记录（TR-03，含页面内「+ 追加一行」的落库路径）。
 
-    2026-11-04 起放开 recorded 锁定：训练历史中的记录数据允许编辑（改动作明细/备注）。
+    2026-11-04 起放开 recorded 锁定：训练历史中的记录数据允许编辑（改动作明细/备注/归属日期）。
     编辑已记录时按 sort 保留原勾选状态（checked），避免完成度被清零。
     """
     plan = get_plan_or_404(db, user_id, plan_id)
+    plan.plan_date = plan_date
     if plan.status == TR_STATUS_RECORDED:
         old_checked = {i.sort: i.checked for i in plan.items}
         plan.remark = remark or None

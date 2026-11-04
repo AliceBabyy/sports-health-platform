@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}游泳记录 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/swim.css?v=20261104b">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/swim.css?v=20261104d">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>游泳</h1>
@@ -31,12 +31,12 @@
 {% set lat_dur_min = (lat.duration_s or 0) // 60 %}
 {% set lat_dur_sec = (lat.duration_s or 0) % 60 %}
 <div class="card swim-page swim-profile">
-  <div class="card-title">游泳档案 <span class="sub">历史记录汇总 · 仅统计已完成的记录 · 共 {{ stats.count }} 次下水</span></div>
+  <div class="card-title">游泳档案 <span class="sub">历史记录汇总 · 仅统计已完成的记录</span></div>
+  <div class="sp-topline">
+    <span>累计下水 <b class="num">{{ stats.count }}</b> 次</span>
+    <span>最常用泳姿 <b class="num">{{ stats.top_stroke_label or '—' }}</b></span>
+  </div>
   <div class="swim-profile-grid">
-    <div class="sp-item">
-      <div class="sp-label">累计下水次数</div>
-      <div class="sp-value num">{{ stats.count }}<small>次</small></div>
-    </div>
     <div class="sp-item">
       <div class="sp-label">平均配速</div>
       <div class="sp-value num">{{ stats.avg_pace if stats.avg_pace is not none else '—' }}{% if stats.avg_pace is not none %}<small>min/100m</small>{% endif %}</div>
@@ -49,22 +49,8 @@
       <div class="sp-label">最慢配速</div>
       <div class="sp-value num">{{ stats.slowest_pace if stats.slowest_pace is not none else '—' }}{% if stats.slowest_pace is not none %}<small>min/100m</small>{% endif %}</div>
     </div>
-    <div class="sp-item">
-      <div class="sp-label">最常用泳姿</div>
-      <div class="sp-value num">{{ stats.top_stroke_label or '—' }}</div>
-    </div>
   </div>
-  <div class="sp-latest">
-    <div class="sp-latest-head">
-      <span class="sp-latest-label">最近一次</span>
-      <span class="sp-latest-date num">{{ lat.record_date }}{% if lat.main_stroke_label %} · {{ lat.main_stroke_label }}{% endif %}</span>
-    </div>
-    <div class="sp-latest-body">
-      {% if lat.distance_m %}<span class="sp-latest-stat"><b class="num">{{ lat.distance_m }}</b><small>m</small></span>{% endif %}
-      {% if lat.duration_s %}<span class="sp-latest-stat"><b class="num">{{ lat_dur_min }}:{{ '%02d'|format(lat_dur_sec) }}</b><small>时长</small></span>{% endif %}
-      {% if lat.pace is not none %}<span class="sp-latest-stat"><b class="num">{{ lat.pace }}</b><small>min/100m</small></span>{% endif %}
-    </div>
-  </div>
+  <div class="sp-latest-plain">最近一次：{{ lat.record_date }}{% if lat.distance_m %} · {{ lat.distance_m }} m{% endif %}{% if lat.duration_s %} · {{ lat_dur_min }}分{{ '%02d'|format(lat_dur_sec) }}秒{% endif %}{% if lat.pace is not none %} · 配速 {{ lat.pace }} min/100m{% endif %}{% if lat.main_stroke_label %} · {{ lat.main_stroke_label }}{% endif %}</div>
   <div class="sp-cheer">游过的每一米都在变强，继续保持，下一次再快一点点。</div>
 </div>
 {% else %}
@@ -122,6 +108,12 @@
         <div class="form-item only-record"><label class="field-label">平均划频 (次/分)</label><input class="input num" type="number" step="0.1" min="0" name="avg_stroke_rate" placeholder="选填，留空自动估算"></div>
         <div class="form-item only-record"><label class="field-label">活动卡路里 (kcal)</label><input class="input num" type="number" step="0.1" name="calories"></div>
       </div>
+      <div id="swimEditNoteSection" style="display:none;border-top:1px dashed var(--color-border);margin-top:14px;padding-top:12px">
+        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:10px">练后心得（仅记录态可编辑，保存记录时一并保存）</div>
+        <div class="form-item" style="margin-bottom:10px"><label class="field-label">自我评估</label><div class="note-star-row"><span id="swimEditStars"></span></div></div>
+        <div class="form-item" style="margin-bottom:10px"><label class="field-label">泳姿是否有感悟 / 进步</label><textarea class="input" id="swimEditStrokeInsight" rows="2"></textarea></div>
+        <div class="form-item" style="margin-bottom:6px"><label class="field-label">其他</label><textarea class="input" id="swimEditOther" rows="2"></textarea></div>
+      </div>
       <div class="readonly-note">配速 = 时长 ÷ 距离 × 100，由系统自动计算；平均划频可手填，不填时由总划水次数 ÷（时长/60）自动估算。</div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalSwim">取消</button>
@@ -160,8 +152,34 @@
     <div id="importResult" class="import-result" style="display:none"></div>
   </div>
 </div>
+
+<!-- 练后心得弹窗（一条游泳记录 1:1，仅记录态可填） -->
+<div class="modal-mask" id="modalSwimNote">
+  <div class="modal" style="width:520px">
+    <div class="modal-title">写游泳心得</div>
+    <div class="modal-desc">记录这次练完的感受，以后回看更有参照。</div>
+    <form id="formSwimNote">
+      <div class="form-item" style="margin-bottom:14px">
+        <label class="field-label">自我评估</label>
+        <div class="note-star-row"><span id="swimNoteStars"></span></div>
+      </div>
+      <div class="form-item" style="margin-bottom:14px">
+        <label class="field-label">泳姿是否有感悟 / 进步</label>
+        <textarea class="input" id="swimNoteStrokeInsight" rows="3" placeholder="如：换气节奏顺了一些 / 自由泳划水更干脆"></textarea>
+      </div>
+      <div class="form-item" style="margin-bottom:6px">
+        <label class="field-label">其他</label>
+        <textarea class="input" id="swimNoteOther" rows="2" placeholder="可空"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalSwimNote">取消</button>
+        <button type="submit" class="btn btn-primary">保存心得</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>window.INIT_DATE = "{{ selected_date }}";</script>
-<script src="/static/js/swim.js?v=20261104b"></script>
+<script src="/static/js/swim.js?v=20261104g"></script>
 {% endblock %}

@@ -11,6 +11,8 @@
     anchor: qs.get('date') || todayStr,   // ?date= 指定锚定日（总览跳回时定位到添加计划的那天）
     pickDay: null,
     charts: {},
+    openDay: null,     // 弹窗当前日期（保存 remark 后刷新用）
+    detail: null,      // 弹窗当前 detail 快照（保存 remark 回传完整 body 用）
   };
 
   const SPORT_META = {
@@ -48,16 +50,16 @@
       '<small> 项</small></div><div class="sub">健身 ' + per.fitness.plans + ' · 游泳 ' + per.swim.plans + ' · 舞蹈 ' + per.dance.plans + '</div></div>';
   }
 
-  /* 运动标签 chip（周条带 / 月日历共用）：运动名 + 记N·计M + 时长 */
-  function chipHtml(k, c, dayAttr) {
+  /* 运动标签 chip（周/月共用）：每条计划/记录一个独立标签；remark 显示在标签内部。
+     结构：.ov-chip > .oc-line(圆点+运动名+计/记+main) + .oc-remark（可无）；
+     圆点颜色：计划=蓝绿 plan、记录=深灰 rec（2026-11-04）。 */
+  function chipHtml(k, it, dayAttr) {
     const m = SPORT_META[k];
-    const parts = [];
-    if (c.records) parts.push('记' + c.records);
-    if (c.plans) parts.push('计' + c.plans);
-    const cnt = parts.length ? '<em class="oc-cnt">' + parts.join(' · ') + '</em>' : '';
-    const min = c.minutes ? '<em class="oc-min">' + c.minutes + ' min</em>' : '';
+    const cls = it.status === 'recorded' ? 'rec' : 'plan';
+    const rm = it.remark ? '<em class="oc-remark">' + esc(it.remark) + '</em>' : '';
     return '<span class="ov-chip ' + m.cls + '"' + (dayAttr ? ' data-open-day="' + dayAttr + '"' : '') + '>' +
-      '<span class="oc-dot"></span>' + m.label + cnt + min + '</span>';
+      '<span class="oc-line"><span class="oc-dot ' + cls + '"></span>' +
+      '<span class="oc-main">' + m.label + it.tag + ' · ' + esc(it.main) + '</span></span>' + rm + '</span>';
   }
 
   /* ---------- 总览加载 ---------- */
@@ -73,6 +75,61 @@
   }
 
   /* ---------- 日视图：训练计划卡(顶) + 三运动当日卡 + 当日运动情况(底) ---------- */
+  /* 单条计划/记录完整展示（日视图空间大，不再简略截断） */
+  function dayItemHtml(k, e) {
+    const rec = e.status === 'recorded';
+    const cls = rec ? 'rec' : 'plan';
+    const dot = '<span class="oi-dot ' + cls + '"></span>';
+    if (k === 'fitness') {
+      const title = rec ? '训练记录' : '训练计划';
+      const exs = (e.items || []).map(function (it) {
+        const w = it.weight_kg != null ? it.weight_kg + 'kg × ' : '';
+        const s = it.sets != null ? it.sets + '组 × ' : '';
+        const r = it.reps != null ? (/^\d+$/.test(String(it.reps)) ? it.reps + '次' : it.reps) : '';
+        const spec = w + s + r;
+        return '<div class="oi-ex">' + esc(it.exercise_name) +
+          (spec ? '<em class="oi-w">' + esc(spec) + '</em>' : '') + '</div>';
+      }).join('');
+      let meta = e.total_sets + ' 组 · ' + e.total_volume + ' kg · ' + e.item_count + ' 动作';
+      if (rec && e.started_at && e.saved_at) {
+        meta += ' · ' + fmtClock((Date.parse(e.saved_at) - Date.parse(e.started_at)) / 1000);
+      }
+      return '<div class="osc-item" data-open-day="' + state.anchor + '">' +
+        '<div class="oi-title">' + dot + esc(title) + '</div>' +
+        '<div class="oi-exs">' + exs + '</div>' +
+        '<div class="oi-meta">' + esc(meta) + '</div>' +
+        (e.remark ? '<div class="oi-remark">' + esc(e.remark) + '</div>' : '') + '</div>';
+    }
+    if (k === 'swim') {
+      const title = (rec ? '游泳记录' : '游泳计划') + ' · ' +
+        (e.distance_m != null ? e.distance_m + ' m' : '—') +
+        (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+      let meta = rec ? '' : (e.main_stroke_label || '');
+      if (rec) {
+        if (e.pace != null) meta += '配速 ' + e.pace + ' min/100m · ';
+        if (e.main_stroke_label) meta += e.main_stroke_label + ' · ';
+        if (e.calories != null) meta += e.calories + ' kcal · ';
+        if (e.avg_heart_rate != null) meta += '心率 ' + e.avg_heart_rate + ' · ';
+        meta = meta.replace(/ · $/, '');
+      }
+      return '<div class="osc-item" data-open-day="' + state.anchor + '">' +
+        '<div class="oi-title">' + dot + esc(title) + '</div>' +
+        (meta ? '<div class="oi-meta">' + esc(meta) + '</div>' : '') +
+        (e.remark ? '<div class="oi-remark">' + esc(e.remark) + '</div>' : '') + '</div>';
+    }
+    const title = (rec ? '舞蹈记录' : '舞蹈计划') + ' · ' + (e.dance_type || '舞蹈') +
+      ' ★' + (e.stars != null ? e.stars : '—') + (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+    let meta = e.style || '';
+    if (rec) {
+      if (e.calories != null) meta += (meta ? ' · ' : '') + e.calories + ' kcal';
+      if (e.max_heart_rate != null) meta += (meta ? ' · ' : '') + '心率 ' + e.max_heart_rate;
+    }
+    return '<div class="osc-item" data-open-day="' + state.anchor + '">' +
+      '<div class="oi-title">' + dot + esc(title) + '</div>' +
+      (meta ? '<div class="oi-meta">' + esc(meta) + '</div>' : '') +
+      (e.remark ? '<div class="oi-remark">' + esc(e.remark) + '</div>' : '') + '</div>';
+  }
+
   function renderDayCards(res) {
     document.getElementById('ovDayStats').innerHTML = dayPlanStatHtml(res.stats);
     document.getElementById('ovDaySummaryGrid').innerHTML = summaryGridHtml(res.stats);
@@ -81,16 +138,13 @@
       wrap.innerHTML = ['fitness', 'swim', 'dance'].map(function (k) {
         const m = SPORT_META[k];
         const c = res.days[0].sports[k];
-        const entries = normalizeEntries(k, detail[k]);
+        const entries = detail[k] || [];
         const listHtml = entries.length
-          ? entries.slice(0, 3).map(function (e) {
-              return '<div class="osc-item" data-open-day="' + state.anchor + '">' +
-                '<div class="oi-title">' + esc(e.title) + '</div>' +
-                (e.meta ? '<div class="oi-meta">' + esc(e.meta) + '</div>' : '') + '</div>';
-            }).join('') + '<div class="osc-foot"><button type="button" class="btn btn-sm" data-open-day="' + state.anchor + '">查看当日详情</button></div>'
+          ? entries.map(function (e) { return dayItemHtml(k, e); }).join('')
           : '<div class="osc-empty">当日无' + m.label + '数据</div>';
-        return '<div class="card ov-sport-card"><div class="osc-head">' +
-          '<span class="osc-dot ' + m.cls + '"></span><span class="osc-title">' + m.label + '</span>' +
+        return '<div class="card ov-sport-card">' +
+          '<div class="osc-head"><span class="osc-rail ' + m.cls + '"></span>' +
+          '<span class="osc-title">' + m.label + '</span>' +
           '<button type="button" class="btn btn-sm osc-newplan" data-newplan="' + k + '" title="为这一天新建' + m.label + '计划">＋ 计划</button>' +
           '<span class="osc-count num">记录 ' + c.records + ' · 计划 ' + c.plans + '</span></div>' +
           '<div class="osc-list">' + listHtml + '</div></div>';
@@ -107,10 +161,10 @@
       const marks = [];
       ['fitness', 'swim', 'dance'].forEach(function (k) {
         const c = d.sports[k];
-        if (c.records || c.plans) marks.push(chipHtml(k, c, d.date));
+        (c.items || []).forEach(function (it) { marks.push(chipHtml(k, it, d.date)); });
       });
       return '<div class="ws-day' + (i === todayIdx ? ' is-today' : '') + '" data-add-day="' + d.date + '" title="为这一天添加计划">' +
-        '<div class="wd-top"><span class="wd-num">' + parseInt(d.date.slice(8), 10) + '</span><span class="wd-week">' + wd + '</span><button type="button" class="wd-add" title="为这一天添加计划">＋</button></div>' +
+        '<div class="wd-top"><span class="wd-week">' + wd + '</span><button type="button" class="wd-add" title="为这一天添加计划">＋</button></div>' +
         '<div class="wd-sports">' + (marks.length ? marks.join('') : '<span class="wd-empty">—</span>') + '</div></div>';
     }).join('');
     document.getElementById('ovWeekSummaryGrid').innerHTML = summaryGridHtml(res.stats);
@@ -137,7 +191,7 @@
         const mk = [];
         ['fitness', 'swim', 'dance'].forEach(function (k) {
           const c = d.sports[k];
-          if (c.records || c.plans) mk.push(chipHtml(k, c, iso));
+          (c.items || []).forEach(function (it) { mk.push(chipHtml(k, it, iso)); });
         });
         marks = mk.length ? mk.join('') : '<span class="cd-empty">—</span>';
       }
@@ -178,80 +232,134 @@
   }
 
   /* ---------- 单日详情弹窗 ---------- */
+  /* 弹窗条目：完整标题/信息 + remark 内联编辑（可保存，改完联动刷新视图） */
+  function detailItemHtml(k, e, day) {
+    const m = SPORT_META[k];
+    const rec = e.status === 'recorded';
+    const cls = rec ? 'rec' : 'plan';
+    const dot = '<span class="oi-dot ' + cls + '"></span>';
+    let title, meta = '';
+    if (k === 'fitness') {
+      title = rec ? '训练记录' : '训练计划';
+      meta = e.item_count + ' 个动作 · ' + e.total_sets + ' 组 · ' + e.total_volume + ' kg';
+      if (rec && e.started_at && e.saved_at) {
+        meta += ' · ' + fmtClock((Date.parse(e.saved_at) - Date.parse(e.started_at)) / 1000);
+      }
+    } else if (k === 'swim') {
+      title = (rec ? '游泳记录' : '游泳计划') + ' · ' + (e.distance_m != null ? e.distance_m + ' m' : '—') +
+        (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+      if (rec) {
+        if (e.pace != null) meta += '配速 ' + e.pace + ' min/100m · ';
+        if (e.main_stroke_label) meta += e.main_stroke_label + ' · ';
+        if (e.calories != null) meta += e.calories + ' kcal · ';
+        if (e.avg_heart_rate != null) meta += '心率 ' + e.avg_heart_rate + ' · ';
+        meta = meta.replace(/ · $/, '');
+      } else if (e.main_stroke_label) {
+        meta = e.main_stroke_label;
+      }
+    } else {
+      title = (rec ? '舞蹈记录' : '舞蹈计划') + ' · ' + (e.dance_type || '舞蹈') +
+        ' ★' + (e.stars != null ? e.stars : '—') + (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+      if (e.style) meta += e.style;
+      if (rec && e.calories != null) meta += (meta ? ' · ' : '') + e.calories + ' kcal';
+      if (rec && e.max_heart_rate != null) meta += (meta ? ' · ' : '') + '心率 ' + e.max_heart_rate;
+    }
+    return '<div class="ov-detail-item" data-sport="' + k + '" data-id="' + e.id + '">' +
+      '<div class="di-main"><div class="di-title">' + dot + esc(title) + '</div>' +
+      (meta ? '<div class="di-meta">' + esc(meta) + '</div>' : '') + '</div>' +
+      '<div class="di-rm"><textarea class="di-rm-input" rows="1" placeholder="备注（可编辑保存）">' + esc(e.remark || '') + '</textarea>' +
+      '<button type="button" class="btn btn-sm di-rm-save" data-save-rm="' + k + ':' + e.id + '">保存</button></div>' +
+      '<div class="di-go"><a class="btn btn-sm" href="' + m.url + '?date=' + day + '">去' + m.label + '页 ›</a></div></div>';
+  }
+
   function openModal(day) {
+    state.openDay = day;
     App.api('/api/overview/day?date=' + day).then(function (detail) {
+      state.detail = detail;
       document.getElementById('ovModalTitle').textContent = '当日详情';
       document.getElementById('ovModalDate').textContent = day + '（' + weekdayOf(day) + '） · 点击「去该运动页」查看 / 操作当日全部数据';
       const body = document.getElementById('ovModalBody');
       body.innerHTML = ['fitness', 'swim', 'dance'].map(function (k) {
         const m = SPORT_META[k];
-        const entries = normalizeEntries(k, detail[k]);
+        const entries = detail[k] || [];
         const items = entries.length
-          ? entries.map(function (e) {
-              return '<div class="ov-detail-item">' +
-                '<div class="di-main"><div class="di-title">' + esc(e.title) + '</div>' +
-                (e.meta ? '<div class="di-meta">' + esc(e.meta) + '</div>' : '') + '</div>' +
-                '<div class="di-go"><a class="btn btn-sm" href="' + m.url + '?date=' + day + '">去' + m.label + '页 ›</a></div></div>';
-            }).join('')
+          ? entries.map(function (e) { return detailItemHtml(k, e, day); }).join('')
           : '<div class="ov-detail-empty">当日无' + m.label + '数据</div>';
         return '<div class="ov-detail-block">' +
-          '<div class="ov-detail-head"><span class="osc-dot ' + m.cls + '"></span><span class="od-title">' + m.label + '</span>' +
+          '<div class="ov-detail-head"><span class="osc-rail ' + m.cls + '"></span><span class="od-title">' + m.label + '</span>' +
           '<span class="od-count num">' + (entries.length ? entries.length + ' 条' : '') + '</span></div>' + items + '</div>';
       }).join('');
       App.openModal('modalOvDay');
     }).catch(e => App.toast(e.message, true));
   }
 
-  /* ---------- 条目归一化（返回原始文本，渲染时统一 esc） ---------- */
-  function normalizeEntries(sport, list) {
-    list = list || [];
+  /* 弹窗内保存 remark：PUT 对应条目（回传完整 body），成功后刷新弹窗 + 视图 */
+  document.getElementById('ovModalBody').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-save-rm]');
+    if (!b) return;
+    const itemEl = b.closest('.ov-detail-item');
+    const val = (itemEl.querySelector('.di-rm-input').value || '').trim() || null;
+    const key = b.dataset.saveRm;                 // sport:id
+    const sport = key.slice(0, key.indexOf(':'));
+    const id = key.slice(key.indexOf(':') + 1);
+    const detail = state.detail || {};
+    const entry = (detail[sport] || []).find(function (x) { return String(x.id) === id; });
+    if (!entry) { App.toast('未找到该条目', true); return; }
+    let url, body;
     if (sport === 'fitness') {
-      return list.map(function (p) {
-        const recorded = p.status === 'recorded';
-        let title = '训练';
-        if (p.items && p.items.length) title = p.items[0].exercise_name;
-        else if (p.body_parts_summary) title = p.body_parts_summary;
-        let meta;
-        if (recorded) {
-          let dur = '';
-          if (p.started_at && p.saved_at) dur = ' · ' + fmtClock((Date.parse(p.saved_at) - Date.parse(p.started_at)) / 1000);
-          meta = p.total_sets + ' 组 · ' + p.total_volume + ' kg · ' + p.item_count + ' 动作' + dur;
-        } else {
-          meta = p.item_count + ' 个动作（计划）';
-        }
-        return { title: title, meta: meta };
-      });
+      url = '/api/training/plans/' + id;
+      body = {
+        plan_date: entry.plan_date,
+        items: entry.items.map(function (it) {
+          return {
+            exercise_name: it.exercise_name,
+            body_part: it.body_part,
+            weight_kg: it.weight_kg,
+            sets: it.sets,
+            reps: it.reps,
+            target_weight_kg: it.target_weight_kg,
+          };
+        }),
+        remark: val,
+      };
+    } else if (sport === 'swim') {
+      url = '/api/swim-records/' + id;
+      body = {
+        record_date: entry.record_date,
+        status: entry.status,
+        distance_m: entry.distance_m,
+        duration_s: entry.duration_s,
+        main_stroke: entry.main_stroke,
+        remark: val,
+        avg_heart_rate: entry.avg_heart_rate,
+        total_strokes: entry.total_strokes,
+        laps: entry.laps,
+        calories: entry.calories,
+        avg_stroke_rate: entry.avg_stroke_rate,
+      };
+    } else {
+      url = '/api/dance-records/' + id;
+      body = {
+        record_date: entry.record_date,
+        status: entry.status,
+        dance_type: entry.dance_type,
+        stars: entry.stars,
+        remark: val,
+        style: entry.style,
+        duration_s: entry.duration_s,
+        avg_heart_rate: entry.avg_heart_rate,
+        max_heart_rate: entry.max_heart_rate,
+        calories: entry.calories,
+      };
     }
-    if (sport === 'swim') {
-      return list.map(function (r) {
-        if (r.status === 'planned') {
-          const t = (r.distance_m != null ? r.distance_m + ' m' : '游泳计划') + ' · ' + fmtClock(r.duration_s);
-          let meta = '计划';
-          if (r.main_stroke_label) meta += ' · ' + r.main_stroke_label;
-          if (r.remark) meta += ' · ' + r.remark;
-          return { title: t, meta: meta };
-        }
-        let meta = fmtClock(r.duration_s);
-        if (r.pace != null) meta += ' · 配速 ' + r.pace + ' min/100m';
-        if (r.main_stroke_label) meta += ' · ' + r.main_stroke_label;
-        if (r.calories != null) meta += ' · ' + r.calories + ' kcal';
-        if (r.remark) meta += ' · ' + r.remark;
-        return { title: (r.distance_m != null ? r.distance_m + ' m' : '—'), meta: meta };
-      });
-    }
-    return list.map(function (r) {
-      if (r.status === 'planned') {
-        let meta = '计划';
-        if (r.remark) meta += ' · ' + r.remark;
-        return { title: (r.dance_type ? r.dance_type : '舞蹈') + ' ★' + (r.stars != null ? r.stars : '—'), meta: meta };
-      }
-      let meta = fmtClock(r.duration_s);
-      if (r.style) meta += ' · ' + r.style;
-      if (r.calories != null) meta += ' · ' + r.calories + ' kcal';
-      if (r.remark) meta += ' · ' + r.remark;
-      return { title: (r.dance_type ? r.dance_type : '舞蹈') + ' ★' + (r.stars != null ? r.stars : '—'), meta: meta };
-    });
-  }
+    App.api(url, { method: 'PUT', body: body })
+      .then(function () {
+        App.toast('备注已保存');
+        openModal(state.openDay);
+        load();
+      })
+      .catch(err => App.toast(err.message, true));
+  });
 
   /* ---------- 为某天添加计划：选运动弹窗 → 跳对应运动页自动开新建计划表单 ---------- */
   function sportUrl(sport, day) {

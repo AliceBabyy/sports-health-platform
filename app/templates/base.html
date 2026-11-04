@@ -7,7 +7,7 @@
 <link rel="icon" href="/static/img/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/base.css">
-<link rel="stylesheet" href="/static/css/layout.css?v=20261104">
+<link rel="stylesheet" href="/static/css/layout.css?v=20261104e">
 {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -23,7 +23,20 @@
 {% block standalone %}{% endblock %}
 {% endif %}
 <div class="toast-wrap" id="toastWrap"></div>
-<script src="/static/js/common.js?v=20261103"></script>
+
+<!-- 通用查看详情弹窗（健身/游泳/舞蹈「全部记录」操作列共用，2026-11-04） -->
+<div class="modal-mask" id="modalDetail">
+  <div class="modal" style="width:560px">
+    <div class="modal-title" id="detailTitle">查看详情</div>
+    <div class="modal-desc" id="detailSub"></div>
+    <div id="detailBody"></div>
+    <div class="modal-actions">
+      <button class="btn" data-close="modalDetail">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/common.js?v=20261108a"></script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>

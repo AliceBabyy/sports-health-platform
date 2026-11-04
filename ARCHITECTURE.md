@@ -1,0 +1,122 @@
+# 体序 BODY ALMANAC · 架构说明
+
+> 个人健康管理平台 V1。本文件只描述实现层面的结构，业务口径详见 README「需求口径」与《数据库建表设计.md》。
+
+## 1. 技术栈
+
+- **后端**：FastAPI（SSR 单体）+ SQLAlchemy 2.0（Mapped 声明式）+ PostgreSQL（psycopg2）
+- **前端**：Jinja2 服务端渲染 + 原生 JS；图表 ECharts 5.5.1（本地 vendor，无外网依赖）；彩带为自研轻量 confetti.js
+- **认证**：服务端会话 Cookie（SessionMiddleware，SameSite=Lax，无 JWT）
+- **配置**：pydantic-settings 读 `.env`；端口 8010（默认）
+
+## 2. 整体架构：页面/API 双轨
+
+所有请求经 FastAPI 路由进入，按返回类型分两轨：
+
+```
+浏览器请求
+  ├─ 页面轨  router_pages.py   GET /xxx      → Jinja2 渲染 HTML（未登录 303 /login）
+  └─ API 轨  router_api.py     /api/xxx      → JSON（未登录 401）
+               ↓
+          service.py（业务规则、派生计算、口径校验）
+               ↓
+          models.py（SQLAlchemy ORM）→ PostgreSQL
+```
+
+- 页面轨负责可浏览的 SSR 页面与表单提交；API 轨负责列表/增删改查/统计/导入导出。
+- 每个业务模块同时挂 `router_pages` 与 `router_api` 两个 APIRouter，在 `main.py` 统一注册。
+
+## 3. 分层结构
+
+| 层 | 文件 | 职责 |
+| --- | --- | --- |
+| 入口/装配 | `main.py` | app 创建、SessionMiddleware、静态目录、异常注册、路由注册、`/` 重定向 |
+| 配置 | `config.py` | Settings：数据库连接、密钥、端口、会话 Cookie 开关 |
+| 数据库 | `database.py` | engine / SessionLocal / Base / `get_db` 请求级会话依赖 |
+| 模型注册 | `models_registry.py` | 汇总 import 全部模型，供 `create_all` 建表 |
+| 核心 | `app/core/` | security（bcrypt）、deps（登录门禁）、constants（口径常量）、exceptions、pagination、templating（页面公共上下文） |
+| 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview |
+| 视图 | `app/templates/` `app/static/` | Jinja2 模板与 CSS/JS/vendor/img |
+
+## 4. 模块职责
+
+| 模块 | 数据表 | 核心能力 |
+| --- | --- | --- |
+| auth | users | 登录/注册/登出；会话读写；bcrypt 密码哈希 |
+| body | 4 张身材表 | 4 组 upsert + 未填字段继承；BMI；四档趋势聚合；剪影标注；Excel 导入/导出 |
+| training | training_plans / items / notes | 训练计划/记录状态机；动作明细（负荷可空）；容量计算；复制到今日；心得；Excel/JSON 导入 |
+| swim | swim_records / swim_notes | 游泳记录/计划两态；配速/划频派生；心得；Excel/JSON 导入 |
+| dance | dance_records / dance_notes | 舞蹈记录/计划两态；课程起止时间；心得；Excel/JSON 导入 |
+| cycle | cycle_settings / period_records / daily_pain_logs | 周期设置；月经记录；每日疼痛；七阶段推算 + 运动三档等级 |
+| profile | users（复用） | 基本资料修改 + 修改密码 |
+| overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
+
+## 5. 认证与会话
+
+- `SessionMiddleware`：Cookie `sh_session`，`SameSite=Lax`（防 CSRF），`Secure` 由 `.env` 的 `SESSION_COOKIE_SECURE` 控制。
+- `app/core/deps.py::get_current_user` 是业务路由统一门禁：无会话或用户不存在时，页面轨抛 `RedirectRequest`（303 → /login），API 轨抛 `AppError(401)`。
+- 业务表 `user_id` 不做物理外键，数据归属校验全部在应用层（按登录用户过滤查询）。
+
+## 6. 异常体系（app/core/exceptions.py）
+
+- `AppError(status, message)`：API 轨返回 `{"error": message}` JSON；页面轨渲染 `error.html`。
+- `RedirectRequest(url)`：页面轨内部 303 重定向（如未登录跳登录页）。
+
+## 7. 数据层设计
+
+- 全库 **15 张表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`。
+- **无物理外键的主体设计**：除 `cycle_settings`（FK→users）、三张明细/心得表（FK→主表 CASCADE）外，`user_id` 均为普通整型 + 索引，避免写放大，归属由应用层保证。
+- **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段均由 service 实时计算。
+- **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一（同日同组=覆盖当日该组）；`daily_pain_logs` 按 `(user_id, log_date)` 唯一。**例外**：`training_plans` 一日可多计划，按 id 定位、无唯一约束。
+- **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded（写 saved_at），游泳/舞蹈同构列；统计口径只计 recorded 行。
+- **时长存秒、距离存米**，界面按分钟/米展示，派生展示值实时换算。
+
+## 8. 关键业务口径（常量集中在 app/core/constants.py）
+
+- 身材：4 组（basic/goal/girth/target）映射 4 表；新增记录未填字段沿用该维度最近一次非空值；趋势四档（week/month/half_year/year）窗口与锚点见常量。
+- 周期：七阶段独立枚举；锚点=最近月经首日；排卵日 = 周期长度 − 14；运动三档（精力旺盛/状态良好/适合休息）按阶段 × 疼痛等级判定。
+- 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长=recorded 的 saved_at−started_at，游泳/舞蹈= duration_s；热量仅游泳/舞蹈。
+- 训练容量：Σ 重量 × 组数 × 每组个数首段数字（reps 为字符串，如 `"10+8+6"` 按 10 计），负荷任一为空跳过。
+
+## 9. 导入导出
+
+- **Excel**：body / training / swim / dance 均提供模板下载（`/template`）+ 导入（`/import`，openpyxl 解析、行级校验、错误明细回传）；body 另提供 `/export` 导出。Excel 列与校验规则集中在各模块 `excel_io.py`。
+- **JSON**：training / swim / dance 提供 `/import-json`（字段校验、批量入库），逻辑在 `json_import.py`。
+
+## 10. 前端组织
+
+- 页面模板 `app/templates`：`base.html` 提供公共布局与 `#modalDetail` 详情弹窗；`layout/sidebar.html` 为分组导航（身材 / 运动训练·计划[健身/游泳/舞蹈] / 生理周期 / 个人信息，男性账号隐藏周期入口）。
+- `app/core/templating.py::render_page` 统一注入登录用户、导航高亮、面包屑、侧栏「今日」信息与常量。
+- 静态资源 `app/static`：css（base/layout/pages/*）、js（common.js 共享弹窗与工具函数 + 各模块页面脚本）、vendor（echarts）、img。
+
+## 11. 目录结构
+
+```
+sports-health-platform/
+├─ main.py / config.py / database.py / models_registry.py
+├─ app/
+│  ├─ core/            # security / deps / constants / exceptions / pagination / templating
+│  ├─ modules/
+│  │  ├─ auth/         # 登录/注册/登出/会话（users）
+│  │  ├─ body/         # 身材 4 表 + 趋势 + Excel 导入导出
+│  │  ├─ training/     # 健身计划/记录状态机 + 心得 + Excel/JSON 导入
+│  │  ├─ swim/         # 游泳记录/计划 + 心得 + Excel/JSON 导入
+│  │  ├─ dance/        # 舞蹈记录/计划 + 心得 + Excel/JSON 导入
+│  │  ├─ cycle/        # 生理周期七阶段 + 疼痛 + 运动等级
+│  │  ├─ profile/      # 个人资料 + 修改密码
+│  │  └─ overview/     # 跨运动总览聚合（日/周/月）+ 单日详情
+│  ├─ templates/       # Jinja2 页面
+│  └─ static/          # css / js / vendor(echarts) / img
+├─ scripts/
+│  ├─ init_db.py       # 建表 + 初始化账号（幂等）
+│  ├─ migrate_*.py     # 2026-10/11 增量迁移（幂等，可重复执行）
+│  └─ schema.sql       # 全量建表 DDL（与《数据库建表设计.md》一致）
+└─ tests/              # pytest 单元测试
+```
+
+## 12. 测试与运维
+
+- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合等）。
+- 建库/初始化：`python scripts/init_db.py`（幂等）；结构迁移按需执行 `scripts/migrate_*.py`。
+- 启动：`uvicorn main:app --host 0.0.0.0 --port 8010`（或 .env 的 PORT）。
+- 依赖：`uv sync --extra dev` 或 `pip install -r requirements.txt`。

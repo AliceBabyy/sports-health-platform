@@ -2,7 +2,8 @@
 from sqlalchemy.orm import Session
 
 from app.core.constants import SWIM_STROKE_LABELS
-from app.modules.swim.models import SwimRecord
+from app.core.exceptions import AppError
+from app.modules.swim.models import SwimNote, SwimRecord
 
 
 def calc_pace(duration_s: int, distance_m: int) -> float | None:
@@ -24,6 +25,7 @@ def to_dict(row: SwimRecord) -> dict:
     avg_stroke_rate = row.avg_stroke_rate
     if avg_stroke_rate is None:
         avg_stroke_rate = calc_stroke_rate(row.total_strokes, row.duration_s)
+    note = row.note
     return {
         "id": row.id,
         "record_date": row.record_date.isoformat(),
@@ -39,6 +41,16 @@ def to_dict(row: SwimRecord) -> dict:
         "laps": row.laps,
         "avg_stroke_rate": avg_stroke_rate,
         "calories": float(row.calories) if row.calories is not None else None,
+        "note": (
+            {
+                "id": note.id,
+                "rating": note.rating,
+                "stroke_insight": note.stroke_insight,
+                "other": note.other,
+            }
+            if note
+            else None
+        ),
     }
 
 
@@ -87,15 +99,42 @@ def delete_record(db: Session, user_id: int, record_id: int) -> bool:
     return True
 
 
-def bulk_create_records(db: Session, user_id: int, rows: list[dict]) -> int:
-    """批量导入记录（status 固定 recorded），rows 为已校验的字段 dict，返回成功条数。"""
-    count = 0
+def bulk_create_records(db: Session, user_id: int, rows: list[dict]) -> list[int]:
+    """批量导入记录（status 固定 recorded），rows 为已校验的字段 dict，返回新建记录 id 列表。"""
+    created: list[int] = []
     for data in rows:
         row = SwimRecord(user_id=user_id, status="recorded", **data)
         db.add(row)
-        count += 1
+        db.flush()  # 拿到 id
+        created.append(row.id)
     db.commit()
-    return count
+    return created
+
+
+# ---------- 练后心得（1:1，2026-11） ----------
+
+def get_note(db: Session, user_id: int, record_id: int) -> SwimNote | None:
+    row = db.query(SwimRecord).filter(SwimRecord.id == record_id, SwimRecord.user_id == user_id).first()
+    return row.note if row else None
+
+
+def upsert_note(db: Session, user_id: int, record_id: int, *, rating, stroke_insight, other) -> SwimNote:
+    """心得 upsert：记录归属校验 → 有则改、无则建。rating 限定 1~5。"""
+    row = db.query(SwimRecord).filter(SwimRecord.id == record_id, SwimRecord.user_id == user_id).first()
+    if row is None:
+        raise AppError(404, "游泳记录不存在")
+    if rating is not None and not (1 <= rating <= 5):
+        raise AppError(400, "自我评估需为 1~5 星")
+    note = row.note
+    if note is None:
+        note = SwimNote(swim_id=row.id)
+        row.note = note
+    note.rating = rating
+    note.stroke_insight = stroke_insight or None
+    note.other = other or None
+    db.commit()
+    db.refresh(note)
+    return note
 
 
 def stats(db: Session, user_id: int) -> dict:

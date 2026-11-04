@@ -22,3 +22,10 @@ class SwimRecordIn(BaseModel):
     laps: int | None = Field(default=None, ge=0)
     calories: Decimal | None = None
     avg_stroke_rate: float | None = Field(default=None, ge=0, le=200)  # 平均划频（记录态可手填，次/分）
+
+
+class SwimNoteIn(BaseModel):
+    """游泳练后心得：自我评估星级 + 泳姿感悟 + 其他。"""
+    rating: int | None = Field(default=None, ge=1, le=5)
+    stroke_insight: str | None = Field(default=None)
+    other: str | None = Field(default=None)

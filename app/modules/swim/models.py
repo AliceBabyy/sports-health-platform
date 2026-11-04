@@ -2,8 +2,8 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Float, Integer, Numeric, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, Numeric, SmallInteger, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 
@@ -26,3 +26,20 @@ class SwimRecord(Base):
     avg_stroke_rate: Mapped[float | None] = mapped_column(Float, nullable=True)  # 平均划频（可手填；未填时由 total_strokes/duration 派生）
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    note: Mapped["SwimNote | None"] = relationship(
+        back_populates="record", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class SwimNote(Base):
+    """游泳练后心得：与一条游泳记录 1:1。"""
+    __tablename__ = "swim_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    swim_id: Mapped[int] = mapped_column(ForeignKey("swim_records.id", ondelete="CASCADE"), unique=True, nullable=False)
+    rating: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)  # 自我评估 1~5 星
+    stroke_insight: Mapped[str | None] = mapped_column(Text, nullable=True)  # 泳姿是否有感悟/进步
+    other: Mapped[str | None] = mapped_column(Text, nullable=True)  # 其他
+
+    record: Mapped[SwimRecord] = relationship(back_populates="note")

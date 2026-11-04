@@ -1,6 +1,8 @@
 /* 舞蹈记录页 */
-.dance-page .tbl td { padding: 8px 9px; }
-.dance-page .modal { width: 580px; }
+.dance-page .tbl td { padding: 8px 10px; }
+.dance-page .modal { width: 620px; }
+.card.dance-page + .card.dance-page { margin-top: 28px; }
+.actions-divider { width: 1px; height: 20px; background: var(--color-border-strong); align-self: center; margin-left: auto; }
 .filter-chips { display: flex; gap: 8px; align-items: center; }
 .chip {
   padding: 4px 12px;
@@ -14,3 +16,16 @@
 .chip.active { background: transparent; border-color: var(--color-accent); color: var(--color-accent); font-weight: 400; }
 .stars { display: inline-flex; gap: 3px; color: #e0a72b; font-size: 14px; letter-spacing: 1px; }
 
+/* 舞蹈档案聚合卡片 */
+.archive-card { padding: 18px 22px; }
+.archive-grid { display: flex; align-items: stretch; gap: 28px; }
+.archive-item { flex: 1; }
+.archive-label { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 6px; }
+.archive-value { font-size: 30px; font-weight: 600; line-height: 1.1; color: var(--color-text); }
+.archive-value small { font-size: 14px; font-weight: 400; color: var(--color-text-secondary); margin-left: 4px; }
+.archive-sub { font-size: 12px; color: var(--color-text-secondary); margin-top: 6px; }
+.archive-divider { width: 1px; background: var(--color-border); }
+
+/* 计划态隐藏记录专属字段 */
+.form-item.record-only { display: none; }
+body.dance-mode-recorded .form-item.record-only { display: block; }

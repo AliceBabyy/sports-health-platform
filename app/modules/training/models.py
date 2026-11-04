@@ -61,11 +61,15 @@ class TrainingPlanItem(Base):
 
 
 class TrainingNote(Base):
+    """练后心得（2026-11 重构：结构化四字段；status_text 为旧版自由文本，保留列兼容历史数据）。"""
     __tablename__ = "training_notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("training_plans.id", ondelete="CASCADE"), unique=True, nullable=False)
-    status_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # 心得文本，可空
-    rating: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)  # 1~5
+    rating: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)  # 自我评估 1~5 星
+    best_movement: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 最佳动作（最有感觉的动作）
+    reflection: Mapped[str | None] = mapped_column(Text, nullable=True)  # 复盘/反思（发力感/质量/体能状态）
+    next_steps: Mapped[str | None] = mapped_column(Text, nullable=True)  # 下一步想法（动作改动/重量突破）
+    status_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # 旧版心得文本（2026-11-03 前），仅历史数据用
 
     plan: Mapped[TrainingPlan] = relationship(back_populates="note")

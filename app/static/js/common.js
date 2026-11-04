@@ -1,5 +1,12 @@
 /* 通用工具：fetch 封装、弹窗、分钟/秒换算、日期格式化、toast（FE 基础件） */
 (function () {
+  /* 详情弹窗 kv 网格行（值允许少量受控 HTML，用户文本须先 escapeHtml） */
+  function kvRows(pairs) {
+    return '<div class="dl-grid">' + pairs.map(function (p) {
+      return '<div class="dl-item"><span class="dl-label">' + p[0] + '</span><span class="dl-value">' + p[1] + '</span></div>';
+    }).join('') + '</div>';
+  }
+
   const App = {
     api: async function (path, opts = {}) {
       const options = { headers: { 'Content-Type': 'application/json' }, ...opts };
@@ -31,6 +38,103 @@
     openModal(id) { const m = document.getElementById(id); if (m) m.classList.add('open'); },
     closeModal(id) { const m = document.getElementById(id); if (m) m.classList.remove('open'); },
 
+    /* ---------- 统一「查看详情」弹窗（健身/游泳/舞蹈记录操作列共用，2026-11-04） ---------- */
+    openDetail(kind, row) {
+      if (!row) return;
+      const title = document.getElementById('detailTitle');
+      const sub = document.getElementById('detailSub');
+      const body = document.getElementById('detailBody');
+      const esc = this.escapeHtml.bind(this);
+      if (kind === 'training') {
+        const rec = row.status === 'recorded';
+        title.textContent = rec ? '训练记录详情' : '训练计划详情';
+        sub.innerHTML = '<span class="dl-sub"><span class="tag ' + (rec ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (rec ? '记录' : '计划') + '</span>' + esc(row.plan_date) + '</span>';
+        let dur = '—';
+        if (row.started_at && row.saved_at) {
+          dur = this.fmtDuration(Math.max(0, Math.round((Date.parse(row.saved_at) - Date.parse(row.started_at)) / 1000)));
+        }
+        const kv = [
+          ['训练内容', row.body_parts_summary || '—'],
+          ['时长', dur],
+          ['完成度', '完成 ' + (row.completed_count || 0) + ' / ' + row.item_count],
+          ['容量', (row.total_volume != null ? row.total_volume : 0) + ' kg'],
+          ['组数', (row.total_sets != null ? row.total_sets : 0) + ' 组'],
+          ['动作数', row.item_count + ' 个'],
+        ];
+        const items = (row.items || []).map(function (it) {
+          const w = it.weight_kg != null ? it.weight_kg : '—';
+          const s = it.sets != null ? it.sets : '—';
+          const r = it.reps != null ? it.reps : '—';
+          const t = it.target_weight_kg != null ? it.target_weight_kg : '—';
+          return '<tr><td>' + esc(it.exercise_name) + '</td><td>' + esc(it.body_part || '—') + '</td>' +
+            '<td class="num">' + esc(w) + '</td><td class="num">' + esc(s) + '</td><td class="num">' + esc(r) + '</td><td class="num">' + esc(t) + '</td></tr>';
+        }).join('');
+        let html = kvRows(kv);
+        if (row.remark) html += '<div class="dl-remark">' + esc(row.remark) + '</div>';
+        html += '<div class="dl-block"><div class="dl-block-title">动作明细（' + row.item_count + '）</div>' +
+          '<div class="table-wrap"><table class="tbl dl-tbl"><thead><tr><th>动作</th><th>部位</th><th>重量 kg</th><th>组数</th><th>每组个数</th><th>目标重量</th></tr></thead><tbody>' + items + '</tbody></table></div></div>';
+        if (rec && row.note) {
+          const n = row.note;
+          html += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
+            ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
+            ['最佳动作', n.best_movement ? esc(n.best_movement) : '—'],
+            ['复盘反思', n.reflection ? esc(n.reflection) : '—'],
+            ['下一步想法', n.next_steps ? esc(n.next_steps) : '—'],
+          ]) + '</div>';
+        }
+        body.innerHTML = html;
+      } else if (kind === 'swim') {
+        const rec = row.status === 'recorded';
+        title.textContent = rec ? '游泳记录详情' : '游泳计划详情';
+        sub.innerHTML = '<span class="dl-sub"><span class="tag ' + (rec ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (rec ? '记录' : '计划') + '</span>' + esc(row.record_date) + '</span>';
+        body.innerHTML = kvRows([
+          ['距离', row.distance_m != null ? row.distance_m + ' m' : '—'],
+          ['时长', this.fmtClock(row.duration_s)],
+          ['配速', rec ? (row.pace != null ? row.pace + ' min/100m' : '—') : '—'],
+          ['主泳姿', row.main_stroke_label || '—'],
+          ['平均心率', row.avg_heart_rate != null ? row.avg_heart_rate + ' bpm' : '—'],
+          ['总划水', row.total_strokes != null ? row.total_strokes + ' 次' : '—'],
+          ['趟数', row.laps != null ? row.laps + ' 趟' : '—'],
+          ['平均划频', rec ? (row.avg_stroke_rate != null ? row.avg_stroke_rate + ' 次/分' : '—') : '—'],
+          ['活动卡路里', row.calories != null ? row.calories + ' kcal' : '—'],
+          ['备注', esc(row.remark || '—')],
+        ]);
+        if (rec && row.note) {
+          const n = row.note;
+          body.innerHTML += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
+            ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
+            ['泳姿感悟', n.stroke_insight ? esc(n.stroke_insight) : '—'],
+            ['其他', n.other ? esc(n.other) : '—'],
+          ]) + '</div>';
+        }
+      } else if (kind === 'dance') {
+        const rec = row.status === 'recorded';
+        title.textContent = rec ? '舞蹈记录详情' : '舞蹈计划详情';
+        sub.innerHTML = '<span class="dl-sub"><span class="tag ' + (rec ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (rec ? '记录' : '计划') + '</span>' + esc(row.record_date) + '</span>';
+        body.innerHTML = kvRows([
+          ['舞种', row.dance_type || '—'],
+          ['星级', row.stars != null ? '★'.repeat(row.stars) : '—'],
+          ['时段', row.start_time || row.end_time ? (row.start_time ? row.start_time.substring(11, 16) : '') + (row.start_time && row.end_time ? '–' : '') + (row.end_time ? row.end_time.substring(11, 16) : '') : '—'],
+          ['舞蹈老师', row.teacher || '—'],
+          ['风格', rec ? (row.style || '—') : '—'],
+          ['时长', rec ? this.fmtClock(row.duration_s) : '—'],
+          ['平均心率', rec ? (row.avg_heart_rate != null ? row.avg_heart_rate + ' bpm' : '—') : '—'],
+          ['最大心率', rec ? (row.max_heart_rate != null ? row.max_heart_rate + ' bpm' : '—') : '—'],
+          ['总卡路里', rec ? (row.calories != null ? row.calories + ' kcal' : '—') : '—'],
+          ['备注', esc(row.remark || '—')],
+        ]);
+        if (rec && row.note) {
+          const n = row.note;
+          body.innerHTML += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
+            ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
+            ['视频效果', n.video_effect ? '★'.repeat(n.video_effect) : '—'],
+            ['感悟', n.insight ? esc(n.insight) : '—'],
+          ]) + '</div>';
+        }
+      }
+      this.openModal('modalDetail');
+    },
+
     /* 时长：秒 → 展示文本 */
     fmtClock(s) {
       if (s == null) return '—';
@@ -61,9 +165,91 @@
     },
     confirm(msg) { return window.confirm(msg); },
 
+    /* ---------- 练后庆祝弹窗（彩带特效；纯展示弹窗，点遮罩/👏 均可关闭） ----------
+       opts: { showNote: 是否显示「记录心得」按钮, onNote: 点「记录心得」回调, onClose: 弹窗关闭回调 } */
+    celebrate(opts = {}) {
+      const showNote = opts.showNote !== false;
+      let mask = document.getElementById('celebrateMask');
+      if (!mask) {
+        mask = document.createElement('div');
+        mask.id = 'celebrateMask';
+        mask.className = 'modal-mask celebrate-mask';
+        mask.innerHTML =
+          '<div class="celebrate-stage"></div>' +
+          '<div class="modal celebrate-modal">' +
+          '<div class="celebrate-emoji">🎉</div>' +
+          '<div class="celebrate-title">恭喜完成训练，又是自律的一天！</div>' +
+          '<div class="modal-actions celebrate-actions">' +
+          '<button type="button" class="btn" id="celebrateNote">记录心得</button>' +
+          '<button type="button" class="btn btn-primary" id="celebrateClap">完成👏</button>' +
+          '</div></div>';
+        document.body.appendChild(mask);
+        const self = this;
+        mask.addEventListener('click', function (e) {
+          if (e.target === mask) { close(); return; }
+          const b = e.target.closest('button');
+          if (!b) return;
+          if (b.id === 'celebrateClap') close();
+          else if (b.id === 'celebrateNote') { const cb = mask._onNote; mask._noteOpened = true; close(); if (cb) cb(); }
+        });
+      }
+      function close() {
+        mask.classList.remove('open');
+        // 彩带下次重画
+        setTimeout(function () { const s = mask.querySelector('.celebrate-stage'); if (s) s.innerHTML = ''; }, 400);
+        // 走了「记录心得」分支：等心得弹窗关闭后再由 onNote 链路触发收尾；否则直接 onClose
+        if (!mask._noteOpened && mask._onClose) { const cb = mask._onClose; mask._onClose = null; cb(); }
+      }
+      mask._onNote = opts.onNote || null;
+      mask._onClose = opts.onClose || null;
+      mask._noteOpened = false;
+      mask.querySelector('#celebrateNote').style.display = showNote ? '' : 'none';
+      mask.classList.add('open');
+      // 彩带：80 片，随机颜色/水平位置/下落时长/延迟
+      const stage = mask.querySelector('.celebrate-stage');
+      stage.innerHTML = '';
+      const colors = ['#2dd4bf', '#f59e0b', '#f472b6', '#818cf8', '#38bdf8', '#a3e635'];
+      for (let i = 0; i < 80; i++) {
+        const p = document.createElement('i');
+        p.className = 'confetti';
+        p.style.left = Math.random() * 100 + '%';
+        p.style.background = colors[i % colors.length];
+        p.style.animationDuration = (2.2 + Math.random() * 1.8) + 's';
+        p.style.animationDelay = (Math.random() * 0.6) + 's';
+        p.style.transform = 'rotate(' + (Math.random() * 360) + 'deg)';
+        stage.appendChild(p);
+      }
+    },
+
+    /* 星级评分小部件 HTML（5 颗可点星星；用法：容器 innerHTML = App.starWidget(3)，监听 .star 的 click） */
+    starWidgetHtml(value) {
+      let html = '<span class="star-widget">';
+      for (let i = 1; i <= 5; i++) {
+        html += '<i class="sw-star' + (i <= (value || 0) ? ' on' : '') + '" data-v="' + i + '">★</i>';
+      }
+      return html + '</span>';
+    },
+    /* 给容器绑定星级点击：写入隐藏值并刷新高亮。返回当前分值 getter */
+    bindStars(containerEl, initial, onSet) {
+      function paint(v) {
+        containerEl.querySelectorAll('.sw-star').forEach(function (s) {
+          s.classList.toggle('on', parseInt(s.dataset.v, 10) <= v);
+        });
+      }
+      let cur = initial || 0;
+      paint(cur);
+      containerEl.addEventListener('click', function (e) {
+        const s = e.target.closest('.sw-star');
+        if (!s) return;
+        cur = parseInt(s.dataset.v, 10);
+        paint(cur);
+        if (onSet) onSet(cur);
+      });
+      return function () { return cur; };
+    },
+
     /* 统一二次确认弹窗（删除等危险操作）→ Promise<boolean>（确认 true / 取消或遮罩点击 false） */
-    confirmDialog(opts = {}) {
-      const o = {
+    confirmDialog(opts = {}) {      const o = {
         title: opts.title || '确认操作',
         message: opts.message || '',
         confirmText: opts.confirmText || '确认',

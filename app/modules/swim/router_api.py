@@ -10,7 +10,7 @@ from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.swim import excel_io, json_import, service
-from app.modules.swim.schemas import SwimRecordIn
+from app.modules.swim.schemas import SwimNoteIn, SwimRecordIn
 from database import get_db
 
 router = APIRouter(prefix="/api/swim-records", tags=["swim"])
@@ -76,9 +76,9 @@ async def import_swim(
         raise AppError(400, str(exc))
     valid, errors = excel_io.validate_rows(parsed)
     if not valid:
-        return {"ok": True, "imported": 0, "failed": errors}
-    imported = service.bulk_create_records(db, user.id, valid)
-    return {"ok": True, "imported": imported, "failed": errors}
+        return {"ok": True, "imported": 0, "created_ids": [], "failed": errors}
+    created_ids = service.bulk_create_records(db, user.id, valid)
+    return {"ok": True, "imported": len(created_ids), "created_ids": created_ids, "failed": errors}
 
 
 @router.post("/import-json")
@@ -95,9 +95,9 @@ def import_swim_json(
         raise AppError(400, "记录数量过多（上限 500 条）")
     valid, errors = json_import.validate_json_records(raw_records)
     if not valid:
-        return {"ok": True, "imported": 0, "failed": errors}
-    imported = service.bulk_create_records(db, user.id, valid)
-    return {"ok": True, "imported": imported, "failed": errors}
+        return {"ok": True, "imported": 0, "created_ids": [], "failed": errors}
+    created_ids = service.bulk_create_records(db, user.id, valid)
+    return {"ok": True, "imported": len(created_ids), "created_ids": created_ids, "failed": errors}
 
 
 @router.post("")
@@ -134,6 +134,34 @@ def delete_swim(
     if not service.delete_record(db, user.id, record_id):
         raise AppError(404, "记录不存在")
     return {"ok": True}
+
+
+# ---------- 练后心得（1:1，2026-11） ----------
+
+@router.get("/{record_id}/note")
+def get_swim_note(
+    record_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    note = service.get_note(db, user.id, record_id)
+    return {"note": ({"id": note.id, "rating": note.rating, "stroke_insight": note.stroke_insight, "other": note.other} if note else None)}
+
+
+@router.put("/{record_id}/note")
+def put_swim_note(
+    record_id: int,
+    payload: SwimNoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    note = service.upsert_note(
+        db, user.id, record_id,
+        rating=payload.rating,
+        stroke_insight=payload.stroke_insight,
+        other=payload.other,
+    )
+    return {"note": {"id": note.id, "rating": note.rating, "stroke_insight": note.stroke_insight, "other": note.other}}
 
 
 @router.get("/stats")

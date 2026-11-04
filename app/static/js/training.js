@@ -13,8 +13,10 @@
     plans: window.INIT_PLANS || [],   // 当日计划列表（planned 在前、recorded 沉底）
     editingPlanId: null,              // 计划编辑器：null=新建，否则编辑该 id
     completingPlanId: null,           // 待完成训练的计划 id
+    editingPlanWasRecorded: false,    // 打开编辑器时该计划是否已是记录态（决定保存时是否顺带存心得）
     historyPage: 1,
   };
+  let editNoteStars = null;           // 计划编辑器内心得星级取值器（编辑记录态才有）
 
   /* ---------- 工具 ---------- */
   function parseReps(reps) {
@@ -152,32 +154,89 @@
     const id = state.completingPlanId;
     if (!id) return;
     App.api('/api/training/plans/' + id + '/complete', { method: 'POST', body: {} })
-      .then(function () {
+      .then(function (resp) {
         App.closeModal('modalComplete');
         App.toast('已标记为完成训练');
-        setTimeout(function () { location.reload(); }, 400);
+        App.celebrate({
+          showNote: true,
+          onNote: function () { openTrainingNote(id, resp && resp.plan ? resp.plan.note : null); },
+          onClose: function () { location.reload(); },
+        });
       })
       .catch(err => App.toast(err.message, true));
   });
 
-  /* ---------- 新建/编辑计划（顶部「＋ 新建计划」=新建整个计划，卡内「＋ 添加训练动作」=编辑该计划并追加动作行） ---------- */
-  function openPlan(plan, appendMode) {
+  /* ---------- 练后心得弹窗（2026-11） ---------- */
+  let noteTargetId = null;
+  let starGetRating = null;
+  function openTrainingNote(planId, existing) {
+    noteTargetId = planId;
+    document.getElementById('trNoteBest').value = (existing && existing.best_movement) || '';
+    document.getElementById('trNoteReflection').value = (existing && existing.reflection) || '';
+    document.getElementById('trNoteNext').value = (existing && existing.next_steps) || '';
+    const starBox = document.getElementById('trNoteStars');
+    starBox.innerHTML = App.starWidgetHtml(existing ? existing.rating : 0);
+    starGetRating = App.bindStars(starBox, existing ? existing.rating || 0 : 0);
+    App.openModal('modalTrainingNote');
+  }
+  document.getElementById('formTrainingNote').addEventListener('submit', function (e) {
+    e.preventDefault();
+    App.api('/api/training/plans/' + noteTargetId + '/note', {
+      method: 'PUT',
+      body: {
+        rating: (starGetRating && starGetRating() > 0) ? starGetRating() : null,
+        best_movement: document.getElementById('trNoteBest').value.trim() || null,
+        reflection: document.getElementById('trNoteReflection').value.trim() || null,
+        next_steps: document.getElementById('trNoteNext').value.trim() || null,
+      },
+    }).then(function () {
+      App.closeModal('modalTrainingNote');
+      App.toast('心得已保存');
+      setTimeout(function () { location.reload(); }, 400);
+    }).catch(err => App.toast(err.message, true));
+  });
+  // 心得弹窗「取消」也要刷新：庆祝链路刚新建了记录，列表需要看到新行
+  document.querySelector('#modalTrainingNote [data-close]').addEventListener('click', function () {
+    setTimeout(function () { location.reload(); }, 200);
+  });
+
+  /* ---------- 新建/编辑计划（顶部「＋ 新建计划」=新建整个计划，「＋ 新建记录」=直接补录一条训练记录；
+     卡内「＋ 添加训练动作」=编辑该计划并追加动作行） ---------- */
+  function openPlan(plan, appendMode, recordMode) {
     state.editingPlanId = plan ? plan.id : null;
+    state.recordMode = !!recordMode && !plan;   // 仅新建记录场景生效
     document.getElementById('modalPlanTitle').textContent = plan
       ? (plan.status === 'recorded' ? '编辑记录' : (appendMode ? '添加训练动作' : '编辑计划'))
-      : '新建计划';
+      : (recordMode ? '新建记录' : '新建计划');
+    document.getElementById('modalPlanDesc').textContent = recordMode
+      ? '补录训练记录：保存后直接进入训练历史，日期可任意填写。'
+      : '计划由用户手动创建，暂无自动生成需求（TR-03）。';
     const form = document.getElementById('formPlan');
     form.reset();
     const dateInput = form.elements.plan_date;
     dateInput.value = plan ? plan.plan_date : viewDate;
     dateInput.max = '';
-    dateInput.disabled = !!plan;   // 编辑时日期锁定：计划归属日期不可改
+    // 2026-11-04 起放开日期锁定：计划可挪期、记录可补录/改期（planned 与 recorded 均可改）
     const rowsWrap = document.getElementById('planRows');
     rowsWrap.innerHTML = '';
     form.elements.remark.value = plan ? (plan.remark || '') : '';
     const items = (plan && plan.items && plan.items.length) ? plan.items.slice() : [];
     items.forEach(function (it) { addPlanRow(it); });
     if (!items.length || appendMode) addPlanRow({});   // 新建留空行；追加模式额外补一个空行
+    // 编辑「记录态」计划：编辑器内联展示心得区块（即使没填也显示）；计划态隐藏
+    state.editingPlanWasRecorded = !!(plan && plan.status === 'recorded');
+    const noteSec = document.getElementById('planEditNoteSection');
+    noteSec.style.display = state.editingPlanWasRecorded ? '' : 'none';
+    editNoteStars = null;
+    if (state.editingPlanWasRecorded) {
+      const n = plan.note || {};
+      document.getElementById('trEditBest').value = n.best_movement || '';
+      document.getElementById('trEditReflection').value = n.reflection || '';
+      document.getElementById('trEditNext').value = n.next_steps || '';
+      const box = document.getElementById('trEditStars');
+      box.innerHTML = App.starWidgetHtml(n.rating || 0);
+      editNoteStars = App.bindStars(box, n.rating || 0);
+    }
     App.openModal('modalPlan');
   }
   function addPlanRow(it) {
@@ -246,6 +305,7 @@
     App.toast('动作顺序已调整，保存后生效');
   });
   document.getElementById('btnNewPlan').addEventListener('click', function () { openPlan(null); });
+  document.getElementById('btnNewRecord').addEventListener('click', function () { openPlan(null, false, true); });
   document.getElementById('btnAddRow').addEventListener('click', function () { addPlanRow({}); });
   document.getElementById('formPlan').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -270,24 +330,53 @@
     if (!items.length) { App.toast('至少填写一条动作名称', true); return; }
     const editingId = state.editingPlanId;
     const remark = form.elements.remark.value.trim() || null;
-    const body = editingId
-      ? { items: items, remark: remark }
-      : { plan_date: form.elements.plan_date.value, items: items, remark: remark };
+    const body = {
+      plan_date: form.elements.plan_date.value,
+      items: items,
+      remark: remark,
+    };
+    if (!editingId && state.recordMode) body.status = 'recorded';   // 「＋ 新建记录」直接落历史
     App.api(editingId ? '/api/training/plans/' + editingId : '/api/training/plans', {
       method: editingId ? 'PUT' : 'POST',
       body: body,
     })
-      .then(function () {
+      .then(function (resp) {
         App.closeModal('modalPlan');
-        App.toast('计划已保存');
-        setTimeout(function () {
-          // 从总览点日期格「＋ 计划」过来的：保存后跳回总览当天
+        // 「＋ 新建记录」直接落 recorded：算一次训练完成，弹庆祝 + 可写心得
+        const freshRecorded = !editingId && state.recordMode;
+        const editingNote = editingId && state.editingPlanWasRecorded;  // 编辑已有记录：顺带保存心得
+        function after() {
           if (fromOv) {
             location.href = '/overview?date=' + viewDate + '&mode=week';
           } else {
             location.reload();
           }
-        }, 500);
+        }
+        function saveNoteThen(cb) {
+          App.api('/api/training/plans/' + editingId + '/note', {
+            method: 'PUT',
+            body: {
+              rating: (editNoteStars && editNoteStars() > 0) ? editNoteStars() : null,
+              best_movement: document.getElementById('trEditBest').value.trim() || null,
+              reflection: document.getElementById('trEditReflection').value.trim() || null,
+              next_steps: document.getElementById('trEditNext').value.trim() || null,
+            },
+          }).then(cb).catch(function (err) { App.toast('心得保存失败：' + err.message, true); cb(); });
+        }
+        if (freshRecorded && resp && resp.plan) {
+          App.toast('训练记录已保存');
+          App.celebrate({
+            showNote: true,
+            onNote: function () { openTrainingNote(resp.plan.id, resp.plan.note); },
+            onClose: after,
+          });
+        } else if (editingNote) {
+          App.toast('训练记录已保存');
+          saveNoteThen(function () { setTimeout(after, 400); });
+        } else {
+          App.toast(state.recordMode ? '训练记录已保存' : '计划已保存');
+          setTimeout(after, 500);
+        }
       })
       .catch(err => App.toast(err.message, true));
   });
@@ -308,8 +397,9 @@
             dur = App.fmtDuration(s);
           }
           const note = p.note;
-          const noteHtml = note
-            ? (note.rating ? '<div class="star-dots">' + '★'.repeat(note.rating) + '</div>' : '') + '<div class="note-text">' + App.escapeHtml((note.status_text || '').slice(0, 40)) + '</div>'
+          // 列表视图只显示自我评估星级，不展示心得正文（正文在详情弹窗 / 心得弹窗里看）
+          const noteHtml = note && note.rating
+            ? '<div class="star-dots">' + '★'.repeat(note.rating) + '</div>'
             : '<span style="color:var(--color-text-secondary)">—</span>';
           return '<tr><td class="num">' + p.plan_date + '</td>' +
             '<td>' + App.escapeHtml(p.body_parts_summary || '训练') + '</td>' +
@@ -318,6 +408,8 @@
             '<td class="num" style="color:var(--color-text-secondary)">完成 ' + p.completed_count + '/' + p.item_count + ' · ' + p.total_volume + ' kg</td>' +
             '<td>' + noteHtml + '</td>' +
             '<td><div class="plan-actions">' +
+              '<button type="button" class="btn btn-sm" data-hact="view" data-row=\'' + JSON.stringify(p).replace(/'/g, "&#39;") + '\'>查看详情</button>' +
+              '<button type="button" class="btn btn-sm" data-hact="note" data-row=\'' + JSON.stringify(p).replace(/'/g, "&#39;") + '\'>心得</button>' +
               '<button type="button" class="btn btn-sm" data-hact="reuse" data-id="' + p.id + '">设为今日计划</button>' +
               '<button type="button" class="btn btn-sm" data-hact="edit" data-id="' + p.id + '">编辑</button>' +
               '<button type="button" class="btn btn-sm btn-danger" data-hact="del" data-id="' + p.id + '">删除</button>' +
@@ -345,6 +437,15 @@
     const btn = e.target.closest('button[data-hact]');
     if (!btn) return;
     const id = parseInt(btn.dataset.id, 10);
+    if (btn.dataset.hact === 'view') {
+      App.openDetail('training', JSON.parse(btn.dataset.row));
+      return;
+    }
+    if (btn.dataset.hact === 'note') {
+      const p = JSON.parse(btn.dataset.row);
+      openTrainingNote(p.id, p.note);
+      return;
+    }
     if (btn.dataset.hact === 'reuse') {
       App.api('/api/training/plans/' + id + '/copy-to-today', { method: 'POST', body: {} })
         .then(function () {
@@ -476,8 +577,15 @@
     importResult.style.display = 'block';
 
     if (!failed.length) {
+      // 导入全部成功：弹庆祝；恰好 1 条 → 可顺手写心得；多条 → 只庆祝
+      const pids = data.plan_ids || [];
       App.toast('已导入 ' + importCreated + ' 条训练记录');
-      setTimeout(function () { location.reload(); }, 500);
+      App.closeModal('modalImport');
+      App.celebrate({
+        showNote: importCreated === 1 && pids.length === 1,
+        onNote: function () { openTrainingNote(pids[0], null); },
+        onClose: function () { location.reload(); },
+      });
     } else {
       importSubmit.disabled = true;
       importSubmit.textContent = '开始导入';

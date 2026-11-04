@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% block title %}健身训练 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261104">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261105">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>健身训练</h1>
   <div class="page-desc">一个训练计划一张卡片，卡片内每个动作一行；练完点「完成训练」转为训练记录。</div>
   <div class="page-head-actions">
     <button class="btn" id="btnNewPlan">＋ 新建计划</button>
+    <button class="btn" id="btnNewRecord">＋ 新建记录</button>
     <span class="actions-divider"></span>
     <button class="btn" id="btnImportExcel">⇧ 导入 Excel</button>
     <button class="btn" id="btnImportJson">⇧ 导入 JSON</button>
@@ -36,9 +37,9 @@
       </div>
     </div>
 
-    <!-- 训练历史 -->
+    <!-- 全部记录 -->
     <div class="card">
-      <div class="card-title">训练历史 <span class="sub">已保存的训练记录</span></div>
+      <div class="card-title">全部记录 <span class="sub">已保存的训练记录</span></div>
       <div class="table-wrap history-table">
         <table class="tbl">
           <thead><tr><th>日期</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>心得</th><th>操作</th></tr></thead>
@@ -107,9 +108,9 @@
 
 <!-- 新建/编辑计划弹窗 -->
 <div class="modal-mask note-modal" id="modalPlan">
-  <div class="modal" style="width:720px">
+  <div class="modal" style="width:780px">
     <div class="modal-title" id="modalPlanTitle">新建计划</div>
-    <div class="modal-desc">计划由用户手动创建，暂无自动生成需求（TR-03）。</div>
+    <div class="modal-desc" id="modalPlanDesc">计划由用户手动创建，暂无自动生成需求（TR-03）。</div>
     <form id="formPlan">
       <div style="margin-bottom:12px">
         <label class="field-label">所属日期</label>
@@ -124,9 +125,46 @@
       </div>
       <div id="planRows"></div>
       <button type="button" class="btn btn-sm" id="btnAddRow">＋ 添加一行</button>
+      <div id="planEditNoteSection" style="display:none;border-top:1px dashed var(--color-border);margin-top:14px;padding-top:12px">
+        <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:10px">练后心得（仅记录态可编辑，保存记录时一并保存）</div>
+        <div class="form-item" style="margin-bottom:10px"><label class="field-label">自我评估</label><div class="note-star-row"><span id="trEditStars"></span></div></div>
+        <div class="form-item" style="margin-bottom:10px"><label class="field-label">最佳动作</label><input class="input" id="trEditBest" maxlength="128"></div>
+        <div class="form-item" style="margin-bottom:10px"><label class="field-label">复盘 / 反思</label><textarea class="input" id="trEditReflection" rows="2"></textarea></div>
+        <div class="form-item" style="margin-bottom:6px"><label class="field-label">下一步想法</label><textarea class="input" id="trEditNext" rows="2"></textarea></div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalPlan">取消</button>
         <button type="submit" class="btn btn-primary">保存计划</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 练后心得弹窗（一条训练记录 1:1，仅记录态可填） -->
+<div class="modal-mask" id="modalTrainingNote">
+  <div class="modal" style="width:560px">
+    <div class="modal-title">写训练心得</div>
+    <div class="modal-desc">记录这次练完的感受，下次训练更有方向。</div>
+    <form id="formTrainingNote">
+      <div class="form-item" style="margin-bottom:14px">
+        <label class="field-label">自我评估</label>
+        <div class="note-star-row"><span id="trNoteStars"></span></div>
+      </div>
+      <div class="form-item" style="margin-bottom:14px">
+        <label class="field-label">最佳动作（最有感觉的动作）</label>
+        <input class="input" id="trNoteBest" maxlength="128" placeholder="如：杠铃卧推，今天胸肌发力感很清晰">
+      </div>
+      <div class="form-item" style="margin-bottom:14px">
+        <label class="field-label">复盘 / 反思（发力感和质量如何，体能状态如何）</label>
+        <textarea class="input" id="trNoteReflection" rows="3" placeholder="如：最后两组动作变形，体能下半程掉得快"></textarea>
+      </div>
+      <div class="form-item" style="margin-bottom:6px">
+        <label class="field-label">下一步想法（动作有什么改动，重量是否要突破）</label>
+        <textarea class="input" id="trNoteNext" rows="2" placeholder="如：卧推下周试 42.5kg；加一组拉力热身"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalTrainingNote">取消</button>
+        <button type="submit" class="btn btn-primary">保存心得</button>
       </div>
     </form>
   </div>
@@ -137,5 +175,5 @@
 window.INIT_DATE = "{{ selected_date }}";
 window.INIT_IS_TODAY = {{ 'true' if is_today else 'false' }};
 </script>
-<script src="/static/js/training.js?v=20261107"></script>
+<script src="/static/js/training.js?v=20261108b"></script>
 {% endblock %}

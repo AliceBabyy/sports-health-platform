@@ -1,5 +1,6 @@
 """健身训练 schemas。"""
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,12 +16,16 @@ class PlanItemIn(BaseModel):
 
 
 class PlanSaveIn(BaseModel):
+    """编辑计划/记录（2026-11-04 起可改归属日期：计划挪期、记录补录/改期均支持）。"""
+    plan_date: date
     items: list[PlanItemIn] = Field(default_factory=list)
     remark: str | None = Field(default=None, max_length=255)  # 备注（计划/记录均可填）
 
 
 class PlanCreateIn(PlanSaveIn):
+    """新建计划/记录（2026-11-04 起 status 可指定：前端「＋ 新建记录」直接落 recorded）。"""
     plan_date: date
+    status: Literal["planned", "recorded"] = "planned"
 
 
 class JsonImportPlanIn(BaseModel):
@@ -39,3 +44,11 @@ class JsonImportIn(BaseModel):
 
 class BatchDeleteIn(BaseModel):
     ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class TrainingNoteIn(BaseModel):
+    """健身练后心得：自我评估星级 + 最佳动作 + 复盘反思 + 下一步想法。"""
+    rating: int | None = Field(default=None, ge=1, le=5)
+    best_movement: str | None = Field(default=None, max_length=128)
+    reflection: str | None = Field(default=None)
+    next_steps: str | None = Field(default=None)

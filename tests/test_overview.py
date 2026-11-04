@@ -25,6 +25,7 @@ def _seed(db):
     p2.status = TR_STATUS_RECORDED
     p2.started_at = datetime.now() - timedelta(minutes=30)
     p2.saved_at = datetime.now()
+    p2.remark = "练完很爽"
     db.commit()
 
     swim_service.create_record(
@@ -67,9 +68,26 @@ def test_week_aggregate_counts(db):
     assert res["start"] == monday.isoformat()
     day0 = res["days"][0]
     assert day0["date"] == monday.isoformat()
-    assert day0["sports"]["fitness"] == {"plans": 1, "records": 1, "minutes": 30, "kcal": 0.0}
-    assert day0["sports"]["swim"] == {"plans": 1, "records": 1, "minutes": 30, "kcal": 120.0}
-    assert day0["sports"]["dance"] == {"plans": 1, "records": 1, "minutes": 60, "kcal": 200.0}
+    # 每条计划/记录独立 items（供周/月每日卡独立标签渲染）
+    f = day0["sports"]["fitness"]
+    assert f["plans"] == 1 and f["records"] == 1 and f["minutes"] == 30 and f["kcal"] == 0.0
+    assert f["remarks"] == ["练完很爽"]
+    assert [it["status"] for it in f["items"]] == ["planned", "recorded"]
+    assert [it["tag"] for it in f["items"]] == ["计", "记"]
+    assert f["items"][0]["main"] == "杠铃深蹲"
+    assert f["items"][1]["main"] == "杠铃深蹲 · 30min"
+    assert f["items"][1]["remark"] == "练完很爽"
+    sw = day0["sports"]["swim"]
+    assert sw["plans"] == 1 and sw["records"] == 1 and sw["minutes"] == 30 and sw["kcal"] == 120.0
+    assert sw["remarks"] == []
+    assert [it["tag"] for it in sw["items"]] == ["计", "记"]
+    assert sw["items"][0]["main"] == "1000m · 30:00" and sw["items"][0]["remark"] == "练换气"
+    assert sw["items"][1]["main"] == "1500m · 30:00"
+    da = day0["sports"]["dance"]
+    assert da["plans"] == 1 and da["records"] == 1 and da["minutes"] == 60 and da["kcal"] == 200.0
+    assert da["remarks"] == []
+    assert da["items"][0]["main"] == "爵士 ★4" and da["items"][0]["remark"] == "练爆发力"
+    assert da["items"][1]["main"] == "爵士 ★4 · 1:00:00"
     # 汇总卡：计划=3、记录=3、时长=120、热量=320（健身无热量字段不参与）
     s = res["stats"]
     assert s["plans"] == 3 and s["records"] == 3 and s["minutes"] == 120 and s["kcal"] == 320.0

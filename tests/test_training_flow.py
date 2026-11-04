@@ -30,6 +30,20 @@ def test_create_and_get_plan(db):
     assert data["items"][0]["sets"] == 5 and data["items"][0]["reps"] == "8"
 
 
+def test_create_plan_schema_status(db):
+    """「＋ 新建记录」入口：PlanCreateIn.status 允许 planned/recorded，非法值被 pydantic 拒绝。"""
+    from pydantic import ValidationError
+
+    from app.modules.training.schemas import PlanCreateIn
+
+    rec = PlanCreateIn(plan_date=date(2026, 11, 4), items=[ITEM], status="recorded")
+    assert rec.status == "recorded"
+    default = PlanCreateIn(plan_date=date(2026, 11, 4), items=[ITEM])
+    assert default.status == "planned"
+    with pytest.raises(ValidationError):
+        PlanCreateIn(plan_date=date(2026, 11, 4), items=[ITEM], status="done")
+
+
 def test_multi_plans_same_day(db):
     """一日可多个计划，按 id 区分（不再有 (user_id, plan_date) 唯一约束）。"""
     p1 = service.create_plan(db, USER, _today(), [ITEM])
@@ -44,7 +58,7 @@ def test_multi_plans_same_day(db):
 
 def test_update_plan_edits_items(db):
     plan = service.create_plan(db, USER, _today(), [ITEM])
-    plan2 = service.update_plan(db, USER, plan.id, [ITEM_MIX, ITEM_EMPTY])
+    plan2 = service.update_plan(db, USER, plan.id, _today(), [ITEM_MIX, ITEM_EMPTY])
     assert plan2.id == plan.id
     data = service.plan_to_dict(plan2)
     assert data["item_count"] == 2
@@ -54,13 +68,27 @@ def test_update_plan_edits_items(db):
     assert data2["items"][0]["reps"] == "10+8+6"
 
 
+def test_update_plan_can_change_date(db):
+    """2026-11-04 起编辑可改归属日期：planned 挪期、recorded 记录改期（补录/修正）。"""
+    plan = service.create_plan(db, USER, date(2026, 11, 10), [ITEM])
+    moved = service.update_plan(db, USER, plan.id, date(2026, 11, 11), [ITEM], remark="挪到明天")
+    assert moved.plan_date == date(2026, 11, 11)
+    assert service.get_plan(db, USER, plan.id).plan_date == date(2026, 11, 11)
+    # 已记录改期：原日期不再有记录，新日期下有
+    done = service.complete_plan(db, USER, plan.id)
+    moved_rec = service.update_plan(db, USER, done.id, date(2026, 11, 12), [ITEM])
+    assert moved_rec.status == TR_STATUS_RECORDED and moved_rec.plan_date == date(2026, 11, 12)
+    assert len(service.get_plans_by_date(db, USER, date(2026, 11, 11))) == 0
+    assert len(service.get_plans_by_date(db, USER, date(2026, 11, 12))) == 1
+
+
 def test_update_recorded_allowed_keeps_checked(db):
     """2026-11-04 起已记录可编辑：update 替换动作明细，并按 sort 保留原勾选状态（checked）。"""
     plan = service.create_plan(db, USER, _today(), [ITEM])
     service.complete_plan(db, USER, plan.id)
     plan.items[0].checked = True   # 模拟训练时勾选
     db.commit()
-    plan2 = service.update_plan(db, USER, plan.id, [ITEM_MIX, ITEM_EMPTY])
+    plan2 = service.update_plan(db, USER, plan.id, _today(), [ITEM_MIX, ITEM_EMPTY])
     assert plan2.id == plan.id
     data = service.plan_to_dict(plan2)
     assert data["item_count"] == 2
@@ -68,6 +96,7 @@ def test_update_recorded_allowed_keeps_checked(db):
     assert data["items"][0]["checked"] is True    # 第 1 个动作勾选保留
     assert data["items"][1]["checked"] is False
     assert data["status"] == TR_STATUS_RECORDED
+    assert data["plan_date"] == _today().isoformat()   # 改期不丢失（此处日期未变）
 
 
 def test_complete_plan_flow(db):
@@ -86,7 +115,7 @@ def test_complete_plan_flow(db):
     with pytest.raises(AppError):
         service.complete_plan(db, USER, plan.id)
     # 2026-11-04 起已记录可修改 / 可删除
-    updated = service.update_plan(db, USER, plan.id, [ITEM_MIX])
+    updated = service.update_plan(db, USER, plan.id, _today(), [ITEM_MIX])
     assert updated.status == TR_STATUS_RECORDED
     assert service.delete_plan(db, USER, plan.id) is True
     assert service.get_plan(db, USER, plan.id) is None

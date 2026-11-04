@@ -83,9 +83,9 @@
 .import-result table.tbl { font-size: 12.5px; }
 .import-result table.tbl th { white-space: nowrap; }
 
-.plan-form-item { display: grid; grid-template-columns: 28px 2.2fr 1fr 1fr 1fr 1.2fr 1fr 36px; gap: 8px; margin-bottom: 8px; align-items: center; }
+.plan-form-item { display: grid; grid-template-columns: 28px 1.6fr 2.2fr 0.9fr 0.9fr 1fr 0.9fr 36px; gap: 8px; margin-bottom: 8px; align-items: center; }
 .plan-form-item input { width: 100%; }
-.plan-form-head { display: grid; grid-template-columns: 28px 2.2fr 1fr 1fr 1fr 1.2fr 1fr 36px; gap: 8px; margin-bottom: 8px; }
+.plan-form-head { display: grid; grid-template-columns: 28px 1.6fr 2.2fr 0.9fr 0.9fr 1fr 0.9fr 36px; gap: 8px; margin-bottom: 8px; }
 .plan-form-item .drag-handle {
   cursor: grab; color: var(--color-text-secondary); display: inline-flex; align-items: center;
   justify-content: center; height: 100%; padding: 6px 0; user-select: none; -webkit-user-select: none;

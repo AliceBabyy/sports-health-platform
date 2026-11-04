@@ -4,6 +4,10 @@
 (function () {
   const App = window.App;
   let currentPage = 1, editingId = null, formMode = 'recorded';
+  let editingWasRecorded = false;   // 打开编辑弹窗时原行是否已是记录态（决定保存后是否弹庆祝）
+  let noteTargetId = null;         // 心得弹窗当前编辑的游泳记录 id
+  let starGetRating = null;        // 心得弹窗星级取值器
+  let editNoteStars = null;        // 编辑弹窗内心得星级取值器（编辑记录态才有）
   const viewDate = window.INIT_DATE || App.todayStr();   // 当日视图日期（总览跳转 / 前后翻页）
   const qs = new URLSearchParams(location.search);
   const fromOv = qs.get('fromov') === '1';               // 是否从总览点日期格「＋ 计划」过来
@@ -13,11 +17,17 @@
   function statusTag(r) {
     return '<span class="tag ' + (r.status === 'planned' ? 'tag-gray' : 'tag-mint') + ' no-dot">' + (r.status === 'planned' ? '计划' : '记录') + '</span>';
   }
-  function remarkHtml(r) {
-    return r.remark ? ' <span class="row-remark">' + App.escapeHtml(r.remark) + '</span>' : '';
-  }
 
-  /* ---------- 当日视图 ---------- */
+  /* ---------- 当日视图（表格化：计划/记录分块，列对齐） ---------- */
+  function swimDailyButtons(r) {
+    const rowAttr = 'data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'';
+    const del = '<button class="btn btn-sm btn-danger" data-daily="del" data-id="' + r.id + '">删除</button>';
+    const edit = '<button class="btn btn-sm" data-daily="edit" data-id="' + r.id + '" ' + rowAttr + '>编辑</button>';
+    if (r.status === 'planned') {
+      return '<td class="row-actions"><button class="btn btn-sm btn-primary" data-daily="todo" data-id="' + r.id + '" ' + rowAttr + '>去记录</button>' + edit + del + '</td>';
+    }
+    return '<td class="row-actions">' + edit + del + '</td>';
+  }
   function loadDaily() {
     App.api('/api/swim-records/daily?date=' + viewDate).then(function (res) {
       const plans = res.list.filter(r => r.status === 'planned');
@@ -28,28 +38,29 @@
       } else {
         if (plans.length) {
           html += '<div class="daily-block"><div class="daily-block-title">计划 <span class="num">' + plans.length + '</span></div>' +
+            '<table class="tbl"><thead><tr><th>距离</th><th class="num">时长</th><th>主泳姿</th><th>备注</th><th></th></tr></thead><tbody>' +
             plans.map(function (r) {
-              const meta = (r.distance_m != null ? r.distance_m + ' m' : '—') + ' · ' + fmtDur(r.duration_s) +
-                (r.main_stroke_label ? ' · ' + App.escapeHtml(r.main_stroke_label) : '');
-              return '<div class="daily-row is-planned" data-id="' + r.id + '">' +
-                '<div class="daily-main">' + meta + remarkHtml(r) + '</div>' +
-                '<div class="daily-actions">' +
-                '<button class="btn btn-sm btn-primary" data-daily="todo" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>去记录</button>' +
-                '<button class="btn btn-sm" data-daily="edit" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>编辑</button>' +
-                '<button class="btn btn-sm btn-danger" data-daily="del" data-id="' + r.id + '">删除</button></div></div>';
-            }).join('') + '</div>';
+              return '<tr>' +
+                '<td class="num">' + (r.distance_m != null ? r.distance_m + ' m' : '—') + '</td>' +
+                '<td class="num">' + fmtDur(r.duration_s) + '</td>' +
+                '<td>' + App.escapeHtml(r.main_stroke_label || '—') + '</td>' +
+                '<td class="cell-remark">' + (r.remark ? '<span class="row-remark">' + App.escapeHtml(r.remark) + '</span>' : '—') + '</td>' +
+                swimDailyButtons(r) + '</tr>';
+            }).join('') + '</tbody></table></div>';
         }
         if (records.length) {
           html += '<div class="daily-block"><div class="daily-block-title">记录 <span class="num">' + records.length + '</span></div>' +
+            '<table class="tbl"><thead><tr><th>距离</th><th class="num">时长</th><th class="num">配速</th><th>主泳姿</th><th class="num">热量</th><th>备注</th><th></th></tr></thead><tbody>' +
             records.map(function (r) {
-              const meta = r.distance_m + ' m · ' + fmtDur(r.duration_s) + (r.pace != null ? ' · 配速 ' + r.pace + ' min/100m' : '') +
-                (r.main_stroke_label ? ' · ' + App.escapeHtml(r.main_stroke_label) : '') + (r.calories != null ? ' · ' + r.calories + ' kcal' : '');
-              return '<div class="daily-row is-recorded" data-id="' + r.id + '">' +
-                '<div class="daily-main">' + meta + remarkHtml(r) + '</div>' +
-                '<div class="daily-actions">' +
-                '<button class="btn btn-sm" data-daily="edit" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>编辑</button>' +
-                '<button class="btn btn-sm btn-danger" data-daily="del" data-id="' + r.id + '">删除</button></div></div>';
-            }).join('') + '</div>';
+              return '<tr>' +
+                '<td class="num">' + (r.distance_m != null ? r.distance_m + ' m' : '—') + '</td>' +
+                '<td class="num">' + fmtDur(r.duration_s) + '</td>' +
+                '<td class="num">' + (r.pace != null ? r.pace + ' min/100m' : '—') + '</td>' +
+                '<td>' + App.escapeHtml(r.main_stroke_label || '—') + '</td>' +
+                '<td class="num">' + (r.calories != null ? r.calories + ' kcal' : '—') + '</td>' +
+                '<td class="cell-remark">' + (r.remark ? '<span class="row-remark">' + App.escapeHtml(r.remark) + '</span>' : '—') + '</td>' +
+                swimDailyButtons(r) + '</tr>';
+            }).join('') + '</tbody></table></div>';
         }
       }
       dailyWrap.innerHTML = html;
@@ -97,7 +108,8 @@
             '<td class="num">' + (r.laps != null ? r.laps : '—') + '</td>' +
             '<td class="num">' + (planned ? '—' : (r.avg_stroke_rate != null ? r.avg_stroke_rate : '—')) + '</td>' +
             '<td class="num">' + (r.calories != null ? r.calories + ' kcal' : '—') + '</td>' +
-            '<td class="row-actions"><button class="btn btn-sm" data-act="edit" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>编辑</button>' +
+            '<td class="row-actions"><button class="btn btn-sm" data-act="view" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>查看详情</button>' +
+            '<button class="btn btn-sm" data-act="edit" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>编辑</button>' +
             '<button class="btn btn-sm btn-danger" data-act="del" data-id="' + r.id + '">删除</button></td></tr>';
         }).join('');
       }
@@ -133,6 +145,7 @@
 
   function openForm(row, mode) {
     editingId = row ? row.id : null;
+    editingWasRecorded = row ? row.status === 'recorded' : false;
     const m = mode || (row && row.status) || 'recorded';
     document.getElementById('modalSwimTitle').textContent = row
       ? (m === 'planned' ? '编辑游泳计划' : '编辑游泳记录')
@@ -153,6 +166,19 @@
       form.elements.calories.value = row.calories != null ? row.calories : '';
       form.elements.avg_stroke_rate.value = row.avg_stroke_rate != null ? row.avg_stroke_rate : '';
     }
+    // 编辑「记录态」时：编辑弹窗内联展示心得区块（即使没填也显示）；计划态隐藏
+    const noteSec = document.getElementById('swimEditNoteSection');
+    const showNoteSec = !!row && m === 'recorded';
+    noteSec.style.display = showNoteSec ? '' : 'none';
+    editNoteStars = null;
+    if (showNoteSec) {
+      const n = row.note || {};
+      document.getElementById('swimEditStrokeInsight').value = n.stroke_insight || '';
+      document.getElementById('swimEditOther').value = n.other || '';
+      const box = document.getElementById('swimEditStars');
+      box.innerHTML = App.starWidgetHtml(n.rating || 0);
+      editNoteStars = App.bindStars(box, n.rating || 0);
+    }
     App.openModal('modalSwim');
   }
 
@@ -163,6 +189,10 @@
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const id = parseInt(btn.dataset.id, 10);
+    if (btn.dataset.act === 'view') {
+      App.openDetail('swim', JSON.parse(btn.dataset.row));
+      return;
+    }
     if (btn.dataset.act === 'del') {
       App.confirmDialog({ title: '删除游泳数据', message: '确定删除这条游泳数据吗？删除后不可恢复。' })
         .then(function (ok) {
@@ -202,18 +232,69 @@
     const req = editingId
       ? App.api('/api/swim-records/' + editingId, { method: 'PUT', body: payload })
       : App.api('/api/swim-records', { method: 'POST', body: payload });
-    req.then(function () {
+    req.then(function (saved) {
       App.closeModal('modalSwim');
-      App.toast(planned ? '计划已保存' : '记录已保存');
-      setTimeout(function () {
-        // 从总览点日期格「＋ 计划」过来的：保存后跳回总览当天
-        if (fromOv) {
-          location.href = '/overview?date=' + viewDate + '&mode=week';
-        } else {
-          location.reload();
-        }
-      }, 400);
+      const freshRecorded = !planned && !editingWasRecorded;  // 新建记录 / 计划→记录：算一次训练完成
+      const editingNote = editingId && !planned && editingWasRecorded;  // 编辑已有记录：顺带保存心得
+      function after() {
+        if (fromOv) location.href = '/overview?date=' + viewDate + '&mode=week';
+        else location.reload();
+      }
+      function saveNoteThen(cb) {
+        App.api('/api/swim-records/' + editingId + '/note', {
+          method: 'PUT',
+          body: {
+            rating: (editNoteStars && editNoteStars() > 0) ? editNoteStars() : null,
+            stroke_insight: document.getElementById('swimEditStrokeInsight').value.trim() || null,
+            other: document.getElementById('swimEditOther').value.trim() || null,
+          },
+        }).then(cb).catch(function (err) { App.toast('心得保存失败：' + err.message, true); cb(); });
+      }
+      if (freshRecorded && saved && saved.id) {
+        App.toast('记录已保存');
+        App.celebrate({
+          showNote: true,
+          onNote: function () { openSwimNote(saved.id, saved.note); },
+          onClose: after,
+        });
+      } else if (editingNote) {
+        App.toast('记录已保存');
+        saveNoteThen(function () { setTimeout(after, 400); });
+      } else {
+        App.toast(planned ? '计划已保存' : '记录已保存');
+        setTimeout(after, 400);
+      }
     }).catch(err => App.toast(err.message, true));
+  });
+
+  /* ---------- 练后心得弹窗（2026-11） ---------- */
+  function openSwimNote(recordId, existing) {
+    noteTargetId = recordId;
+    document.getElementById('swimNoteStrokeInsight').value = (existing && existing.stroke_insight) || '';
+    document.getElementById('swimNoteOther').value = (existing && existing.other) || '';
+    const starBox = document.getElementById('swimNoteStars');
+    starBox.innerHTML = App.starWidgetHtml(existing ? existing.rating : 0);
+    starGetRating = App.bindStars(starBox, existing ? existing.rating || 0 : 0);
+    App.openModal('modalSwimNote');
+  }
+  document.getElementById('formSwimNote').addEventListener('submit', function (e) {
+    e.preventDefault();
+    App.api('/api/swim-records/' + noteTargetId + '/note', {
+      method: 'PUT',
+      body: {
+        rating: (starGetRating && starGetRating() > 0) ? starGetRating() : null,
+        stroke_insight: document.getElementById('swimNoteStrokeInsight').value.trim() || null,
+        other: document.getElementById('swimNoteOther').value.trim() || null,
+      },
+    }).then(function () {
+      App.closeModal('modalSwimNote');
+      App.toast('心得已保存');
+      setTimeout(function () { location.reload(); }, 400);
+    }).catch(err => App.toast(err.message, true));
+  });
+  // 心得弹窗「取消」也要刷新：庆祝链路刚新建了记录，列表需要看到新行
+  document.querySelector('#modalSwimNote [data-close]').addEventListener('click', function () {
+    setTimeout(function () { location.reload(); }, 200);
   });
 
   document.querySelectorAll('[data-close]').forEach(function (el) {
@@ -277,8 +358,15 @@
     importResult.style.display = 'block';
 
     if (!failed.length) {
+      // 导入全部成功：弹庆祝；恰好 1 条 → 可顺手写心得；多条 → 只庆祝
+      const ids = data.created_ids || [];
       App.toast('已导入 ' + importCreated + ' 条游泳记录');
-      setTimeout(function () { location.reload(); }, 500);
+      App.closeModal('modalImport');
+      App.celebrate({
+        showNote: importCreated === 1 && ids.length === 1,
+        onNote: function () { openSwimNote(ids[0], null); },
+        onClose: function () { location.reload(); },
+      });
     } else {
       importSubmit.disabled = true;
       importSubmit.textContent = '开始导入';

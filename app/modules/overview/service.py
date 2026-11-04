@@ -24,8 +24,37 @@ SPORT_KEYS = ("fitness", "swim", "dance")
 SPORT_LABELS = {"fitness": "健身", "swim": "游泳", "dance": "舞蹈"}
 
 
+def _fmt_sec(sec: int | None) -> str:
+    """秒 → m:ss / h:mm:ss（前端标签与弹窗展示用）。"""
+    if not sec:
+        return ""
+    sec = int(sec)
+    h, m = divmod(sec, 3600)
+    m, s = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 def _empty_counts() -> dict:
-    return {"plans": 0, "records": 0, "minutes": 0, "kcal": 0.0}
+    return {"plans": 0, "records": 0, "minutes": 0, "kcal": 0.0, "remarks": [], "items": []}
+
+
+def _item_main(sport: str, r, status: str, minutes: int) -> str:
+    """单条计划/记录在周/月每日卡独立标签里的简短描述（main）。"""
+    if sport == "fitness":
+        first = r.items[0].exercise_name if (r.items and r.items[0].exercise_name) else None
+        base = first or ("训练记录" if status == "recorded" else "训练计划")
+        if status == "recorded" and minutes:
+            base += f" · {minutes}min"
+        return base
+    if sport == "swim":
+        base = f"{r.distance_m}m" if r.distance_m else "游泳"
+        if r.duration_s:
+            base += f" · {_fmt_sec(r.duration_s)}"
+        return base
+    base = (r.dance_type or "舞蹈") + (f" ★{r.stars}" if r.stars else "")
+    if status == "recorded" and r.duration_s:
+        base += f" · {_fmt_sec(r.duration_s)}"
+    return base
 
 
 def _fitness_minutes(plan) -> int:
@@ -35,21 +64,39 @@ def _fitness_minutes(plan) -> int:
 
 
 def _counts(rows: list, sport: str) -> dict:
-    """单日单运动全部行 → {plans, records, minutes, kcal}。"""
+    """单日单运动全部行 → {plans, records, minutes, kcal, remarks, items}。
+
+    items：每条计划/记录一个独立条目（id/status/tag/main/minutes/remark），
+    供周/月每日卡「每条独立标签」渲染；同一运动多条不再合并为单个计数标签。
+    """
     out = _empty_counts()
     for r in rows:
         status = getattr(r, "status", None) or TR_STATUS_RECORDED
+        minutes = 0
         if status == TR_STATUS_PLANNED:
             out["plans"] += 1
-            continue
-        out["records"] += 1
-        if sport == "fitness":
-            out["minutes"] += _fitness_minutes(r)
         else:
-            if r.duration_s is not None:
-                out["minutes"] += r.duration_s // 60
-            if r.calories is not None:
-                out["kcal"] += float(r.calories)
+            out["records"] += 1
+            if sport == "fitness":
+                minutes = _fitness_minutes(r)
+                out["minutes"] += minutes
+            else:
+                if r.duration_s is not None:
+                    out["minutes"] += r.duration_s // 60
+                if r.calories is not None:
+                    out["kcal"] += float(r.calories)
+        if sport == "fitness" and getattr(r, "remark", None):
+            out["remarks"].append(r.remark)
+        out["items"].append(
+            {
+                "id": r.id,
+                "status": status,
+                "tag": "计" if status == TR_STATUS_PLANNED else "记",
+                "main": _item_main(sport, r, status, minutes),
+                "minutes": int(minutes),
+                "remark": getattr(r, "remark", None),
+            }
+        )
     out["minutes"] = int(out["minutes"])
     out["kcal"] = round(out["kcal"], 1)
     return out

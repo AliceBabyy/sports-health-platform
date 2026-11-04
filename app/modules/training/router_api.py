@@ -25,7 +25,7 @@ from app.core.exceptions import AppError
 from app.core.constants import today_local
 from app.modules.auth.models import User
 from app.modules.training import excel_io, json_import, service
-from app.modules.training.schemas import BatchDeleteIn, PlanCreateIn, PlanItemIn, PlanSaveIn
+from app.modules.training.schemas import BatchDeleteIn, PlanCreateIn, PlanItemIn, PlanSaveIn, TrainingNoteIn
 from database import get_db
 
 router = APIRouter(prefix="/api/training", tags=["training"])
@@ -54,7 +54,7 @@ def create_plan(
 ):
     if not payload.items:
         raise AppError(400, "计划至少包含一条训练动作")
-    plan = service.create_plan(db, user.id, payload.plan_date, payload.items, payload.remark)
+    plan = service.create_plan(db, user.id, payload.plan_date, payload.items, payload.remark, status=payload.status)
     return {"plan": service.plan_to_dict(plan)}
 
 
@@ -116,6 +116,7 @@ async def import_plans(
 
     plans_created = 0
     items_imported = 0
+    plan_ids: list[int] = []
     for plan_date, rows in groups.items():
         remark = next((r["remark"] for r in rows if r["remark"]), None)  # 取该组首个非空备注
         items = [
@@ -129,10 +130,11 @@ async def import_plans(
             )
             for r in rows
         ]
-        service.create_plan(db, user.id, plan_date, items, remark=remark, status=service.TR_STATUS_RECORDED)
+        plan = service.create_plan(db, user.id, plan_date, items, remark=remark, status=service.TR_STATUS_RECORDED)
         plans_created += 1
         items_imported += len(items)
-    return {"ok": True, "plans_created": plans_created, "items_imported": items_imported, "failed": errors}
+        plan_ids.append(plan.id)
+    return {"ok": True, "plans_created": plans_created, "items_imported": items_imported, "plan_ids": plan_ids, "failed": errors}
 
 
 @router.post("/plans/import-json")
@@ -158,11 +160,13 @@ def import_plans_json(
         return {"ok": True, "plans_created": 0, "items_imported": 0, "failed": errors}
     plans_created = 0
     items_imported = 0
+    plan_ids: list[int] = []
     for plan_in in valid:
-        service.create_plan(db, user.id, plan_in.plan_date, plan_in.items, remark=plan_in.remark, status=service.TR_STATUS_RECORDED)
+        plan = service.create_plan(db, user.id, plan_in.plan_date, plan_in.items, remark=plan_in.remark, status=service.TR_STATUS_RECORDED)
         plans_created += 1
         items_imported += len(plan_in.items)
-    return {"ok": True, "plans_created": plans_created, "items_imported": items_imported, "failed": errors}
+        plan_ids.append(plan.id)
+    return {"ok": True, "plans_created": plans_created, "items_imported": items_imported, "plan_ids": plan_ids, "failed": errors}
 
 
 @router.post("/plans/{plan_id}/copy-to-today")
@@ -197,7 +201,7 @@ def update_plan(
 ):
     if not payload.items:
         raise AppError(400, "计划至少包含一条训练动作")
-    plan = service.update_plan(db, user.id, plan_id, payload.items, payload.remark)
+    plan = service.update_plan(db, user.id, plan_id, payload.plan_date, payload.items, payload.remark)
     return {"plan": service.plan_to_dict(plan)}
 
 
@@ -220,6 +224,40 @@ def complete_plan(
 ):
     plan = service.complete_plan(db, user.id, plan_id)
     return {"plan": service.plan_to_dict(plan)}
+
+
+# ---------- 练后心得（1:1，2026-11） ----------
+
+@router.get("/plans/{plan_id}/note")
+def get_plan_note(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    note = service.get_note(db, user.id, plan_id)
+    return {"note": (
+        {"id": note.id, "rating": note.rating, "best_movement": note.best_movement,
+         "reflection": note.reflection, "next_steps": note.next_steps}
+        if note else None
+    )}
+
+
+@router.put("/plans/{plan_id}/note")
+def put_plan_note(
+    plan_id: int,
+    payload: TrainingNoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    note = service.upsert_note(
+        db, user.id, plan_id,
+        rating=payload.rating,
+        best_movement=payload.best_movement,
+        reflection=payload.reflection,
+        next_steps=payload.next_steps,
+    )
+    return {"note": {"id": note.id, "rating": note.rating, "best_movement": note.best_movement,
+                     "reflection": note.reflection, "next_steps": note.next_steps}}
 
 
 @router.get("/history")

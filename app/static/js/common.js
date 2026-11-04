@@ -8,6 +8,11 @@
   }
 
   const App = {
+    /** 计划/记录状态标签：计划=绿色(tag-mint)、记录=灰色(tag-gray)，三模块唯一口径（2026-11-04 抽出）；text 可覆盖默认文案 */
+    statusTag: function (status, text) {
+      const planned = status === 'planned';
+      return '<span class="tag ' + (planned ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (text || (planned ? '计划' : '记录')) + '</span>';
+    },
     api: async function (path, opts = {}) {
       const options = { headers: { 'Content-Type': 'application/json' }, ...opts };
       if (options.body && typeof options.body === 'object') options.body = JSON.stringify(options.body);
@@ -48,19 +53,26 @@
       if (kind === 'training') {
         const rec = row.status === 'recorded';
         title.textContent = rec ? '训练记录详情' : '训练计划详情';
-        sub.innerHTML = '<span class="dl-sub"><span class="tag ' + (rec ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (rec ? '记录' : '计划') + '</span>' + esc(row.plan_date) + '</span>';
+        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.plan_date) + '</span>';
         let dur = '—';
-        if (row.started_at && row.saved_at) {
-          dur = this.fmtDuration(Math.max(0, Math.round((Date.parse(row.saved_at) - Date.parse(row.started_at)) / 1000)));
+        if (row.duration_s) {
+          dur = this.fmtDuration(row.duration_s);
+        } else if (row.starttime && row.endtime) {
+          dur = this.fmtDuration(Math.max(0, Math.round((Date.parse(row.endtime) - Date.parse(row.starttime)) / 1000)));
         }
         const kv = [
           ['训练内容', row.body_parts_summary || '—'],
           ['时长', dur],
+        ];
+        if (rec && (row.starttime || row.endtime)) {
+          kv.push(['起止时间', (row.starttime ? row.starttime.replace('T', ' ').slice(0, 16) : '—') + ' ~ ' + (row.endtime ? row.endtime.replace('T', ' ').slice(0, 16) : '—')]);
+        }
+        kv.push(
           ['完成度', '完成 ' + (row.completed_count || 0) + ' / ' + row.item_count],
           ['容量', (row.total_volume != null ? row.total_volume : 0) + ' kg'],
           ['组数', (row.total_sets != null ? row.total_sets : 0) + ' 组'],
           ['动作数', row.item_count + ' 个'],
-        ];
+        );
         const items = (row.items || []).map(function (it) {
           const w = it.weight_kg != null ? it.weight_kg : '—';
           const s = it.sets != null ? it.sets : '—';
@@ -86,7 +98,7 @@
       } else if (kind === 'swim') {
         const rec = row.status === 'recorded';
         title.textContent = rec ? '游泳记录详情' : '游泳计划详情';
-        sub.innerHTML = '<span class="dl-sub"><span class="tag ' + (rec ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (rec ? '记录' : '计划') + '</span>' + esc(row.record_date) + '</span>';
+        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.record_date) + '</span>';
         body.innerHTML = kvRows([
           ['距离', row.distance_m != null ? row.distance_m + ' m' : '—'],
           ['时长', this.fmtClock(row.duration_s)],
@@ -110,7 +122,7 @@
       } else if (kind === 'dance') {
         const rec = row.status === 'recorded';
         title.textContent = rec ? '舞蹈记录详情' : '舞蹈计划详情';
-        sub.innerHTML = '<span class="dl-sub"><span class="tag ' + (rec ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (rec ? '记录' : '计划') + '</span>' + esc(row.record_date) + '</span>';
+        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.record_date) + '</span>';
         body.innerHTML = kvRows([
           ['舞种', row.dance_type || '—'],
           ['星级', row.stars != null ? '★'.repeat(row.stars) : '—'],

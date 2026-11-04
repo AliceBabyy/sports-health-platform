@@ -1,12 +1,18 @@
 """生理周期 schemas。"""
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SettingsIn(BaseModel):
     cycle_length: int = Field(ge=10, le=60)
     period_length: int = Field(ge=1, le=20)
+
+    @model_validator(mode="after")
+    def validate_lengths(self):
+        if self.period_length >= self.cycle_length:
+            raise ValueError("经期长度须小于周期长度")
+        return self
 
 
 class PeriodIn(BaseModel):
@@ -16,10 +22,24 @@ class PeriodIn(BaseModel):
     cycle_length: int | None = Field(default=None, ge=10, le=60)
     period_length: int | None = Field(default=None, ge=1, le=20)
 
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.end_date and self.end_date < self.start_date:
+            raise ValueError("结束日期不能早于开始日期")
+        if self.cycle_length and self.period_length and self.period_length >= self.cycle_length:
+            raise ValueError("经期长度须小于周期长度")
+        return self
+
 
 class PeriodUpdateIn(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("结束日期不能早于开始日期")
+        return self
 
 
 class PainIn(BaseModel):

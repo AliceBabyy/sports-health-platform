@@ -8,6 +8,7 @@ from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.cycle import service
+from app.modules.cycle.models import PeriodRecord
 from app.modules.cycle.schemas import PainIn, PeriodIn, PeriodUpdateIn, SettingsIn
 from database import get_db
 
@@ -54,6 +55,11 @@ def create_period(
     db: Session = Depends(get_db),
     user: User = Depends(_female_only),
 ):
+    if db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user.id, PeriodRecord.start_date == payload.start_date).first():
+        raise AppError(409, "该日期已有月经记录")
+    setting = service.get_settings(db, user.id)
+    if (payload.period_length or setting.period_length) >= (payload.cycle_length or setting.cycle_length):
+        raise AppError(422, "经期长度须小于周期长度")
     row = service.create_period(db, user.id, payload.start_date, payload.end_date, payload.cycle_length, payload.period_length)
     return {"id": row.id, "start_date": row.start_date.isoformat(), "end_date": row.end_date.isoformat() if row.end_date else None}
 
@@ -65,7 +71,16 @@ def update_period(
     db: Session = Depends(get_db),
     user: User = Depends(_female_only),
 ):
-    row = service.update_period(db, user.id, record_id, payload.start_date, payload.end_date)
+    existing = db.query(PeriodRecord).filter(PeriodRecord.id == record_id, PeriodRecord.user_id == user.id).first()
+    if existing is None:
+        raise AppError(404, "记录不存在")
+    start_date = payload.start_date or existing.start_date
+    end_date = payload.end_date if "end_date" in payload.model_fields_set else existing.end_date
+    if end_date and end_date < start_date:
+        raise AppError(422, "结束日期不能早于开始日期")
+    if start_date != existing.start_date and db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user.id, PeriodRecord.start_date == start_date, PeriodRecord.id != record_id).first():
+        raise AppError(409, "该日期已有月经记录")
+    row = service.update_period(db, user.id, record_id, payload.start_date, payload.end_date, "end_date" in payload.model_fields_set)
     if row is None:
         raise AppError(404, "记录不存在")
     return {"id": row.id, "start_date": row.start_date.isoformat(), "end_date": row.end_date.isoformat() if row.end_date else None}
@@ -100,4 +115,6 @@ def calendar(
     user: User = Depends(_female_only),
 ):
     year, month_num = month.split("-")
+    if not 1 <= int(month_num) <= 12 or int(year) < 1:
+        raise AppError(422, "月份格式无效")
     return service.calendar_month(db, user.id, int(year), int(month_num))

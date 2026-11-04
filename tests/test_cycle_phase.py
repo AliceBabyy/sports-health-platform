@@ -84,12 +84,14 @@ def test_sport_level_rest_cases():
     assert service.sport_level_for(PHASE_OVULATION_DAY, 1) == SPORT_REST
 
 
-def test_next_period_prediction(db):
+def test_next_period_prediction(db, monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
     service.create_period(db, 1, ANCHOR, None, None, None)
     assert service.next_period_date(db, 1) == ANCHOR + timedelta(days=CL)
 
 
-def test_calendar_month_phase_and_pain(db):
+def test_calendar_month_phase_and_pain(db, monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
     service.create_period(db, 1, ANCHOR, None, None, None)
     service.set_pain(db, 1, ANCHOR + timedelta(days=13), 3)  # 排卵日疼痛3 → 休息
     cal = service.calendar_month(db, 1, 2026, 10)
@@ -99,3 +101,35 @@ def test_calendar_month_phase_and_pain(db):
     assert by_date["2026-10-29"]["pain_level"] == 3
     assert by_date["2026-10-16"]["is_period"] is True
     assert cal["overview"]["next_period"] == (ANCHOR + timedelta(days=CL)).isoformat()
+
+
+def test_calendar_uses_historical_record_for_each_day(db, monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
+    service.create_period(db, 1, date(2026, 9, 18), None, None, None)
+    service.create_period(db, 1, ANCHOR, None, None, None)
+    days = {day["date"]: day for day in service.calendar_month(db, 1, 2026, 10)["days"]}
+    assert days["2026-10-01"]["phase_key"] is not None
+    assert days["2026-10-16"]["cycle_day"] == 1
+    assert days["2026-10-16"]["is_recorded_start"] is True
+
+
+def test_future_record_does_not_change_today_or_next_prediction(db, monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
+    service.create_period(db, 1, ANCHOR, None, None, None)
+    service.create_period(db, 1, date(2026, 12, 1), None, None, None)
+    assert service.get_anchor_date(db, 1) == ANCHOR
+    assert service.next_period_date(db, 1) == date(2026, 11, 13)
+
+
+def test_next_prediction_rolls_forward(db, monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: date(2027, 1, 1))
+    service.create_period(db, 1, ANCHOR, None, None, None)
+    assert service.next_period_date(db, 1) == date(2027, 1, 8)
+
+
+def test_update_period_can_clear_end_date(db):
+    row = service.create_period(db, 1, ANCHOR, date(2026, 10, 20), None, None)
+    unchanged = service.update_period(db, 1, row.id, None, None)
+    assert unchanged.end_date == date(2026, 10, 20)
+    updated = service.update_period(db, 1, row.id, ANCHOR, None, update_end=True)
+    assert updated.end_date is None

@@ -47,7 +47,7 @@
 | training | training_plans / items / notes | 训练计划/记录状态机；动作明细（负荷可空）；容量计算；复制到今日；心得；Excel/JSON 导入 |
 | swim | swim_records / swim_notes | 游泳记录/计划两态；配速/划频派生；心得；Excel/JSON 导入 |
 | dance | dance_records / dance_notes | 舞蹈记录/计划两态；课程起止时间；心得；Excel/JSON 导入 |
-| cycle | cycle_settings / period_records / daily_pain_logs | 周期设置；月经记录；每日疼痛；七阶段推算 + 运动三档等级 |
+| cycle | cycle_settings / period_records / daily_pain_logs | 周期设置；月经记录增改删；每日疼痛；按日期选锚点的七阶段推算、滚动预测 + 运动三档等级；有真实记录时才输出运动联动建议 |
 | profile | users（复用） | 基本资料修改 + 修改密码 |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
 
@@ -65,17 +65,18 @@
 ## 7. 数据层设计
 
 - 全库 **15 张表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`。
+- **中文注释元数据**：15 张表与全部 129 列均带中文 COMMENT；models `comment=` 与 schema.sql `COMMENT ON` 段为单一来源，库 `pg_description` 已同步一致（2026-11-04）。
 - **无物理外键的主体设计**：除 `cycle_settings`（FK→users）、三张明细/心得表（FK→主表 CASCADE）外，`user_id` 均为普通整型 + 索引，避免写放大，归属由应用层保证。
 - **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段均由 service 实时计算。
 - **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一（同日同组=覆盖当日该组）；`daily_pain_logs` 按 `(user_id, log_date)` 唯一。**例外**：`training_plans` 一日可多计划，按 id 定位、无唯一约束。
-- **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded（写 saved_at），游泳/舞蹈同构列；统计口径只计 recorded 行。
+- **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded（写 endtime），游泳/舞蹈同构列；统计口径只计 recorded 行。
 - **时长存秒、距离存米**，界面按分钟/米展示，派生展示值实时换算。
 
 ## 8. 关键业务口径（常量集中在 app/core/constants.py）
 
 - 身材：4 组（basic/goal/girth/target）映射 4 表；新增记录未填字段沿用该维度最近一次非空值；趋势四档（week/month/half_year/year）窗口与锚点见常量。
 - 周期：七阶段独立枚举；锚点=最近月经首日；排卵日 = 周期长度 − 14；运动三档（精力旺盛/状态良好/适合休息）按阶段 × 疼痛等级判定。
-- 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长=recorded 的 saved_at−started_at，游泳/舞蹈= duration_s；热量仅游泳/舞蹈。
+- 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长优先 duration_s，缺失时按 recorded 的 endtime−starttime 推导，游泳/舞蹈= duration_s；热量仅游泳/舞蹈。
 - 训练容量：Σ 重量 × 组数 × 每组个数首段数字（reps 为字符串，如 `"10+8+6"` 按 10 计），负荷任一为空跳过。
 
 ## 9. 导入导出
@@ -110,7 +111,7 @@ sports-health-platform/
 ├─ scripts/
 │  ├─ init_db.py       # 建表 + 初始化账号（幂等）
 │  ├─ migrate_*.py     # 2026-10/11 增量迁移（幂等，可重复执行）
-│  └─ schema.sql       # 全量建表 DDL（与《数据库建表设计.md》一致）
+│  └─ schema.sql       # 全量建表 DDL（与《数据库建表设计.md》一致，含中文 COMMENT 段）
 └─ tests/              # pytest 单元测试
 ```
 

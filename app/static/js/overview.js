@@ -91,8 +91,10 @@
           (spec ? '<em class="oi-w">' + esc(spec) + '</em>' : '') + '</div>';
       }).join('');
       let meta = e.total_sets + ' 组 · ' + e.total_volume + ' kg · ' + e.item_count + ' 动作';
-      if (rec && e.started_at && e.saved_at) {
-        meta += ' · ' + fmtClock((Date.parse(e.saved_at) - Date.parse(e.started_at)) / 1000);
+      if (rec && e.duration_s) {
+        meta += ' · ' + fmtClock(e.duration_s);
+      } else if (rec && e.starttime && e.endtime) {
+        meta += ' · ' + fmtClock((Date.parse(e.endtime) - Date.parse(e.starttime)) / 1000);
       }
       return '<div class="osc-item" data-open-day="' + state.anchor + '">' +
         '<div class="oi-title">' + dot + esc(title) + '</div>' +
@@ -242,8 +244,10 @@
     if (k === 'fitness') {
       title = rec ? '训练记录' : '训练计划';
       meta = e.item_count + ' 个动作 · ' + e.total_sets + ' 组 · ' + e.total_volume + ' kg';
-      if (rec && e.started_at && e.saved_at) {
-        meta += ' · ' + fmtClock((Date.parse(e.saved_at) - Date.parse(e.started_at)) / 1000);
+      if (rec && e.duration_s) {
+        meta += ' · ' + fmtClock(e.duration_s);
+      } else if (rec && e.starttime && e.endtime) {
+        meta += ' · ' + fmtClock((Date.parse(e.endtime) - Date.parse(e.starttime)) / 1000);
       }
     } else if (k === 'swim') {
       title = (rec ? '游泳记录' : '游泳计划') + ' · ' + (e.distance_m != null ? e.distance_m + ' m' : '—') +

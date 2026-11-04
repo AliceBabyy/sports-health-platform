@@ -4,24 +4,23 @@
 {% block content %}
 <div class="page-head">
   <h1>生理周期</h1>
-  <div class="page-desc">以日历记录月经与疼痛程度，自动推算七个阶段与每日适宜的运动强度。</div>
   <div class="page-head-actions">
-    <button class="btn" id="btnGoToday">回到今天</button>
     <button class="btn btn-primary" id="btnRecordPeriod">＋ 记录月经</button>
   </div>
 </div>
 
-<div class="two-col" style="grid-template-columns: 1fr 340px">
+<div class="two-col cycle-layout">
   <div class="three-row-stack">
     <div class="card">
       <div class="calendar-head">
         <div>
           <div class="calendar-title" id="calTitle">—</div>
-          <div class="calendar-sub" id="calSub">—</div>
+          <div class="calendar-sub" id="calSub"></div>
         </div>
         <div class="cal-nav">
-          <button class="btn btn-sm" id="btnPrevMonth">‹ 上月</button>
-          <button class="btn btn-sm" id="btnNextMonth">下月 ›</button>
+          <button class="btn btn-sm cal-nav-btn" id="btnPrevMonth" aria-label="上月" title="上月">‹</button>
+          <button class="btn btn-sm" id="btnGoToday">今天</button>
+          <button class="btn btn-sm cal-nav-btn" id="btnNextMonth" aria-label="下月" title="下月">›</button>
         </div>
       </div>
       <div class="cal-grid" id="calWeekday">
@@ -44,24 +43,8 @@
     </div>
 
     <div class="card">
-      <div class="card-title">阶段划分与运动状态 <span class="sub">运动状态 = 当前阶段激素水平 × 经期疼痛程度综合判断 · 三档：精力旺盛 / 状态良好 / 适合休息</span></div>
-      <div class="table-wrap">
-        <table class="tbl phase-table">
-          <thead><tr><th>阶段</th><th>周期区间</th><th>激素特征</th><th>运动建议</th><th>状态倾向</th></tr></thead>
-          <tbody>
-            {% for key in C.PHASE_KEYS %}
-            {% set info = C.PHASE_INFO[key] %}
-            <tr>
-              <td><span class="tag phase-{{ key }}">{{ C.PHASE_LABELS[key] }}</span></td>
-              <td class="num">{{ info.range }}</td>
-              <td class="hormone">{{ info.hormone }}</td>
-              <td class="advice">{{ info.advice }}</td>
-              <td><span class="tag tag-{{ info.level }}">{{ C.SPORT_LABELS[info.level] }}</span></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      <div class="card-title">月经记录</div>
+      <div id="periodList" class="period-list"></div>
     </div>
   </div>
 
@@ -74,19 +57,31 @@
 <div class="modal-mask" id="modalPeriod">
   <div class="modal">
     <div class="modal-title">记录月经</div>
-    <div class="modal-desc">填写本次月经开始的日期，系统会据此推算排卵日与后续各阶段。</div>
     <form id="formPeriod">
       <div class="form-grid">
-        <div class="form-item"><label class="field-label">本次月经开始日期</label><input class="input" type="date" name="start_date" required></div>
+        <div class="form-item"><label class="field-label">月经开始日期</label><input class="input" type="date" name="start_date" required></div>
+        <div class="form-item"><label class="field-label">结束日期（可选）</label><input class="input" type="date" name="end_date"></div>
         <div class="form-item"><label class="field-label">经期长度 (天)</label><input class="input num" type="number" name="period_length" min="1" max="20" required></div>
-        <div class="form-item full"><label class="field-label">周期长度 (天)</label><input class="input num" type="number" name="cycle_length" min="10" max="60" required></div>
+        <div class="form-item"><label class="field-label">周期长度 (天)</label><input class="input num" type="number" name="cycle_length" min="10" max="60" required></div>
       </div>
-      <div style="margin-top:12px;font-size:12.5px;color:var(--color-text-secondary)">排卵日按下次月经前 14 天推算，七阶段划分随之自动重算；已记录的疼痛程度会保留。</div>
       <div class="next-period-tip" id="nextPeriodTip">下次月经预计：—</div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalPeriod">取消</button>
         <button type="submit" class="btn btn-primary">保存记录</button>
       </div>
+    </form>
+  </div>
+</div>
+<div class="modal-mask" id="modalEditPeriod">
+  <div class="modal">
+    <div class="modal-title">编辑月经记录</div>
+    <form id="formEditPeriod">
+      <input type="hidden" name="record_id">
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">开始日期</label><input class="input" type="date" name="start_date" required></div>
+        <div class="form-item"><label class="field-label">结束日期</label><input class="input" type="date" name="end_date"></div>
+      </div>
+      <div class="modal-actions"><button type="button" class="btn" data-close="modalEditPeriod">取消</button><button type="submit" class="btn btn-primary">保存</button></div>
     </form>
   </div>
 </div>

@@ -14,9 +14,7 @@
   const dailyWrap = document.getElementById('swimDaily');
 
   function fmtDur(sec) { return sec != null ? App.fmtClock(sec) : '—'; }
-  function statusTag(r) {
-    return '<span class="tag ' + (r.status === 'planned' ? 'tag-gray' : 'tag-mint') + ' no-dot">' + (r.status === 'planned' ? '计划' : '记录') + '</span>';
-  }
+  function statusTag(r) { return App.statusTag(r.status); }
 
   /* ---------- 当日视图（表格化：计划/记录分块，列对齐） ---------- */
   function swimDailyButtons(r) {

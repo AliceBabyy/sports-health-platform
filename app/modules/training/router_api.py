@@ -54,7 +54,11 @@ def create_plan(
 ):
     if not payload.items:
         raise AppError(400, "计划至少包含一条训练动作")
-    plan = service.create_plan(db, user.id, payload.plan_date, payload.items, payload.remark, status=payload.status)
+    plan = service.create_plan(
+        db, user.id, payload.plan_date, payload.items, payload.remark,
+        status=payload.status,
+        starttime=payload.starttime, endtime=payload.endtime, duration_s=payload.duration_s,
+    )
     return {"plan": service.plan_to_dict(plan)}
 
 
@@ -201,7 +205,10 @@ def update_plan(
 ):
     if not payload.items:
         raise AppError(400, "计划至少包含一条训练动作")
-    plan = service.update_plan(db, user.id, plan_id, payload.plan_date, payload.items, payload.remark)
+    plan = service.update_plan(
+        db, user.id, plan_id, payload.plan_date, payload.items, payload.remark,
+        starttime=payload.starttime, endtime=payload.endtime, duration_s=payload.duration_s,
+    )
     return {"plan": service.plan_to_dict(plan)}
 
 

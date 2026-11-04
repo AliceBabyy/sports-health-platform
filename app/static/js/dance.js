@@ -16,9 +16,7 @@
   const STAR_TEXT = ['', '★', '★★', '★★★', '★★★★', '★★★★★'];
 
   function fmtDur(sec) { return sec != null ? App.fmtClock(sec) : '—'; }
-  function statusTag(r) {
-    return '<span class="tag ' + (r.status === 'planned' ? 'tag-gray' : 'tag-mint') + ' no-dot">' + (r.status === 'planned' ? '计划' : '记录') + '</span>';
-  }
+  function statusTag(r) { return App.statusTag(r.status); }
   // ISO datetime → "HH:MM"
   function toTimeStr(iso) {
     if (!iso) return '';

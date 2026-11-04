@@ -11,7 +11,7 @@
 .swim-page .cell-remark { max-width: 200px; }
 
 /* 游泳档案卡 */
-.swim-profile { margin-top: 18px; margin-bottom: 18px; }
+.swim-profile { }
 .sp-topline { display: flex; gap: 28px; font-size: 13px; color: var(--color-text-secondary); margin-bottom: 12px; }
 .sp-topline b { font-weight: 400; color: var(--color-text); font-variant-numeric: tabular-nums; }
 .swim-profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }

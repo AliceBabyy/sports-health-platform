@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}健身训练 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261105">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261106b">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>健身训练</h1>
@@ -37,12 +37,42 @@
       </div>
     </div>
 
+    <!-- 健身档案：本周/本月累计训练次数与时长（2026-11-04，仿舞蹈档案） -->
+    <div class="card archive-card">
+      <div class="card-title">健身档案</div>
+      <div class="archive-grid">
+        <div class="archive-item">
+          <div class="archive-label">本周训练</div>
+          <div class="archive-value num">{{ stats.week_count }}<small>次</small></div>
+          <div class="archive-sub">本周累计训练次数</div>
+        </div>
+        <div class="archive-divider"></div>
+        <div class="archive-item">
+          <div class="archive-label">本周时长</div>
+          <div class="archive-value num">{{ '%.1f'|format(stats.week_duration_s / 3600) }}<small>小时</small></div>
+          <div class="archive-sub">本周累计训练时长</div>
+        </div>
+        <div class="archive-divider"></div>
+        <div class="archive-item">
+          <div class="archive-label">本月训练</div>
+          <div class="archive-value num">{{ stats.month_count }}<small>次</small></div>
+          <div class="archive-sub">本月累计训练次数</div>
+        </div>
+        <div class="archive-divider"></div>
+        <div class="archive-item">
+          <div class="archive-label">本月时长</div>
+          <div class="archive-value num">{{ '%.1f'|format(stats.month_duration_s / 3600) }}<small>小时</small></div>
+          <div class="archive-sub">本月累计训练时长</div>
+        </div>
+      </div>
+    </div>
+
     <!-- 全部记录 -->
     <div class="card">
       <div class="card-title">全部记录 <span class="sub">已保存的训练记录</span></div>
       <div class="table-wrap history-table">
         <table class="tbl">
-          <thead><tr><th>日期</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>心得</th><th>操作</th></tr></thead>
+          <thead><tr><th>日期</th><th>类型</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>操作</th></tr></thead>
           <tbody id="historyBody"></tbody>
         </table>
       </div>
@@ -120,6 +150,18 @@
         <label class="field-label">备注</label>
         <input class="input" name="remark" maxlength="255" placeholder="如：今天练腿 / 关注深蹲腰部发力" style="width:100%">
       </div>
+      <div id="planTimingRow" style="display:none;margin-bottom:12px">
+        <label class="field-label">训练时间与时长（仅记录态）</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <input class="input" type="date" id="planStartDate" style="width:150px">
+          <input class="input" type="time" id="planStartTime" style="width:110px">
+          <span style="color:var(--color-text-secondary)">~</span>
+          <input class="input" type="date" id="planEndDate" style="width:150px">
+          <input class="input" type="time" id="planEndTime" style="width:110px">
+          <input class="input num" type="number" min="0" step="1" id="planDurationMin" style="width:110px" placeholder="时长(分)">
+          <span style="font-size:12px;color:var(--color-text-secondary)">填了起止时间自动算时长，也可手填</span>
+        </div>
+      </div>
       <div class="plan-form-head" style="font-size:12px;color:var(--color-text-secondary);font-weight:400">
         <span></span><span>动作名称</span><span>部位</span><span>重量 kg</span><span>组数</span><span>每组个数</span><span>目标重量</span><span></span>
       </div>
@@ -175,5 +217,5 @@
 window.INIT_DATE = "{{ selected_date }}";
 window.INIT_IS_TODAY = {{ 'true' if is_today else 'false' }};
 </script>
-<script src="/static/js/training.js?v=20261108b"></script>
+<script src="/static/js/training.js?v=20261108e"></script>
 {% endblock %}

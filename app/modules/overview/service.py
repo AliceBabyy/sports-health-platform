@@ -58,8 +58,13 @@ def _item_main(sport: str, r, status: str, minutes: int) -> str:
 
 
 def _fitness_minutes(plan) -> int:
-    if plan.status == TR_STATUS_RECORDED and plan.started_at is not None and plan.saved_at is not None:
-        return max(0, int((plan.saved_at - plan.started_at).total_seconds())) // 60
+    """健身时长（分钟）：优先 duration_s；否则 recorded 时按 endtime - starttime 推导。"""
+    if plan.status != TR_STATUS_RECORDED:
+        return 0
+    if getattr(plan, "duration_s", None):
+        return int(plan.duration_s) // 60
+    if plan.starttime is not None and plan.endtime is not None:
+        return max(0, int((plan.endtime - plan.starttime).total_seconds())) // 60
     return 0
 
 

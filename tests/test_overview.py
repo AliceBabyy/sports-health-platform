@@ -21,10 +21,9 @@ def _seed(db):
     monday = monday_of(today_local())
     training_service.create_plan(db, USER, monday, [ITEM])
     p2 = training_service.create_plan(db, USER, monday, [ITEM])
-    # 直接落 recorded（绕过「仅当日可保存」校验，本周一 ≠ 今天时仍成立）：started 30 分钟前 → saved 现在
+    # 直接落 recorded：时长 30 分钟
     p2.status = TR_STATUS_RECORDED
-    p2.started_at = datetime.now() - timedelta(minutes=30)
-    p2.saved_at = datetime.now()
+    p2.duration_s = 1800
     p2.remark = "练完很爽"
     db.commit()
 

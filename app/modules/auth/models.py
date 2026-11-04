@@ -9,12 +9,13 @@ from database import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = {"comment": "用户账号（认证 + 注册基础信息）"}
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    display_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    gender: Mapped[str | None] = mapped_column(String(8), nullable=True)  # 男 / 女，注册时填写
-    age: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 年龄
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, comment="登录名，唯一（注册：3~32 字符）")
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False, comment="bcrypt 哈希（注册：密码 ≥6 位）")
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False, default="", comment="展示昵称（注册必填）")
+    gender: Mapped[str | None] = mapped_column(String(8), nullable=True, comment="性别：男 / 女（注册下拉，可选）")
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="年龄（注册校验 1~120 整数，可选）")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间（ORM onupdate 自动刷新）")

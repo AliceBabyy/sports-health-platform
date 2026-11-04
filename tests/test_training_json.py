@@ -1,6 +1,6 @@
 """健身训练 JSON 导入单测（2026-11-04 新增：逐计划校验 / 失败计划跳过不阻断）。
 
-2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 saved_at），不再经 planned。
+2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 endtime），不再经 planned。
 """
 from datetime import date
 
@@ -29,7 +29,7 @@ def _raw_plans() -> list:
 
 
 def test_json_import_valid_plans(db):
-    """正常导入：每个有效计划新建一条记录（status=recorded、saved_at 写入），备注与动作字段落库正确。"""
+    """正常导入：每个有效计划新建一条记录（status=recorded、endtime 写入），备注与动作字段落库正确。"""
     valid, errors = json_import.validate_json_plans(_raw_plans())
     assert not errors
     assert len(valid) == 2
@@ -39,7 +39,7 @@ def test_json_import_valid_plans(db):
         created.append(service.create_plan(db, USER, plan_in.plan_date, plan_in.items, remark=plan_in.remark, status=TR_STATUS_RECORDED))
     p1, p2 = sorted(created, key=lambda p: p.plan_date)
     assert p1.plan_date == date(2026, 11, 7) and p1.remark == "练胸"
-    assert p1.status == TR_STATUS_RECORDED and p1.saved_at is not None
+    assert p1.status == TR_STATUS_RECORDED and p1.endtime is not None
     assert [i.exercise_name for i in p1.items] == ["杠铃卧推", "哑铃飞鸟"]
     assert p1.items[0].reps == "10+8+6" and p1.items[0].target_weight_kg == 50
     assert p2.plan_date == date(2026, 11, 8) and p2.remark is None
@@ -89,3 +89,4 @@ def test_json_import_rejects_non_object_and_oversize_fields():
     assert "过长" in reasons["备注"]
     assert "过长" in reasons["动作名称（第 1 个动作）"]
     assert "超出合理范围" in reasons["重量 kg（第 1 个动作）"]
+

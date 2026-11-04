@@ -70,11 +70,12 @@ def list_periods(db: Session, user_id: int) -> list[dict]:
     ]
 
 
-def get_anchor_date(db: Session, user_id: int) -> date:
-    """推算锚点：最近一次月经开始日；无记录 → 今天。"""
+def get_anchor_date(db: Session, user_id: int, as_of: date | None = None) -> date:
+    """取指定日期之前最近的月经首日；无记录时以今天为默认锚点。"""
+    as_of = as_of or today_local()
     row = (
         db.query(PeriodRecord)
-        .filter(PeriodRecord.user_id == user_id)
+        .filter(PeriodRecord.user_id == user_id, PeriodRecord.start_date <= as_of)
         .order_by(PeriodRecord.start_date.desc())
         .first()
     )
@@ -82,10 +83,12 @@ def get_anchor_date(db: Session, user_id: int) -> date:
 
 
 def next_period_date(db: Session, user_id: int) -> date:
-    """MC-05：上次月经首日 + 周期长度；无记录时以今天为新周期起点推算。"""
+    """MC-05：从最近有效锚点滚动预测今天之后的下一次月经。"""
     setting = get_settings(db, user_id)
     anchor = get_anchor_date(db, user_id)
-    return anchor + timedelta(days=setting.cycle_length)
+    today = today_local()
+    cycles = max(1, (today - anchor).days // setting.cycle_length + 1)
+    return anchor + timedelta(days=cycles * setting.cycle_length)
 
 
 def create_period(db: Session, user_id: int, start_date: date, end_date: date | None, cycle_length: int | None, period_length: int | None):
@@ -103,13 +106,13 @@ def create_period(db: Session, user_id: int, start_date: date, end_date: date | 
     return row
 
 
-def update_period(db: Session, user_id: int, record_id: int, start_date: date | None, end_date: date | None) -> PeriodRecord | None:
+def update_period(db: Session, user_id: int, record_id: int, start_date: date | None, end_date: date | None, update_end: bool = False) -> PeriodRecord | None:
     row = db.query(PeriodRecord).filter(PeriodRecord.id == record_id, PeriodRecord.user_id == user_id).first()
     if row is None:
         return None
     if start_date is not None:
         row.start_date = start_date
-    if end_date is not None:
+    if update_end:
         row.end_date = end_date
     db.commit()
     db.refresh(row)
@@ -194,8 +197,16 @@ def ovulation_date_for(anchor: date, cycle_length: int, period_length: int) -> d
 def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
     """逐日 {date, phase_key, phase_label, sport_level, sport_label, is_period, pain_level}。"""
     setting = get_settings(db, user_id)
-    anchor = get_anchor_date(db, user_id)
+    today = today_local()
+    anchor = get_anchor_date(db, user_id, today)
     _, last_day = _calendar.monthrange(year, month)
+    period_rows = (
+        db.query(PeriodRecord)
+        .filter(PeriodRecord.user_id == user_id, PeriodRecord.start_date <= date(year, month, last_day))
+        .order_by(PeriodRecord.start_date.asc())
+        .all()
+    )
+    period_starts = {row.start_date for row in period_rows}
     pain_rows = (
         db.query(DailyPainLog)
         .filter(DailyPainLog.user_id == user_id, DailyPainLog.log_date >= date(year, month, 1), DailyPainLog.log_date <= date(year, month, last_day))
@@ -204,11 +215,16 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
     pain_map = {r.log_date: r.pain_level for r in pain_rows}
 
     days = []
+    record_index = 0
+    day_anchor = None
     for day in range(1, last_day + 1):
         d = date(year, month, day)
+        while record_index < len(period_rows) and period_rows[record_index].start_date <= d:
+            day_anchor = period_rows[record_index].start_date
+            record_index += 1
         pain = pain_map.get(d, 0)
-        if d < anchor:
-            # 推算锚点（最近月经首日）之前的日期无阶段，不显示推算结果（无记录锚点=今天同理）
+        effective_anchor = day_anchor or (today if not period_rows else None)
+        if effective_anchor is None or d < effective_anchor:
             days.append(
                 {
                     "date": d.isoformat(),
@@ -218,10 +234,13 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
                     "sport_label": None,
                     "is_period": False,
                     "pain_level": pain,
+                    "pain_recorded": d in pain_map,
+                    "is_recorded_start": d in period_starts,
+                    "cycle_day": None,
                 }
             )
             continue
-        phase = phase_for(d, anchor, setting.cycle_length, setting.period_length)
+        phase = phase_for(d, effective_anchor, setting.cycle_length, setting.period_length)
         level = sport_level_for(phase, pain)
         days.append(
             {
@@ -232,13 +251,16 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
                 "sport_label": SPORT_LABELS[level],
                 "is_period": phase == PHASE_MENSTRUAL,
                 "pain_level": pain,
+                "pain_recorded": d in pain_map,
+                "is_recorded_start": d in period_starts,
+                "cycle_day": effective_day_number(d, effective_anchor, setting.cycle_length),
             }
         )
 
     ovulation_day = min(max(setting.cycle_length - OVULATION_OFFSET, setting.period_length + 1), setting.cycle_length)
-    today = today_local()
     today_phase = phase_for(today, anchor, setting.cycle_length, setting.period_length)
     today_level = sport_level_for(today_phase, _today_pain(db, user_id, today, pain_map))
+    current_start = anchor + timedelta(days=((today - anchor).days // setting.cycle_length) * setting.cycle_length)
     return {
         "year": year,
         "month": month,
@@ -247,10 +269,11 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
             "anchor": anchor.isoformat(),
             "cycle_length": setting.cycle_length,
             "period_length": setting.period_length,
-            "ovulation_date": (anchor + timedelta(days=ovulation_day - 1)).isoformat(),
+            "ovulation_date": (current_start + timedelta(days=ovulation_day - 1)).isoformat(),
             "next_period": next_period_date(db, user_id).isoformat(),
-            "period_start": anchor.isoformat(),
-            "period_end": (anchor + timedelta(days=setting.period_length - 1)).isoformat(),
+            "period_start": current_start.isoformat(),
+            "period_end": (current_start + timedelta(days=setting.period_length - 1)).isoformat(),
+            "has_records": bool(db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user_id).first()),
             "cycle_day_today": effective_day_number(today, anchor, setting.cycle_length),
             "progress": f"{effective_day_number(today, anchor, setting.cycle_length)}/{setting.cycle_length}",
         },
@@ -286,6 +309,7 @@ def get_today_summary(user_id: int) -> dict:
         pain = row.pain_level if row else 0
         level = sport_level_for(phase, pain)
         return {
+            "has_records": bool(db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user_id, PeriodRecord.start_date <= today).first()),
             "cycle_day": effective_day_number(today, anchor, setting.cycle_length),
             "phase_key": phase,
             "phase_label": PHASE_LABELS[phase],
@@ -294,3 +318,45 @@ def get_today_summary(user_id: int) -> dict:
         }
     finally:
         db.close()
+
+
+def build_cycle_link(user, sport: str = "training") -> dict | None:
+    """三模块（健身/游泳/舞蹈）页面「周期联动」卡片统一数据来源。
+
+    男性账号或无周期数据时返回 None，页面不渲染卡片。
+    返回字段：phase_label / sport_label / sport_level / advice / chips。
+    sport：training=健身、swim=游泳、dance=舞蹈，用于差异化建议文案。
+    """
+    from app.core.constants import PHASE_INFO, SPORT_GOOD, SPORT_HIGH, SPORT_REST
+
+    if user.gender == "男":
+        return None
+    cyc = get_today_summary(user.id)
+    if not cyc["has_records"]:
+        return None
+    info = PHASE_INFO.get(cyc.get("phase_key", ""), {})
+    level = cyc.get("sport_level", SPORT_REST)
+    chips = {
+        SPORT_HIGH: {
+            "training": ["建议负荷 +5%", "可冲击 PR"],
+            "swim": ["建议距离 +5%", "可冲配速 PR"],
+            "dance": ["建议强度 +5%", "可扣难度动作"],
+        }.get(sport, []),
+        SPORT_GOOD: {
+            "training": ["维持常规负荷", "注意补水"],
+            "swim": ["维持常规距离", "注意补水"],
+            "dance": ["维持常规强度", "注意热身"],
+        }.get(sport, []),
+        SPORT_REST: {
+            "training": ["以拉伸 / 有氧为主", "保证睡眠"],
+            "swim": ["以放松游 / 技术为主", "保证睡眠"],
+            "dance": ["以拉伸 / 基本功为主", "保证睡眠"],
+        }.get(sport, []),
+    }[level]
+    return {
+        "phase_label": cyc.get("phase_label", "—"),
+        "sport_label": cyc.get("sport_label", "—"),
+        "sport_level": level,
+        "advice": info.get("advice", ""),
+        "chips": chips,
+    }

@@ -1,7 +1,6 @@
 /* 舞蹈记录页 */
 .dance-page .tbl td { padding: 8px 10px; }
 .dance-page .modal { width: 620px; }
-.card.dance-page + .card.dance-page { margin-top: 28px; }
 .actions-divider { width: 1px; height: 20px; background: var(--color-border-strong); align-self: center; margin-left: auto; }
 .filter-chips { display: flex; gap: 8px; align-items: center; }
 .chip {

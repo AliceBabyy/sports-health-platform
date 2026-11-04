@@ -1,6 +1,6 @@
 """健身训练 Excel 导入单测（2026-11-04 新增：模板生成 / 解析 / 行级校验 / 按日期分组建记录）。
 
-2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 saved_at），不再经 planned。
+2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 endtime），不再经 planned。
 """
 from datetime import date
 from io import BytesIO
@@ -76,7 +76,7 @@ def test_parse_requires_sheet_and_columns():
 def test_import_groups_rows_by_date(db):
     """按日期分组建记录：同日期 3 行 → 1 条记录 3 动作；两日期 → 2 条记录，动作按行序。
 
-    2026-11-04 起导入落 recorded：status=recorded、saved_at 写入；同日期可多次导入再建记录。
+    2026-11-04 起导入落 recorded：status=recorded、endtime 写入；同日期可多次导入再建记录。
     """
     content = _make_workbook([
         ["2026-11-05", "练腿", "深蹲", "腿", 60, 4, "10", 70],
@@ -109,7 +109,7 @@ def test_import_groups_rows_by_date(db):
         created.append(service.create_plan(db, USER, plan_date, items, remark=remark, status=TR_STATUS_RECORDED))
 
     p1, p2 = sorted(created, key=lambda p: p.plan_date)
-    assert p1.plan_date == date(2026, 11, 5) and p1.status == TR_STATUS_RECORDED and p1.saved_at is not None
+    assert p1.plan_date == date(2026, 11, 5) and p1.status == TR_STATUS_RECORDED and p1.endtime is not None
     assert p1.remark == "练腿"
     assert [i.exercise_name for i in p1.items] == ["深蹲", "腿举", "拉伸"]
     assert [i.sort for i in p1.items] == [1, 2, 3]
@@ -156,3 +156,4 @@ def test_parse_skips_blank_rows_and_ignores_unknown_columns():
     valid, errors = excel_io.validate_rows(parsed)
     assert len(valid) == 1 and valid[0]["exercise_name"] == "有效动作"
     assert not errors
+

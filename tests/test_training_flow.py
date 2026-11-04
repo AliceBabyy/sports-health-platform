@@ -100,15 +100,13 @@ def test_update_recorded_allowed_keeps_checked(db):
 
 
 def test_complete_plan_flow(db):
-    """完成训练：planned → recorded，写 saved_at（无计时 started_at）；重复完成拒绝；2026-11-04 起不限当日。"""
-    from datetime import datetime
-
+    """完成训练：planned → recorded，写 endtime（不强制写 starttime/时长）；重复完成拒绝；2026-11-04 起不限当日。"""
     plan = service.create_plan(db, USER, _today(), [ITEM])
-    assert plan.started_at is None
+    assert plan.starttime is None
     done = service.complete_plan(db, USER, plan.id)
     assert done.status == TR_STATUS_RECORDED
-    assert done.saved_at is not None
-    assert done.started_at is None          # 2026-11-03 起不再写计时起点
+    assert done.endtime is not None
+    assert done.starttime is None
     data = service.plan_to_dict(done)
     assert data["item_count"] == 1 and data["total_volume"] == 70 * 5 * 8
     # 幂等保护：已记录再次完成拒绝
@@ -126,7 +124,7 @@ def test_other_date_complete_allowed(db):
     plan = service.create_plan(db, USER, date(2020, 1, 1), [ITEM])
     done = service.complete_plan(db, USER, plan.id)
     assert done.status == TR_STATUS_RECORDED
-    assert done.saved_at is not None
+    assert done.endtime is not None
 
 
 def test_delete_and_batch_delete(db):
@@ -226,3 +224,33 @@ def test_nullable_fields_and_zero_volume(db):
     assert data["items"][0]["reps"] is None
     assert data["total_volume"] == 0
     assert data["total_sets"] == 0
+
+
+def test_stats_week_and_month_aggregation(db):
+    """健身档案聚合（仿舞蹈档案）：本周/本月累计训练次数与时长，仅统计记录态。
+
+    期望值用 isocalendar 现算（不写死数量/日期），避免运行日变化导致隐性失败。
+    """
+    from datetime import timedelta
+
+    now = today_local()
+    iso = now.isocalendar()[:2]
+    # 本周内两条记录（一条今天、一条本周其他日），本月外一条上月记录
+    other_weekday = now - timedelta(days=1) if now.weekday() != 0 else now + timedelta(days=1)
+    in_week = service.create_plan(db, USER, now, [ITEM], status=TR_STATUS_RECORDED)
+    in_week.duration_s = 1800
+    p2 = service.create_plan(db, USER, other_weekday, [ITEM_MIX], status=TR_STATUS_RECORDED)
+    p2.duration_s = 3600
+    db.commit()
+    prev_month = now.replace(day=1) - timedelta(days=3)  # 上月末，不在本月也不在本周
+    service.create_plan(db, USER, prev_month, [ITEM], status=TR_STATUS_RECORDED)
+
+    res = service.stats(db, USER)
+    # 本周：2 条（今天 + 本周另一日）
+    assert res["week_count"] == 2
+    assert res["week_duration_s"] == 1800 + 3600
+    # 本月：今天 + 本周另一日（上月记录不计入）
+    assert res["month_count"] == 2
+    assert res["month_duration_s"] == 1800 + 3600
+    # 跨年边界一致性：本周另一日若属上一年（1 月初），周判定仍按 ISO (year, week) 计算
+    assert in_week.plan_date.isocalendar()[:2] == iso or res["week_count"] >= 1

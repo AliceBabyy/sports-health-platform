@@ -1,18 +1,27 @@
 """健身训练 service：id 维度 CRUD、状态机（planned → recorded 一键完成训练）、历史。
 
 2026-11 整改：一日可多个训练计划/记录，一律按 plan_id 定位（不再按 (user_id, plan_date) 唯一）。
-2026-11-03 整改：移除「开始训练/计时记录模式」（start/save/cancel 计时流程与心得填写入口），
-改为计划卡「完成训练」一键转 recorded（写 saved_at，不写计时 started_at）；历史 recorded 数据保留。
+2026-11-04 整改：started_at/saved_at 改名 starttime/endtime（DateTime），新增 duration_s（训练时长，秒）；
+起止时间与训练时长仅记录态填写；填了起止时间且未手填时长时，按 endtime-starttime 自动推导。
 - status 字段记录终态 recorded；update/delete 对 recorded 锁定。
-- 时长：仅历史 recorded（带 started_at）可算；新完成训练无计时时长。
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.core.constants import TR_STATUS_PLANNED, TR_STATUS_RECORDED, today_local
 from app.core.exceptions import AppError
 from app.modules.training.models import TrainingNote, TrainingPlan, TrainingPlanItem
+
+
+def _derive_duration_s(starttime, endtime, duration_s):
+    """时长口径：手填 duration_s 优先；否则起止时间齐备时自动推导（秒，>0）。"""
+    if duration_s is not None:
+        return duration_s
+    if starttime and endtime:
+        secs = (endtime - starttime).total_seconds()
+        return int(secs) if secs > 0 else None
+    return None
 
 
 def _item_dict(item: TrainingPlanItem) -> dict:
@@ -63,8 +72,9 @@ def plan_to_dict(plan: TrainingPlan | None) -> dict | None:
         "plan_date": plan.plan_date.isoformat(),
         "status": plan.status,
         "remark": plan.remark,
-        "started_at": plan.started_at.isoformat() if plan.started_at else None,
-        "saved_at": plan.saved_at.isoformat() if plan.saved_at else None,
+        "starttime": plan.starttime.isoformat() if plan.starttime else None,
+        "endtime": plan.endtime.isoformat() if plan.endtime else None,
+        "duration_s": plan.duration_s,
         "item_count": len(items),
         "total_sets": sum((i.sets or 0) for i in items),
         "total_volume": round(total_volume, 1),
@@ -166,11 +176,19 @@ def create_plan(
     items_payload,
     remark: str | None = None,
     status: str = TR_STATUS_PLANNED,
+    starttime: datetime | None = None,
+    endtime: datetime | None = None,
+    duration_s: int | None = None,
 ) -> TrainingPlan:
-    """新建计划/记录（TR-03）：一日可多个，无需查重；status 可指定（导入数据直接落 recorded，2026-11-04）。"""
+    """新建计划/记录（TR-03）：一日可多个，无需查重；status 可指定（导入数据直接落 recorded，2026-11-04）。
+
+    起止时间/时长仅记录态落库；导入未显式给时刻时 endtime 取当前时刻。
+    """
     plan = TrainingPlan(user_id=user_id, plan_date=plan_date, status=status, remark=remark or None)
     if status == TR_STATUS_RECORDED:
-        plan.saved_at = datetime.now()  # 导入即记录：保存时刻 = 导入时刻
+        plan.starttime = starttime
+        plan.endtime = endtime or datetime.now()
+        plan.duration_s = _derive_duration_s(starttime, plan.endtime, duration_s)
     db.add(plan)
     db.flush()
     replace_items(plan, items_payload)
@@ -179,7 +197,17 @@ def create_plan(
     return plan
 
 
-def update_plan(db: Session, user_id: int, plan_id: int, plan_date: date, items_payload, remark: str | None = None) -> TrainingPlan:
+def update_plan(
+    db: Session,
+    user_id: int,
+    plan_id: int,
+    plan_date: date,
+    items_payload,
+    remark: str | None = None,
+    starttime: datetime | None = None,
+    endtime: datetime | None = None,
+    duration_s: int | None = None,
+) -> TrainingPlan:
     """编辑计划/记录（TR-03，含页面内「+ 追加一行」的落库路径）。
 
     2026-11-04 起放开 recorded 锁定：训练历史中的记录数据允许编辑（改动作明细/备注/归属日期）。
@@ -190,6 +218,9 @@ def update_plan(db: Session, user_id: int, plan_id: int, plan_date: date, items_
     if plan.status == TR_STATUS_RECORDED:
         old_checked = {i.sort: i.checked for i in plan.items}
         plan.remark = remark or None
+        plan.starttime = starttime
+        plan.endtime = endtime
+        plan.duration_s = _derive_duration_s(starttime, endtime, duration_s)
         replace_items(plan, items_payload)
         for item in plan.items:
             if item.sort in old_checked:
@@ -235,15 +266,16 @@ def batch_delete_plans(db: Session, user_id: int, plan_ids: list[int]) -> dict:
 # ---------- 状态机（planned → recorded 一键完成训练） ----------
 
 def complete_plan(db: Session, user_id: int, plan_id: int) -> TrainingPlan:
-    """一键完成训练（2026-11-03 替代原计时记录模式）：planned → recorded，写 saved_at（不写计时 started_at）。
+    """一键完成训练（2026-11-03 替代原计时记录模式）：planned → recorded，写 endtime（不强制写起止/时长）。
 
-    2026-11-04 起移除「仅当日」限制：任意日期的计划均可标记为完成训练。
+    2026-11-04 起移除「仅当日」限制：任意日期的计划均可标记为完成训练；
+    起止时间与训练时长可在记录编辑弹窗里补录。
     """
     plan = get_plan_or_404(db, user_id, plan_id)
     if plan.status == TR_STATUS_RECORDED:
         raise AppError(400, "该计划已是训练记录，请勿重复完成")
     plan.status = TR_STATUS_RECORDED
-    plan.saved_at = datetime.now()
+    plan.endtime = datetime.now()
     db.commit()
     db.refresh(plan)
     return plan
@@ -285,3 +317,37 @@ def history(db: Session, user_id: int, page: int = 1, page_size: int = 10):
         .filter(TrainingPlan.user_id == user_id, TrainingPlan.status == TR_STATUS_RECORDED)
     )
     return paginate(q, page, page_size, order_by=TrainingPlan.plan_date.desc())
+
+
+def stats(db: Session, user_id: int) -> dict:
+    """健身档案（2026-11-04，仿舞蹈档案）：本周/本月累计训练次数与训练时长，仅统计记录态。
+
+    周口径：ISO 周（周一起始）；跨年边界用 isocalendar 的 (year, week) 统一判定。
+    时长口径：手填 duration_s 优先，否则按起止时间推导（同 _derive_duration_s）。
+    """
+    rows = (
+        db.query(TrainingPlan)
+        .filter(TrainingPlan.user_id == user_id, TrainingPlan.status == TR_STATUS_RECORDED)
+        .all()
+    )
+    now = datetime.now()
+    iso = now.isocalendar()  # (year, week, weekday)
+    week_count = 0
+    week_duration_s = 0
+    month_count = 0
+    month_duration_s = 0
+    for r in rows:
+        dur = _derive_duration_s(r.starttime, r.endtime, r.duration_s) or 0
+        d = r.plan_date
+        if d.isocalendar()[:2] == iso[:2]:
+            week_count += 1
+            week_duration_s += dur
+        if d.year == now.year and d.month == now.month:
+            month_count += 1
+            month_duration_s += dur
+    return {
+        "week_count": week_count,
+        "week_duration_s": week_duration_s,
+        "month_count": month_count,
+        "month_duration_s": month_duration_s,
+    }

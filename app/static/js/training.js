@@ -17,6 +17,7 @@
     historyPage: 1,
   };
   let editNoteStars = null;           // 计划编辑器内心得星级取值器（编辑记录态才有）
+  let planDurationManual = false;    // 记录编辑器：用户是否手改过时长（改过则起止时间不再覆盖）
 
   /* ---------- 工具 ---------- */
   function parseReps(reps) {
@@ -82,7 +83,7 @@
     return '<div class="plan-card' + (recorded ? ' is-recorded' : '') + '" data-pid="' + p.id + '">' +
       '<div class="plan-card-head">' +
         '<div class="plan-card-title">' + (idx === 0 ? '当日训练' : '当日训练' + (idx + 1)) +
-          ' <span class="tag ' + (recorded ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (recorded ? '已记录' : '计划') + '</span>' +
+          ' ' + App.statusTag(p.status, recorded ? '已记录' : '计划') +
           ' <span class="pc-meta num">' + (p.total_sets || 0) + ' 组 · ' + (p.total_volume || 0) + ' kg</span>' +
         '</div>' +
         (actions ? '<div class="plan-card-actions"><div class="plan-actions">' + actions + '</div></div>' : '') +
@@ -220,6 +221,35 @@
     const rowsWrap = document.getElementById('planRows');
     rowsWrap.innerHTML = '';
     form.elements.remark.value = plan ? (plan.remark || '') : '';
+    // 记录态（新建记录 / 编辑记录）：显示起止时间与训练时长；计划态隐藏
+    planDurationManual = false;
+    const timingRow = document.getElementById('planTimingRow');
+    const showTiming = state.recordMode || (!!plan && plan.status === 'recorded');
+    timingRow.style.display = showTiming ? '' : 'none';
+    document.getElementById('planStartDate').value = '';
+    document.getElementById('planStartTime').value = '';
+    document.getElementById('planEndDate').value = '';
+    document.getElementById('planEndTime').value = '';
+    document.getElementById('planDurationMin').value = '';
+    if (showTiming) {
+      if (plan && plan.starttime) {
+        const t = String(plan.starttime).replace('T', ' ');
+        document.getElementById('planStartDate').value = t.slice(0, 10);
+        document.getElementById('planStartTime').value = t.slice(11, 16);
+      }
+      if (plan && plan.endtime) {
+        const t = String(plan.endtime).replace('T', ' ');
+        document.getElementById('planEndDate').value = t.slice(0, 10);
+        document.getElementById('planEndTime').value = t.slice(11, 16);
+      }
+      if (plan && plan.duration_s != null) {
+        document.getElementById('planDurationMin').value = Math.round(plan.duration_s / 60);
+        planDurationManual = true;
+      }
+      // 默认起止日期 = 计划日期
+      if (!document.getElementById('planStartDate').value) document.getElementById('planStartDate').value = dateInput.value;
+      if (!document.getElementById('planEndDate').value) document.getElementById('planEndDate').value = dateInput.value;
+    }
     const items = (plan && plan.items && plan.items.length) ? plan.items.slice() : [];
     items.forEach(function (it) { addPlanRow(it); });
     if (!items.length || appendMode) addPlanRow({});   // 新建留空行；追加模式额外补一个空行
@@ -307,6 +337,28 @@
   document.getElementById('btnNewPlan').addEventListener('click', function () { openPlan(null); });
   document.getElementById('btnNewRecord').addEventListener('click', function () { openPlan(null, false, true); });
   document.getElementById('btnAddRow').addEventListener('click', function () { addPlanRow({}); });
+
+  /* ---------- 记录态：起止时间自动推导训练时长（手填优先） ---------- */
+  function timingIso(dateId, timeId) {
+    const d = document.getElementById(dateId).value;
+    if (!d) return null;
+    return d + 'T' + (document.getElementById(timeId).value || '00:00') + ':00';
+  }
+  function autoCalcDuration() {
+    if (planDurationManual) return;
+    const s = timingIso('planStartDate', 'planStartTime');
+    const e = timingIso('planEndDate', 'planEndTime');
+    if (s && e) {
+      const sec = Math.round((Date.parse(e) - Date.parse(s)) / 1000);
+      if (sec > 0) document.getElementById('planDurationMin').value = Math.round(sec / 60);
+    }
+  }
+  ['planStartDate', 'planStartTime', 'planEndDate', 'planEndTime'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', autoCalcDuration);
+  });
+  document.getElementById('planDurationMin').addEventListener('input', function () {
+    planDurationManual = this.value !== '';
+  });
   document.getElementById('formPlan').addEventListener('submit', function (e) {
     e.preventDefault();
     const form = e.target;
@@ -336,6 +388,14 @@
       remark: remark,
     };
     if (!editingId && state.recordMode) body.status = 'recorded';   // 「＋ 新建记录」直接落历史
+    // 记录态：起止时间 + 训练时长（秒）；后端在未手填时长时自动按起止推导
+    const timingVisible = state.recordMode || state.editingPlanWasRecorded;
+    if (timingVisible) {
+      body.starttime = timingIso('planStartDate', 'planStartTime');
+      body.endtime = timingIso('planEndDate', 'planEndTime');
+      const dmRaw = document.getElementById('planDurationMin').value;
+      body.duration_s = dmRaw !== '' ? Math.round(parseFloat(dmRaw) * 60) : null;
+    }
     App.api(editingId ? '/api/training/plans/' + editingId : '/api/training/plans', {
       method: editingId ? 'PUT' : 'POST',
       body: body,
@@ -383,6 +443,8 @@
 
   /* ---------- 训练历史 ---------- */
   let historyPage = 1;
+  // 类型列标签：统一走 App.statusTag（计划=绿/记录=灰）
+  function statusTag(r) { return App.statusTag(r.status); }
   function loadHistory(page) {
     historyPage = page;
     App.api('/api/training/history?page=' + page + '&page_size=5').then(function (res) {
@@ -392,24 +454,21 @@
       } else {
         body.innerHTML = res.list.map(function (p) {
           let dur = '—';
-          if (p.started_at && p.saved_at) {
-            const s = Math.max(0, Math.round((Date.parse(p.saved_at) - Date.parse(p.started_at)) / 1000));
+          if (p.duration_s) {
+            dur = App.fmtDuration(p.duration_s);
+          } else if (p.starttime && p.endtime) {
+            const s = Math.max(0, Math.round((Date.parse(p.endtime) - Date.parse(p.starttime)) / 1000));
             dur = App.fmtDuration(s);
           }
-          const note = p.note;
-          // 列表视图只显示自我评估星级，不展示心得正文（正文在详情弹窗 / 心得弹窗里看）
-          const noteHtml = note && note.rating
-            ? '<div class="star-dots">' + '★'.repeat(note.rating) + '</div>'
-            : '<span style="color:var(--color-text-secondary)">—</span>';
+          // 列表不展示心得字段：心得只在「查看详情」/「编辑」中查看与编辑（照搬游泳/舞蹈）
           return '<tr><td class="num">' + p.plan_date + '</td>' +
+            '<td>' + statusTag(p) + '</td>' +
             '<td>' + App.escapeHtml(p.body_parts_summary || '训练') + '</td>' +
             '<td class="num">' + dur + '</td>' +
             '<td class="num">' + p.item_count + ' 个</td>' +
             '<td class="num" style="color:var(--color-text-secondary)">完成 ' + p.completed_count + '/' + p.item_count + ' · ' + p.total_volume + ' kg</td>' +
-            '<td>' + noteHtml + '</td>' +
             '<td><div class="plan-actions">' +
               '<button type="button" class="btn btn-sm" data-hact="view" data-row=\'' + JSON.stringify(p).replace(/'/g, "&#39;") + '\'>查看详情</button>' +
-              '<button type="button" class="btn btn-sm" data-hact="note" data-row=\'' + JSON.stringify(p).replace(/'/g, "&#39;") + '\'>心得</button>' +
               '<button type="button" class="btn btn-sm" data-hact="reuse" data-id="' + p.id + '">设为今日计划</button>' +
               '<button type="button" class="btn btn-sm" data-hact="edit" data-id="' + p.id + '">编辑</button>' +
               '<button type="button" class="btn btn-sm btn-danger" data-hact="del" data-id="' + p.id + '">删除</button>' +
@@ -439,11 +498,6 @@
     const id = parseInt(btn.dataset.id, 10);
     if (btn.dataset.hact === 'view') {
       App.openDetail('training', JSON.parse(btn.dataset.row));
-      return;
-    }
-    if (btn.dataset.hact === 'note') {
-      const p = JSON.parse(btn.dataset.row);
-      openTrainingNote(p.id, p.note);
       return;
     }
     if (btn.dataset.hact === 'reuse') {

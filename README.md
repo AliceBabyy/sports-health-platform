@@ -111,7 +111,7 @@ sports-health-platform/
 │  ├─ migrate_remark.py       # 2026-11：三表加 remark、swim/dance 移除 plan_text（幂等）
 │  ├─ migrate_notes.py        # 2026-11：training_notes 扩四字段心得 + 新建 swim_notes/dance_notes
 │  ├─ migrate_swim_avg_stroke_rate.py # 2026-11：swim_records 加 avg_stroke_rate（幂等）
-│  └─ schema.sql           # 全量建表 DDL（整改后结构）
+│  └─ schema.sql           # 全量建表 DDL（整改后结构，含中文 COMMENT 段）
 └─ tests/                  # pytest 单测（60 项，含总览聚合 4 项）
 ```
 
@@ -126,8 +126,9 @@ sports-health-platform/
 - 训练负荷宽松化：动作名称必填，部位/重量/组数/每组个数可空；每组个数为字符串（如 "10+8+6"），容量 = Σ 重量×组数×个数首段数字；期望突破重量计划/记录均可填
 - 七阶段：经期 N≤period_length；排卵日 N=cycle_length-14；排卵后 1~2 天排卵后期、3~6 黄体前期、7~10 黄体中期、11 起黄体后期；其余排卵期前期（默认 28/5）
 - 运动三档：疼痛 ≥2 → 适合休息（最高优先）；排卵日/排卵前后且疼痛 0 → 精力旺盛；排卵前期/黄体前中期且疼痛 ≤1 → 状态良好；其余适合休息
-- 训练状态机：planned → recorded 由「完成训练」一键完成（2026-11-03 移除计时记录模式/庆祝/心得入口）；写 saved_at、不写计时 started_at；已记录当日锁定、不可再改/删
-- 周期锚点：最近月经首日；无记录时锚点=今天，锚点前日期不推算阶段
+- 训练状态机：planned → recorded 由「完成训练」一键完成（2026-11-04 started_at/saved_at 改名 starttime/endtime 并新增 duration_s，均仅记录态填写；填了起止时间且未手填时长时后端自动推导）；已记录当日锁定、不可再改/删
+- 周期锚点：逐日取当日之前最近一次真实月经首日；无记录时以今天为默认锚点，锚点前不推算；下次月经按周期长度滚动预测到今天之后
+- 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录并填写结束日；四档疼痛独立记录，保存后同步刷新运动等级；未有真实记录时不向运动模块提供周期建议
 - 心得（三表均 1:1 挂记录、仅记录态可填，所有文本字段与星级均可空）：training_notes = rating/best_movement/reflection/next_steps；swim_notes = rating/stroke_insight/other；dance_notes = rating/video_effect/insight；旧 training_notes.status_text 仅保留兼容，新 UI 不读写
 
 ## 2026-11 改版口径（运动训练/计划）

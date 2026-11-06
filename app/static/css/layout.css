@@ -151,7 +151,7 @@
 .page-head { margin-bottom: 20px; }
 .page-head h1 { font-size: 21px; font-weight: 400; }
 .page-head .page-desc { margin-top: 5px; color: var(--color-text-secondary); font-size: 13px; }
-.page-head-actions { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+.page-head-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; align-items: center; }
 
 /* 单日详情页日期翻页（健身/游泳/舞蹈共用） */
 .date-nav { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--color-text); }
@@ -211,8 +211,10 @@
 .delta-flat { color: var(--color-text-secondary); }
 
 /* 双栏布局 */
-.two-col { display: grid; grid-template-columns: 1fr 380px; gap: 18px; align-items: start; }
+.two-col { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+.two-col > *, .three-row-stack, .three-row-stack > .card { min-width: 0; }
 .three-row-stack { display: flex; flex-direction: column; gap: 18px; }
+.three-row-stack .table-wrap { max-width: 100%; }
 
 .batch-row, .batch-all { width: 15px; height: 15px; vertical-align: middle; accent-color: var(--color-accent); }
 .batch-row { margin-right: 8px; }
@@ -247,7 +249,7 @@
 }
 
 @media (max-width: 1100px) {
-  .two-col { grid-template-columns: 1fr; }
+  .two-col { grid-template-columns: minmax(0, 1fr); }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
 }
 

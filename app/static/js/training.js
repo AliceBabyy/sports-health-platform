@@ -89,9 +89,9 @@
         (actions ? '<div class="plan-card-actions"><div class="plan-actions">' + actions + '</div></div>' : '') +
       '</div>' +
       (p.remark ? '<div class="pc-remark">' + App.escapeHtml(p.remark) + '</div>' : '') +
-      '<table class="tbl training-tbl pc-items"><thead><tr>' +
+      '<div class="pc-items-wrap"><table class="tbl training-tbl pc-items"><thead><tr>' +
         '<th class="num">#</th><th>动作</th><th>部位</th><th class="num">重量 kg</th><th class="num">组数 × 每组个数</th><th class="num">目标重量</th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
       (recorded ? '' : '<div class="pc-add"><button type="button" class="btn btn-sm" data-act="append" data-id="' + p.id + '">＋ 添加训练动作</button></div>') +
       '</div>';
   }

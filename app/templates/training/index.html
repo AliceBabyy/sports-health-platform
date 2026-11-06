@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}健身训练 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261106b">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/training.css?v=20261106c">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>健身训练</h1>
@@ -30,7 +30,7 @@
           <a class="dn-btn" href="/training?date={{ next_date }}" title="后一天">›</a>
         </div>
       </div>
-      <div class="table-wrap" id="planWrap" style="margin-top:14px"></div>
+      <div id="planWrap" style="margin-top:14px"></div>
       <div class="day-ov">
         <div class="day-ov-title">训练概览 <span class="sub">{{ selected_date_str }}</span></div>
         <div class="ov-list" id="overviewList"></div>
@@ -106,11 +106,11 @@
   </div>
 </div>
 
-<!-- Excel / JSON 导入弹窗：每行一个动作，同日期多行合并为一个训练计划 -->
+<!-- Excel / JSON 导入弹窗 -->
 <div class="modal-mask" id="modalImport">
   <div class="modal" style="width:640px">
     <div class="modal-title" id="importModalTitle">导入训练计划</div>
-    <div class="modal-desc">每行/每个动作都属于一个计划；同一「计划日期」的多条会合并为一个训练计划。导入的数据将直接作为训练记录保存，不会改动已存在的计划/记录。</div>
+    <div class="modal-desc">Excel 按日期与训练组编号归属动作，导入后生成训练记录。</div>
     <form id="formImport" novalidate>
       <div id="importExcelPane">
         <div class="form-item">
@@ -162,10 +162,12 @@
           <span style="font-size:12px;color:var(--color-text-secondary)">填了起止时间自动算时长，也可手填</span>
         </div>
       </div>
+      <div class="plan-form-scroll">
       <div class="plan-form-head" style="font-size:12px;color:var(--color-text-secondary);font-weight:400">
         <span></span><span>动作名称</span><span>部位</span><span>重量 kg</span><span>组数</span><span>每组个数</span><span>目标重量</span><span></span>
       </div>
       <div id="planRows"></div>
+      </div>
       <button type="button" class="btn btn-sm" id="btnAddRow">＋ 添加一行</button>
       <div id="planEditNoteSection" style="display:none;border-top:1px dashed var(--color-border);margin-top:14px;padding-top:12px">
         <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:10px">练后心得（仅记录态可编辑，保存记录时一并保存）</div>
@@ -217,5 +219,5 @@
 window.INIT_DATE = "{{ selected_date }}";
 window.INIT_IS_TODAY = {{ 'true' if is_today else 'false' }};
 </script>
-<script src="/static/js/training.js?v=20261108e"></script>
+<script src="/static/js/training.js?v=20261108f"></script>
 {% endblock %}

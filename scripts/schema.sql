@@ -193,6 +193,7 @@ CREATE TABLE dance_notes (
 );
 
 -- ---------- 6. 生理周期 ----------
+-- 四档状态按周期日序及疼痛实时推算；日历浅蓝绿/绿/黄/粉配色与窄屏状态短名仅在前端维护，不作为数据库字段。
 CREATE TABLE cycle_settings (
     user_id       integer   NOT NULL PRIMARY KEY REFERENCES users (id),
     cycle_length  integer   NOT NULL DEFAULT 28,

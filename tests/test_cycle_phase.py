@@ -1,5 +1,7 @@
-"""生理周期单测（MC-05/10/11）：七阶段边界、疼痛优先级、预测日、取模回卷。"""
+"""生理周期单测：七阶段、逐日四档状态、疼痛优先级、预测与取模。"""
 from datetime import date, timedelta
+
+import pytest
 
 from app.core.constants import (
     PHASE_FOLLICULAR_POST,
@@ -9,6 +11,7 @@ from app.core.constants import (
     PHASE_LUTEAL_MID,
     PHASE_MENSTRUAL,
     PHASE_OVULATION_DAY,
+    SPORT_AVERAGE,
     SPORT_GOOD,
     SPORT_HIGH,
     SPORT_REST,
@@ -55,33 +58,33 @@ def test_effective_day_number():
     assert service.effective_day_number(ANCHOR + timedelta(days=28), ANCHOR, CL) == 1
 
 
+@pytest.mark.parametrize(
+    ("cycle_day", "expected"),
+    [
+        (1, SPORT_REST), (3, SPORT_REST), (4, SPORT_AVERAGE), (5, SPORT_GOOD),
+        (6, SPORT_HIGH), (14, SPORT_HIGH), (16, SPORT_HIGH),
+        (17, SPORT_GOOD), (20, SPORT_GOOD), (21, SPORT_GOOD), (22, SPORT_GOOD),
+        (23, SPORT_AVERAGE), (24, SPORT_AVERAGE), (25, SPORT_AVERAGE),
+        (26, SPORT_AVERAGE), (27, SPORT_REST), (28, SPORT_REST),
+    ],
+)
+def test_sport_level_daily_boundaries(cycle_day, expected):
+    phase = service.phase_for(ANCHOR + timedelta(days=cycle_day - 1), ANCHOR, CL, PL)
+    assert service.sport_level_for(phase, cycle_day, CL, PL, 0) == expected
+
+
 def test_sport_level_pain_priority():
-    # 疼痛≥2 一律休息（MC-11）
-    assert service.sport_level_for(PHASE_OVULATION_DAY, 2) == SPORT_REST
-    assert service.sport_level_for(PHASE_MENSTRUAL, 2) == SPORT_REST
-    assert service.sport_level_for(PHASE_LUTEAL_EARLY, 3) == SPORT_REST
+    assert service.sport_level_for(PHASE_OVULATION_DAY, 14, CL, PL, 2) == SPORT_REST
+    assert service.sport_level_for(PHASE_MENSTRUAL, 5, CL, PL, 3) == SPORT_REST
+    assert service.sport_level_for(PHASE_LUTEAL_MID, 22, CL, PL, 1) == SPORT_GOOD
 
 
-def test_sport_level_high():
-    # 排卵日/排卵期前后且疼痛=0 → 精力旺盛
-    assert service.sport_level_for(PHASE_OVULATION_DAY, 0) == SPORT_HIGH
-    assert service.sport_level_for(PHASE_FOLLICULAR_PRE, 0) == SPORT_HIGH
-    assert service.sport_level_for(PHASE_FOLLICULAR_POST, 0) == SPORT_HIGH
-
-
-def test_sport_level_good():
-    # 排卵期前期/黄体期前中期且疼痛≤1 → 状态良好
-    assert service.sport_level_for(PHASE_FOLLICULAR_PRE, 1) == SPORT_GOOD
-    assert service.sport_level_for(PHASE_LUTEAL_EARLY, 0) == SPORT_GOOD
-    assert service.sport_level_for(PHASE_LUTEAL_MID, 1) == SPORT_GOOD
-
-
-def test_sport_level_rest_cases():
-    # 月经期 → 休息；黄体后期 → 休息；排卵日疼痛=1 → 休息
-    assert service.sport_level_for(PHASE_MENSTRUAL, 0) == SPORT_REST
-    assert service.sport_level_for(PHASE_LUTEAL_LATE, 0) == SPORT_REST
-    assert service.sport_level_for(PHASE_LUTEAL_LATE, 1) == SPORT_REST
-    assert service.sport_level_for(PHASE_OVULATION_DAY, 1) == SPORT_REST
+def test_sport_level_variable_cycle_length():
+    # 30 天周期排卵日=16；黄体中期第 2/3 天、黄体后期第 2/3 天仍按相对日序切换。
+    assert service.sport_level_for(PHASE_LUTEAL_MID, 24, 30, 5, 0) == SPORT_GOOD
+    assert service.sport_level_for(PHASE_LUTEAL_MID, 25, 30, 5, 0) == SPORT_AVERAGE
+    assert service.sport_level_for(PHASE_LUTEAL_LATE, 28, 30, 5, 0) == SPORT_AVERAGE
+    assert service.sport_level_for(PHASE_LUTEAL_LATE, 29, 30, 5, 0) == SPORT_REST
 
 
 def test_next_period_prediction(db, monkeypatch):
@@ -101,6 +104,15 @@ def test_calendar_month_phase_and_pain(db, monkeypatch):
     assert by_date["2026-10-29"]["pain_level"] == 3
     assert by_date["2026-10-16"]["is_period"] is True
     assert cal["overview"]["next_period"] == (ANCHOR + timedelta(days=CL)).isoformat()
+
+
+def test_calendar_exposes_four_daily_levels(db, monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
+    service.create_period(db, 1, ANCHOR, None, None, None)
+    october = {day["cycle_day"]: day for day in service.calendar_month(db, 1, 2026, 10)["days"] if day["cycle_day"]}
+    november = {day["cycle_day"]: day for day in service.calendar_month(db, 1, 2026, 11)["days"] if day["cycle_day"]}
+    assert [october[n]["sport_level"] for n in (3, 4, 5, 6)] == [SPORT_REST, SPORT_AVERAGE, SPORT_GOOD, SPORT_HIGH]
+    assert [november[n]["sport_level"] for n in (22, 23, 26, 27)] == [SPORT_GOOD, SPORT_AVERAGE, SPORT_AVERAGE, SPORT_REST]
 
 
 def test_calendar_uses_historical_record_for_each_day(db, monkeypatch):

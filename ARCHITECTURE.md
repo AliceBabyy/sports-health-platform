@@ -47,7 +47,7 @@
 | training | training_plans / items / notes | 训练计划/记录状态机；动作明细（负荷可空）；容量计算；复制到今日；心得；Excel/JSON 导入 |
 | swim | swim_records / swim_notes | 游泳记录/计划两态；配速/划频派生；心得；Excel/JSON 导入 |
 | dance | dance_records / dance_notes | 舞蹈记录/计划两态；课程起止时间；心得；Excel/JSON 导入 |
-| cycle | cycle_settings / period_records / daily_pain_logs | 周期设置；月经记录增改删；每日疼痛；按日期选锚点的七阶段推算、滚动预测 + 运动三档等级；有真实记录时才输出运动联动建议 |
+| cycle | cycle_settings / period_records / daily_pain_logs | 周期设置；月经记录增改删；每日疼痛；按日期选锚点的七阶段推算、滚动预测 + 逐日四档状态；有真实记录时才输出运动联动建议 |
 | profile | users（复用） | 基本资料修改 + 修改密码 |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
 
@@ -75,7 +75,8 @@
 ## 8. 关键业务口径（常量集中在 app/core/constants.py）
 
 - 身材：4 组（basic/goal/girth/target）映射 4 表；新增记录未填字段沿用该维度最近一次非空值；趋势四档（week/month/half_year/year）窗口与锚点见常量。
-- 周期：七阶段独立枚举；锚点=最近月经首日；排卵日 = 周期长度 − 14；运动三档（精力旺盛/状态良好/适合休息）按阶段 × 疼痛等级判定。
+- 周期：七阶段独立枚举；锚点=最近月经首日；排卵日 = 周期长度 − 14；四档状态按阶段内日序判定（黄体中期前 2 天良好、余下日期一般；黄体后期前 2 天一般、余下日期休息；经期前 3 天休息、第 4 天一般、第 5 天起良好），疼痛 ≥2 覆盖为休息。
+- 周期颜色由 `app/static/css/tokens.css` 统一提供：月历单元格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；窄屏仍显示两字状态名；周期静态资源带版本号以避免旧样式缓存。
 - 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长优先 duration_s，缺失时按 recorded 的 endtime−starttime 推导，游泳/舞蹈= duration_s；热量仅游泳/舞蹈。
 - 训练容量：Σ 重量 × 组数 × 每组个数首段数字（reps 为字符串，如 `"10+8+6"` 按 10 计），负荷任一为空跳过。
 

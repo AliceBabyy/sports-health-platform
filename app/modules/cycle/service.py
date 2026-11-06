@@ -1,11 +1,10 @@
-"""生理周期 service：七阶段推算、三档运动判定、月历、预测日、设置与疼痛（MC-01~13）。
+"""生理周期 service：七阶段推算、四档运动判定、月历、预测日、设置与疼痛（MC-01~13）。
 
 推算基线（需求 7.2/9.3 定稿）：
 - 锚点 = 最近一次月经开始日；无记录时以「今天」为默认锚点（按默认周期回推）。
 - N = (day - anchor).days + 1；N_eff = ((N-1) % cycle_length) + 1 做循环取模。
 - 排卵日 = 周期长度 - 14；七阶段独立枚举，禁止合并。
-- 运动等级（MC-10/11）：疼痛≥2 一律 rest；排卵日/排卵期前后且疼痛=0 → high；
-  排卵期前期/黄体期前中期且疼痛≤1 → good；其余 rest。
+- 运动等级（MC-10/11）：按阶段内日序细分四档；疼痛≥2 优先覆盖为 rest。
 """
 from datetime import date, timedelta
 
@@ -15,8 +14,6 @@ from sqlalchemy.orm import Session
 from app.core.constants import (
     DEFAULT_CYCLE_LENGTH,
     DEFAULT_PERIOD_LENGTH,
-    GOOD_LEVEL_PHASES,
-    HIGH_LEVEL_PHASES,
     OVULATION_OFFSET,
     PHASE_FOLLICULAR_POST,
     PHASE_FOLLICULAR_PRE,
@@ -26,6 +23,7 @@ from app.core.constants import (
     PHASE_MENSTRUAL,
     PHASE_OVULATION_DAY,
     PHASE_LABELS,
+    SPORT_AVERAGE,
     SPORT_GOOD,
     SPORT_HIGH,
     SPORT_LABELS,
@@ -177,14 +175,23 @@ def phase_for(day: date, anchor: date, cycle_length: int, period_length: int) ->
     return PHASE_LUTEAL_LATE
 
 
-def sport_level_for(phase_key: str, pain_level: int) -> str:
-    """三档运动等级（MC-10/11）：疼痛≥2 优先级最高。"""
+def sport_level_for(phase_key: str, cycle_day: int, cycle_length: int, period_length: int, pain_level: int) -> str:
+    """按阶段内日序判定四档；中重度疼痛优先休息。"""
     if pain_level >= 2:
         return SPORT_REST
-    if phase_key in HIGH_LEVEL_PHASES and pain_level == 0:
+    if phase_key == PHASE_MENSTRUAL:
+        if cycle_day <= 3:
+            return SPORT_REST
+        return SPORT_AVERAGE if cycle_day == 4 else SPORT_GOOD
+    if phase_key in (PHASE_FOLLICULAR_PRE, PHASE_OVULATION_DAY, PHASE_FOLLICULAR_POST):
         return SPORT_HIGH
-    if phase_key in GOOD_LEVEL_PHASES and pain_level <= 1:
+    if phase_key == PHASE_LUTEAL_EARLY:
         return SPORT_GOOD
+    ovulation_day = min(max(cycle_length - OVULATION_OFFSET, period_length + 1), cycle_length)
+    if phase_key == PHASE_LUTEAL_MID:
+        return SPORT_GOOD if cycle_day <= ovulation_day + 8 else SPORT_AVERAGE
+    if phase_key == PHASE_LUTEAL_LATE:
+        return SPORT_AVERAGE if cycle_day <= ovulation_day + 12 else SPORT_REST
     return SPORT_REST
 
 
@@ -241,7 +248,8 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
             )
             continue
         phase = phase_for(d, effective_anchor, setting.cycle_length, setting.period_length)
-        level = sport_level_for(phase, pain)
+        cycle_day = effective_day_number(d, effective_anchor, setting.cycle_length)
+        level = sport_level_for(phase, cycle_day, setting.cycle_length, setting.period_length, pain)
         days.append(
             {
                 "date": d.isoformat(),
@@ -253,13 +261,14 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
                 "pain_level": pain,
                 "pain_recorded": d in pain_map,
                 "is_recorded_start": d in period_starts,
-                "cycle_day": effective_day_number(d, effective_anchor, setting.cycle_length),
+                "cycle_day": cycle_day,
             }
         )
 
     ovulation_day = min(max(setting.cycle_length - OVULATION_OFFSET, setting.period_length + 1), setting.cycle_length)
     today_phase = phase_for(today, anchor, setting.cycle_length, setting.period_length)
-    today_level = sport_level_for(today_phase, _today_pain(db, user_id, today, pain_map))
+    today_cycle_day = effective_day_number(today, anchor, setting.cycle_length)
+    today_level = sport_level_for(today_phase, today_cycle_day, setting.cycle_length, setting.period_length, _today_pain(db, user_id, today, pain_map))
     current_start = anchor + timedelta(days=((today - anchor).days // setting.cycle_length) * setting.cycle_length)
     return {
         "year": year,
@@ -307,10 +316,11 @@ def get_today_summary(user_id: int) -> dict:
         phase = phase_for(today, anchor, setting.cycle_length, setting.period_length)
         row = db.query(DailyPainLog).filter(DailyPainLog.user_id == user_id, DailyPainLog.log_date == today).first()
         pain = row.pain_level if row else 0
-        level = sport_level_for(phase, pain)
+        cycle_day = effective_day_number(today, anchor, setting.cycle_length)
+        level = sport_level_for(phase, cycle_day, setting.cycle_length, setting.period_length, pain)
         return {
             "has_records": bool(db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user_id, PeriodRecord.start_date <= today).first()),
-            "cycle_day": effective_day_number(today, anchor, setting.cycle_length),
+            "cycle_day": cycle_day,
             "phase_key": phase,
             "phase_label": PHASE_LABELS[phase],
             "sport_level": level,
@@ -327,7 +337,7 @@ def build_cycle_link(user, sport: str = "training") -> dict | None:
     返回字段：phase_label / sport_label / sport_level / advice / chips。
     sport：training=健身、swim=游泳、dance=舞蹈，用于差异化建议文案。
     """
-    from app.core.constants import PHASE_INFO, SPORT_GOOD, SPORT_HIGH, SPORT_REST
+    from app.core.constants import PHASE_INFO
 
     if user.gender == "男":
         return None
@@ -346,6 +356,11 @@ def build_cycle_link(user, sport: str = "training") -> dict | None:
             "training": ["维持常规负荷", "注意补水"],
             "swim": ["维持常规距离", "注意补水"],
             "dance": ["维持常规强度", "注意热身"],
+        }.get(sport, []),
+        SPORT_AVERAGE: {
+            "training": ["适度调整负荷", "关注身体感受"],
+            "swim": ["保持舒适配速", "关注身体感受"],
+            "dance": ["适度调整强度", "关注身体感受"],
         }.get(sport, []),
         SPORT_REST: {
             "training": ["以拉伸 / 有氧为主", "保证睡眠"],

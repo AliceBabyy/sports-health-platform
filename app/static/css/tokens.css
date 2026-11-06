@@ -21,31 +21,32 @@
   --state-danger: #c0392b;
   --state-danger-bg: #fdf0ee;
 
-  /* 标签配色——严格按设计稿（C:\Users\admin\Desktop\sh项目ui图\1844590b7….png 像素级提取） */
+  /* 周期阶段色按时间顺序从玫红、蓝绿过渡到暖色；运动状态独立编码。 */
 
-  /* 阶段标记色（阶段表色块/圆点，饱和色） */
-  --phase-menses: #e8558c;        /* 月经期 */
-  --phase-foll-pre: #4fc08d;      /* 排卵期前期 */
-  --phase-foll-post: #35b381;     /* 排卵期后期 */
-  --phase-ovu: #12a46e;           /* 排卵日 */
-  --phase-luteal-early: #e3ac22;  /* 黄体期前期 */
-  --phase-luteal-mid: #d69a08;    /* 黄体期中期 */
-  --phase-luteal-late: #d08b4f;   /* 黄体期后期 */
+  /* 阶段标记色 */
+  --phase-menses: #b84d68;        /* 月经期 */
+  --phase-foll-pre: #386f9c;      /* 排卵期前期 */
+  --phase-foll-post: #3d8b73;     /* 排卵期后期 */
+  --phase-ovu: #0b8278;           /* 排卵日 */
+  --phase-luteal-early: #8b7435;  /* 黄体期前期 */
+  --phase-luteal-mid: #9a6840;    /* 黄体期中期 */
+  --phase-luteal-late: #a45a50;   /* 黄体期后期 */
   --phase-text: #4a5261;          /* 阶段标签文字（设计稿表格文字色，深灰蓝） */
 
-  /* 阶段日历格底色（设计稿浅色 tint） */
-  --phase-menses-tint: #ffdce8;
-  --phase-foll-pre-tint: #edfaf2;
-  --phase-foll-post-tint: #f2fbf5;
-  --phase-ovu-tint: #dff8e9;
-  --phase-luteal-early-tint: #fbebbe;
-  --phase-luteal-mid-tint: #fff5d6;
-  --phase-luteal-late-tint: #fff0e4;
+  /* 阶段日历格底色 */
+  --phase-menses-tint: #faedf1;
+  --phase-foll-pre-tint: #edf4fa;
+  --phase-foll-post-tint: #edf7f1;
+  --phase-ovu-tint: #e3f4f0;
+  --phase-luteal-early-tint: #f8f3e4;
+  --phase-luteal-mid-tint: #f8efe7;
+  --phase-luteal-late-tint: #faeeeb;
 
-  /* 运动三档标签（设计稿药丸：浅色底 + 浅色圆点 + 深色文字） */
-  --tag-high-bg: #ffe7f0;  --tag-high-dot: #ffd3e3;  --tag-high-fg: #b01b57;  /* 精力旺盛 */
-  --tag-good-bg: #e2f9ec;  --tag-good-dot: #c6f1da;  --tag-good-fg: #0a7c4c;  /* 状态良好 */
-  --tag-rest-bg: #fff4d2;  --tag-rest-dot: #ffe6a6;  --tag-rest-fg: #8f5e00;  /* 适合休息 */
+  /* 运动四档：日历底色与状态标签共用浅色系。 */
+  --tag-high-bg: #e2f4f3;  --tag-high-dot: #248d89;  --tag-high-fg: #176b68;
+  --tag-good-bg: #e9f5e7;  --tag-good-dot: #599b59;  --tag-good-fg: #447846;
+  --tag-average-bg: #fff5d9;  --tag-average-dot: #b18a30;  --tag-average-fg: #80651f;
+  --tag-rest-bg: #fae9ef;  --tag-rest-dot: #bd6986;  --tag-rest-fg: #92506a;
 
   /* 中性工具标签（部位/泳姿/未推算等，设计稿无对应色，沿用浅灰） */
   --tag-gray-bg: rgba(120, 130, 145, 0.10);

@@ -10,6 +10,7 @@
     menstrual: '经期', follicular_pre: '卵泡', ovulation_day: '排卵',
     follicular_post: '排后', luteal_early: '黄前', luteal_mid: '黄中', luteal_late: '黄后',
   };
+  const STATUS_SHORT = { high: '旺盛', good: '良好', average: '一般', rest: '休息' };
 
   const state = {
     cal: window.INIT_CAL,
@@ -42,7 +43,8 @@
         (d.phase_key ? ' phase-' + d.phase_key : '') + (d.sport_level ? ' sport-' + d.sport_level : '') + '" data-date="' + d.date + '" aria-label="' + d.date + ' ' + App.escapeHtml(phaseTxt) + '" aria-pressed="' + isSel + '">' +
         '<div class="cd-num num">' + dd.getDate() + '</div>' +
         '<div class="cd-phase">' + App.escapeHtml(PHASE_SHORT[d.phase_key] || phaseTxt) + '</div>' +
-        '<div class="cd-sport">' + App.escapeHtml(sportTxt) + '</div>' +
+        '<div class="cd-sport"><span class="cd-sport-full">' + App.escapeHtml(sportTxt) +
+        '</span><span class="cd-sport-short">' + App.escapeHtml(STATUS_SHORT[d.sport_level] || '—') + '</span></div>' +
         (d.is_recorded_start ? '<span class="cd-record" title="已记录月经首日"></span>' : '') + '</button>';
     });
     document.getElementById('calGrid').innerHTML = html;
@@ -80,11 +82,8 @@
       '<div class="ov-item"><div class="k">周期长度</div><div class="v num">' + ov.cycle_length + ' 天</div></div>' +
       '<div class="ov-item"><div class="k">经期长度</div><div class="v num">' + ov.period_length + ' 天</div></div>' +
       '<div class="ov-item"><div class="k">排卵日</div><div class="v num">' + ov.ovulation_date + '</div></div>' +
-      '<div class="ov-item"><div class="k">下次月经</div><div class="v num">' + ov.next_period + '</div></div>' +
-      '</div>' +
-      '<div class="ov-item progress-item"><div class="k">今日周期进度</div>' +
-      '<div class="v num">' + progressNum + ' / ' + progressTotal + '</div>' +
-      '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div></div></div>';
+      '<div class="ov-item"><div class="k">预计下次月经</div><div class="v num">' + ov.next_period + '</div></div>' +
+      '</div>';
   }
 
   /* ---------- 事件 ---------- */

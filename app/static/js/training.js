@@ -470,7 +470,7 @@
             '<td><div class="plan-actions">' +
               '<button type="button" class="btn btn-sm" data-hact="view" data-row=\'' + JSON.stringify(p).replace(/'/g, "&#39;") + '\'>查看详情</button>' +
               '<button type="button" class="btn btn-sm" data-hact="reuse" data-id="' + p.id + '">设为今日计划</button>' +
-              '<button type="button" class="btn btn-sm" data-hact="edit" data-id="' + p.id + '">编辑</button>' +
+              '<button type="button" class="btn btn-sm" data-hact="edit" data-id="' + p.id + '" data-row=\'' + JSON.stringify(p).replace(/'/g, "&#39;") + '\'>编辑</button>' +
               '<button type="button" class="btn btn-sm btn-danger" data-hact="del" data-id="' + p.id + '">删除</button>' +
             '</div></td></tr>';
         }).join('');
@@ -510,9 +510,7 @@
       return;
     }
     if (btn.dataset.hact === 'edit') {
-      App.api('/api/training/plans/' + id, { method: 'GET' })
-        .then(function (data) { openPlan(data.plan); })
-        .catch(err => App.toast(err.message, true));
+      openPlan(JSON.parse(btn.dataset.row));
       return;
     }
     if (btn.dataset.hact === 'del') {

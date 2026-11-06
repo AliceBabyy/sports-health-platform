@@ -1,4 +1,4 @@
-"""全局常量与枚举：指标 key、泳姿、训练状态机、周期七阶段、运动三档、疼痛等级、趋势档位。
+"""全局常量与枚举：指标 key、泳姿、训练状态机、周期七阶段、运动四档、疼痛等级、趋势档位。
 
 魔法值（窗口天数、周期默认值、阶段边界）集中在这里，改动只动常量、不动接口。
 """
@@ -121,61 +121,55 @@ PHASE_LABELS = {
     PHASE_LUTEAL_MID: "黄体期中期",
     PHASE_LUTEAL_LATE: "黄体期后期",
 }
-# 阶段说明总表（MC-13）：周期区间 / 激素特征 / 运动建议 / 状态倾向
+# 阶段说明总表（MC-13）：周期区间 / 激素特征 / 运动建议。
 PHASE_INFO = {
     PHASE_MENSTRUAL: {
         "range": "第1~5天",
         "hormone": "雌激素、孕激素双低，前列腺素升高",
         "advice": "体温偏低，铁流失增加。以下肢拉伸、呼吸训练替代下肢大重量。",
-        "level": "rest",
     },
     PHASE_FOLLICULAR_PRE: {
         "range": "第6~13天",
         "hormone": "雌激素快速上升，FSH促进卵泡成熟",
         "advice": "力量耐受度上升，适合把深蹲、硬拉等大重量安排在这周。",
-        "level": "high",
     },
     PHASE_OVULATION_DAY: {
         "range": "第14天",
         "hormone": "LH峰值，雌激素达到顶点，基础体温将回升",
         "advice": "周期中运动表现峰值，可安排PR冲刺或高强度间歇。",
-        "level": "high",
     },
     PHASE_FOLLICULAR_POST: {
         "range": "第15~16天",
         "hormone": "LH峰值附近，雌激素维持高位",
         "advice": "爆发力最佳但韧带松弛度升高，注意落地缓冲与膝踝稳定。",
-        "level": "high",
     },
     PHASE_LUTEAL_EARLY: {
         "range": "第17~20天",
         "hormone": "孕激素上升，基础体温升高0.3-0.5℃",
         "advice": "心率与体温偏高，同等强度下RPE更高，适当降5-10%负荷。",
-        "level": "good",
     },
     PHASE_LUTEAL_MID: {
         "range": "第21~24天",
         "hormone": "孕激素达峰，血清素下降",
         "advice": "易出现水肿与食欲波动，训练以中等强度稳态有氧为主。",
-        "level": "good",
     },
     PHASE_LUTEAL_LATE: {
         "range": "第25~28天",
         "hormone": "雌孕激素同步回落，前列腺素开始升高",
         "advice": "PMS高发窗口，改为瑜伽、游泳或散步，保证睡眠优先。",
-        "level": "rest",
     },
 }
-# 排卵日/排卵期前后（雌激素峰值）→ 精力旺盛判定区间
-HIGH_LEVEL_PHASES = {PHASE_FOLLICULAR_PRE, PHASE_OVULATION_DAY, PHASE_FOLLICULAR_POST}
-# 状态良好判定区间（排卵期前期/黄体期前中期）
-GOOD_LEVEL_PHASES = {PHASE_FOLLICULAR_PRE, PHASE_LUTEAL_EARLY, PHASE_LUTEAL_MID}
-
-# ---------- 运动三档（MC-10） ----------
+# ---------- 运动四档（MC-10） ----------
 SPORT_HIGH = "high"
 SPORT_GOOD = "good"
+SPORT_AVERAGE = "average"
 SPORT_REST = "rest"
-SPORT_LABELS = {SPORT_HIGH: "精力旺盛", SPORT_GOOD: "状态良好", SPORT_REST: "适合休息"}
+SPORT_LABELS = {
+    SPORT_HIGH: "精力旺盛",
+    SPORT_GOOD: "状态良好",
+    SPORT_AVERAGE: "状态一般",
+    SPORT_REST: "适合休息",
+}
 
 # ---------- 疼痛等级（MC-03：0无痛/1轻度/2中度/3重度） ----------
 PAIN_LEVELS = [0, 1, 2, 3]

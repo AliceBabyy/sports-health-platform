@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}生理周期 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css?v=20261106b">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>生理周期</h1>
@@ -29,16 +29,10 @@
       </div>
       <div class="cal-grid" id="calGrid" style="margin-top:6px"></div>
       <div class="legend">
-        <span class="legend-block"><span class="swatch sw-menses"></span>月经期</span>
-        <span class="legend-block"><span class="swatch sw-foll-pre"></span>排卵期前期</span>
-        <span class="legend-block"><span class="swatch sw-foll-post"></span>排卵期后期</span>
-        <span class="legend-block"><span class="swatch sw-ovu"></span>排卵日</span>
-        <span class="legend-block"><span class="swatch sw-luteal-early"></span>黄体期前期</span>
-        <span class="legend-block"><span class="swatch sw-luteal-mid"></span>黄体期中期</span>
-        <span class="legend-block"><span class="swatch sw-luteal-late"></span>黄体期后期</span>
-        <span class="legend-block" style="margin-left:6px"><span class="sdot sdot-high"></span>精力旺盛</span>
-        <span class="legend-block"><span class="sdot sdot-good"></span>状态良好</span>
-        <span class="legend-block"><span class="sdot sdot-rest"></span>适合休息</span>
+        <span class="legend-block"><span class="swatch sw-high"></span>精力旺盛</span>
+        <span class="legend-block"><span class="swatch sw-good"></span>状态良好</span>
+        <span class="legend-block"><span class="swatch sw-average"></span>状态一般</span>
+        <span class="legend-block"><span class="swatch sw-rest"></span>适合休息</span>
       </div>
     </div>
 
@@ -91,5 +85,5 @@
 window.INIT_SETTINGS = {{ settings | tojson }};
 window.PHASE_INFO = {{ phase_info | tojson }};
 window.TODAY_STR = '{{ today.isoformat() }}';</script>
-<script src="/static/js/cycle.js"></script>
+<script src="/static/js/cycle.js?v=20261106b"></script>
 {% endblock %}

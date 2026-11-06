@@ -113,9 +113,10 @@ label.field-label {
 .tag-apricot-mid   { background: var(--tag-apricot-mid-bg);   color: var(--tag-apricot-mid-fg);   --tag-dot: var(--tag-apricot-mid-dot); }
 .tag-apricot-dark  { background: var(--tag-apricot-dark-bg);  color: var(--tag-apricot-dark-fg);  --tag-dot: var(--tag-apricot-dark-dot); }
 
-/* 运动三档标签（设计稿药丸：浅色底 + 浅色圆点 + 深色文字） */
+/* 运动四档标签：浅色底 + 状态圆点 + 深色文字 */
 .tag-high { background: var(--tag-high-bg); color: var(--tag-high-fg); --tag-dot: var(--tag-high-dot); }
 .tag-good { background: var(--tag-good-bg); color: var(--tag-good-fg); --tag-dot: var(--tag-good-dot); }
+.tag-average { background: var(--tag-average-bg); color: var(--tag-average-fg); --tag-dot: var(--tag-average-dot); }
 .tag-rest { background: var(--tag-rest-bg); color: var(--tag-rest-fg); --tag-dot: var(--tag-rest-dot); }
 
 /* 阶段标签映射（设计稿：透明底 + 阶段色小方块 + 深灰文字） */

@@ -5,7 +5,7 @@
 - POST /plans                  新建计划（body: plan_date + items + remark）
 - GET  /plans/template         下载 Excel 导入模板（2026-11-04 新增）
 - POST /plans/import           批量导入训练计划（.xlsx，按日期分组建计划）
-- GET/PUT/DELETE /plans/{plan_id}  单个计划查询/编辑/删除（已记录锁定）
+- PUT/DELETE /plans/{plan_id}  单个计划编辑/删除（已记录锁定）
 - POST /plans/batch-delete     批量删除（仅 planned，已记录的跳过）
 - POST /plans/{plan_id}/complete  一键完成训练（planned → recorded，2026-11-04 起不限当日）
 - POST /plans/{plan_id}/copy-to-today  一键复用：以历史计划/记录为模板在今日新建计划（2026-11-04）
@@ -185,15 +185,6 @@ def copy_plan_to_today(
     """
     plan = service.copy_plan_to_date(db, user.id, plan_id, today_local())
     return {"plan": service.plan_to_dict(plan)}
-
-
-@router.get("/plans/{plan_id}")
-def get_plan(
-    plan_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    return {"plan": service.plan_to_dict(service.get_plan_or_404(db, user.id, plan_id))}
 
 
 @router.put("/plans/{plan_id}")

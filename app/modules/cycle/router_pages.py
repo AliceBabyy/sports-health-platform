@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.core.constants import PHASE_INFO, PHASE_LABELS, SPORT_LABELS
+from app.core.constants import PHASE_INFO
 from app.core.deps import get_current_user
 from app.core.templating import render_page
 from app.modules.auth.models import User
@@ -33,6 +33,6 @@ def cycle_page(
                 "cycle_length": calendar_data["overview"]["cycle_length"],
                 "period_length": calendar_data["overview"]["period_length"],
             },
-            "phase_info": {k: {**v, "label": PHASE_LABELS[k], "level_label": SPORT_LABELS[v["level"]]} for k, v in PHASE_INFO.items()},
+            "phase_info": PHASE_INFO,
         },
     )

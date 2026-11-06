@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 
 class DanceRecordIn(BaseModel):
-    record_date: date
+    date: date
     start_time: datetime | None = None  # 课程开始时间（ISO datetime）
     end_time: datetime | None = None   # 课程结束时间
     status: Literal["planned", "recorded"] = "recorded"
@@ -30,4 +30,4 @@ class DanceNoteIn(BaseModel):
     """舞蹈练后心得：自我评估 + 视频效果双星级 + 感悟。"""
     rating: int | None = Field(default=None, ge=1, le=5)
     video_effect: int | None = Field(default=None, ge=1, le=5)
-    insight: str | None = Field(default=None)
+    notes: str | None = Field(default=None)

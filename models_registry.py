@@ -6,7 +6,7 @@ from app.modules.body.models import (  # noqa: F401
     BodyDimensionsGoalRecord,
     BodyDimensionsRecord,
 )
-from app.modules.training.models import TrainingNote, TrainingPlan, TrainingPlanItem  # noqa: F401
+from app.modules.training.models import TrainingNote, TrainingRecord, TrainingRecordItem  # noqa: F401
 from app.modules.swim.models import SwimNote, SwimRecord  # noqa: F401
 from app.modules.dance.models import DanceNote, DanceRecord  # noqa: F401
 from app.modules.cycle.models import CycleSetting, DailyPainLog, PeriodRecord  # noqa: F401

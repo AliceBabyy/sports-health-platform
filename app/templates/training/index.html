@@ -69,10 +69,10 @@
 
     <!-- 全部记录 -->
     <div class="card">
-      <div class="card-title">全部记录 <span class="sub">已保存的训练记录</span></div>
+      <div class="card-title">全部记录 <button type="button" class="btn btn-sm btn-danger batch-delete" id="trainingBatchDelete" disabled>删除所选</button></div>
       <div class="table-wrap history-table">
         <table class="tbl">
-          <thead><tr><th>日期</th><th>类型</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>操作</th></tr></thead>
+          <thead><tr><th>日期 <input type="checkbox" class="batch-all" id="trainingSelectAll" aria-label="选择本页全部训练"></th><th>类型</th><th>训练内容</th><th>时长</th><th>动作</th><th>效果</th><th>操作</th></tr></thead>
           <tbody id="historyBody"></tbody>
         </table>
       </div>
@@ -117,14 +117,14 @@
           <label class="field-label">选择文件（.xlsx）</label>
           <input class="input file-input" type="file" name="file" id="importFile" accept=".xlsx" required>
         </div>
-        <div class="modal-note">表头须与模板一致。没有模板？<a href="/api/training/plans/template">下载导入模板</a>（含填写说明与示例）。</div>
+        <div class="modal-note">表头须与模板一致。没有模板？<a href="/api/training/template">下载导入模板</a>（含填写说明与示例）。</div>
       </div>
       <div id="importJsonPane" style="display:none">
         <div class="form-item">
           <label class="field-label">粘贴 JSON（{&quot;plans&quot;: [...]}）</label>
-          <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder="{&quot;plans&quot;:[{&quot;plan_date&quot;:&quot;2026-11-04&quot;,&quot;remark&quot;:&quot;练胸&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;杠铃卧推&quot;,&quot;body_part&quot;:&quot;胸&quot;,&quot;weight_kg&quot;:40,&quot;sets&quot;:3,&quot;reps&quot;:&quot;10+8+6&quot;,&quot;target_weight_kg&quot;:50}]}]}"></textarea>
+          <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder="{&quot;plans&quot;:[{&quot;date&quot;:&quot;2026-11-04&quot;,&quot;remark&quot;:&quot;练胸&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;杠铃卧推&quot;,&quot;body_part&quot;:&quot;胸&quot;,&quot;weight_kg&quot;:40,&quot;sets&quot;:3,&quot;reps&quot;:&quot;10+8+6&quot;,&quot;target_weight_kg&quot;:50}]}]}"></textarea>
         </div>
-        <div class="modal-note">格式：{&quot;plans&quot;:[{&quot;plan_date&quot;:&quot;YYYY-MM-DD&quot;,&quot;remark&quot;:&quot;可选&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;必填&quot;,&quot;body_part&quot;:&quot;可选&quot;,&quot;weight_kg&quot;:&quot;可选&quot;,&quot;sets&quot;:&quot;可选&quot;,&quot;reps&quot;:&quot;可选&quot;,&quot;target_weight_kg&quot;:&quot;可选&quot;}]}]}，最多 200 个计划。</div>
+        <div class="modal-note">格式：{&quot;plans&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;remark&quot;:&quot;可选&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;必填&quot;,&quot;body_part&quot;:&quot;可选&quot;,&quot;weight_kg&quot;:&quot;可选&quot;,&quot;sets&quot;:&quot;可选&quot;,&quot;reps&quot;:&quot;可选&quot;,&quot;target_weight_kg&quot;:&quot;可选&quot;}]}]}，最多 200 个计划。</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>
@@ -144,7 +144,7 @@
     <form id="formPlan">
       <div style="margin-bottom:12px">
         <label class="field-label">所属日期</label>
-        <input class="input" type="date" name="plan_date" style="width:200px" required>
+        <input class="input" type="date" name="date" style="width:200px" required>
       </div>
       <div style="margin-bottom:12px">
         <label class="field-label">备注</label>

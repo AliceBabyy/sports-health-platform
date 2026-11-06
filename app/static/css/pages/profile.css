@@ -1,23 +1,49 @@
-/* 个人信息页：居中单列布局，账号信息 / 基本资料 / 修改密码三张卡 */
-.profile-wrap { max-width: 560px; }
-.profile-wrap .card + .card { margin-top: 18px; }
+/* 个人信息页：左侧账号概览 + 右侧可编辑表单（宽屏三栏，不留大片空白） */
+.profile-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+/* 右栏：窄屏纵向排列，宽屏两张表单卡并排 */
+.profile-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  min-width: 0;
+}
 
 /* 账号身份头：头像 + 昵称 + @用户名 */
-.profile-identity { display: flex; align-items: center; gap: 14px; padding: 4px 0 16px; }
+.profile-identity { display: flex; align-items: center; gap: 12px; padding: 2px 0 16px; }
 .profile-avatar {
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   background: var(--color-primary);
   color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: 19px;
+  line-height: 1;
   flex: none;
 }
-.profile-name { font-size: 17px; }
-.profile-username { font-size: 12.5px; color: var(--color-text-secondary); }
+.profile-id { min-width: 0; }
+.profile-name {
+  font-size: 16px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-username {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* 只读键值行 */
 .kv { border-top: 1px solid var(--color-border); }
@@ -25,10 +51,45 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 9px 0;
+  gap: 10px;
+  padding: 8px 0;
   font-size: 13px;
 }
 .kv-row + .kv-row { border-top: 1px solid var(--color-border); }
-.kv-row span { color: var(--color-text-secondary); }
+.kv-row span { color: var(--color-text-secondary); flex: none; }
 
-.profile-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+/* 头像/昵称规则说明 */
+.profile-hint {
+  margin-top: 14px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-text-secondary);
+}
+
+/* 表单底部操作条：细分割线上方留白，按钮统一靠右 */
+.form-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* 宽屏（≥1500）：基本资料 / 修改密码 并排，字段保持一屏可读的宽度 */
+@media (min-width: 1500px) {
+  .profile-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 中窄屏：单列堆叠，账号概览在上、表单在下 */
+@media (max-width: 1100px) {
+  .profile-wrap { grid-template-columns: 1fr; }
+  .profile-main { gap: 14px; }
+}
+
+/* 账号操作（退出登录 / 注销）：横跨右栏整行，不与某张表单卡挤在同一列 */
+.account-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; padding: 0; }
+.account-delete { color: var(--state-danger); border-color: var(--state-danger); }
+.account-modal { max-width: 460px; position: relative; }
+.account-modal-close { position: absolute; top: 10px; right: 12px; border: 0; background: transparent; color: var(--color-text-secondary); font-size: 22px; cursor: pointer; }
+.account-modal-actions { flex-wrap: wrap; }

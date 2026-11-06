@@ -9,7 +9,7 @@ def paginate(query, page: int = 1, page_size: int = 10, order_by=None):
     total = query.count()
     q = query
     if order_by is not None:
-        q = q.order_by(order_by)
+        q = q.order_by(*(order_by if isinstance(order_by, tuple) else (order_by,)))
     items = q.offset((page - 1) * page_size).limit(page_size).all()
     return {
         "list": items,

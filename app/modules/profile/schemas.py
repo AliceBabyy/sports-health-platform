@@ -16,3 +16,8 @@ class PasswordChangeIn(BaseModel):
     current_password: str
     new_password: str
     confirm_password: str
+
+
+class AccountDeleteIn(BaseModel):
+    mode: str
+    current_password: str

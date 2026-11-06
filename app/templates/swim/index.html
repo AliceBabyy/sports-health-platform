@@ -17,65 +17,45 @@
 <div class="two-col">
 <div class="three-row-stack">
 <div class="card swim-page daily-card">
-  <div class="card-title">当日游泳
+  <div class="day-head">
+    <div><div class="day-title">当日游泳</div><div class="day-sub">{{ selected_date_str }} · {{ selected_weekday }}</div></div>
     <span class="date-nav">
       <a class="dn-btn" href="/swim?date={{ prev_date }}" title="前一天">‹</a>
       <span class="dn-label num">{{ selected_date }}{% if not is_today %} · <a class="dn-today" href="/swim">回到今天</a>{% endif %}</span>
       <a class="dn-btn" href="/swim?date={{ next_date }}" title="后一天">›</a>
     </span>
   </div>
-  <div class="daily-meta">{{ selected_date_str }}（{{ selected_weekday }}） · 计划与记录统一按日展示</div>
   <div id="swimDaily"></div>
 </div>
 
 
-{% if stats.count %}
-{% set lat = stats.latest %}
-{% set lat_dur_min = (lat.duration_s or 0) // 60 %}
-{% set lat_dur_sec = (lat.duration_s or 0) % 60 %}
-<div class="card swim-page swim-profile">
-  <div class="card-title">游泳档案 <span class="sub">历史记录汇总 · 仅统计已完成的记录</span></div>
-  <div class="sp-topline">
-    <span>累计下水 <b class="num">{{ stats.count }}</b> 次</span>
-    <span>最常用泳姿 <b class="num">{{ stats.top_stroke_label or '—' }}</b></span>
+<div class="card swim-page archive-card">
+  <div class="card-title">游泳档案</div>
+  <div class="archive-grid">
+    <div class="archive-item"><div class="archive-label">累计下水</div><div class="archive-value num">{{ stats.count }}<small>次</small></div><div class="archive-sub">常用泳姿 {{ stats.top_stroke_label or '—' }}</div></div>
+    <div class="archive-divider"></div>
+    <div class="archive-item"><div class="archive-label">平均配速</div><div class="archive-value num">{{ stats.avg_pace if stats.avg_pace is not none else '—' }}<small>min/100m</small></div></div>
+    <div class="archive-divider"></div>
+    <div class="archive-item"><div class="archive-label">最快配速</div><div class="archive-value num">{{ stats.fastest_pace if stats.fastest_pace is not none else '—' }}<small>min/100m</small></div></div>
+    <div class="archive-divider"></div>
+    <div class="archive-item"><div class="archive-label">最慢配速</div><div class="archive-value num">{{ stats.slowest_pace if stats.slowest_pace is not none else '—' }}<small>min/100m</small></div></div>
   </div>
-  <div class="swim-profile-grid">
-    <div class="sp-item">
-      <div class="sp-label">平均配速</div>
-      <div class="sp-value num">{{ stats.avg_pace if stats.avg_pace is not none else '—' }}{% if stats.avg_pace is not none %}<small>min/100m</small>{% endif %}</div>
-    </div>
-    <div class="sp-item">
-      <div class="sp-label">最快配速</div>
-      <div class="sp-value num">{{ stats.fastest_pace if stats.fastest_pace is not none else '—' }}{% if stats.fastest_pace is not none %}<small>min/100m</small>{% endif %}</div>
-    </div>
-    <div class="sp-item">
-      <div class="sp-label">最慢配速</div>
-      <div class="sp-value num">{{ stats.slowest_pace if stats.slowest_pace is not none else '—' }}{% if stats.slowest_pace is not none %}<small>min/100m</small>{% endif %}</div>
-    </div>
-  </div>
-  <div class="sp-latest-plain">最近一次：{{ lat.record_date }}{% if lat.distance_m %} · {{ lat.distance_m }} m{% endif %}{% if lat.duration_s %} · {{ lat_dur_min }}分{{ '%02d'|format(lat_dur_sec) }}秒{% endif %}{% if lat.pace is not none %} · 配速 {{ lat.pace }} min/100m{% endif %}{% if lat.main_stroke_label %} · {{ lat.main_stroke_label }}{% endif %}</div>
-  <div class="sp-cheer">游过的每一米都在变强，继续保持，下一次再快一点点。</div>
+  {% if stats.latest %}<div class="sp-latest-plain">最近一次：{{ stats.latest.date }} · {{ stats.latest.distance_m or '—' }} m · {{ stats.latest.main_stroke_label or '—' }}</div>{% endif %}
 </div>
-{% else %}
-<div class="card swim-page swim-profile">
-  <div class="card-title">游泳档案 <span class="sub">历史记录汇总</span></div>
-  <div class="empty-state" style="padding:10px 0">还没有游泳记录，新增一条记录后，这里会自动汇总你的平均 / 最快 / 最慢配速与常用泳姿。</div>
-</div>
-{% endif %}
 
 <div class="card swim-page">
-  <div class="card-title">全部记录 <span class="sub">计划 + 记录，按日期倒序 · 可分页查看</span>
+  <div class="card-title">全部记录
     <span>
       {% for stroke, n in stats.stroke_count.items() %}
       <span class="tag tag-gray no-dot" style="margin-left:6px">{{ C.SWIM_STROKE_LABELS.get(stroke, '未填写') if stroke else '未填写' }} {{ n }} 次</span>
       {% endfor %}
-    </span>
+    </span><button type="button" class="btn btn-sm btn-danger batch-delete" id="swimBatchDelete" disabled>删除所选</button>
   </div>
   <div class="table-wrap">
     <table class="tbl">
       <thead>
         <tr>
-          <th>日期</th><th>类型</th><th>距离</th><th>时长</th><th>配速</th><th>平均心率</th><th>总划水</th><th>主泳姿</th><th>趟数</th><th>平均划频</th><th>活动卡路里</th><th>操作</th>
+          <th>日期 <input type="checkbox" class="batch-all" id="swimSelectAll" aria-label="选择本页全部游泳"></th><th>类型</th><th>距离</th><th>时长</th><th>配速</th><th>平均心率</th><th>总划水</th><th>主泳姿</th><th>趟数</th><th>平均划频</th><th>活动卡路里</th><th>操作</th>
         </tr>
       </thead>
       <tbody id="swimBody"></tbody>
@@ -106,7 +86,7 @@
     <div class="modal-desc" id="modalSwimDesc">配速会根据距离与时长自动计算，保存后可在列表中继续修改。</div>
     <form id="formSwim">
       <div class="form-grid-3">
-        <div class="form-item full"><label class="field-label">日期</label><input class="input" type="date" name="record_date" required></div>
+        <div class="form-item full"><label class="field-label">日期</label><input class="input" type="date" name="date" required></div>
         <div class="form-item"><label class="field-label">距离 (m)</label><input class="input num" type="number" name="distance_m" min="1"></div>
         <div class="form-item"><label class="field-label">时长 (分钟)</label><input class="input num" type="number" name="duration_min" min="1" step="0.1"></div>
         <div class="form-item"><label class="field-label">主泳姿</label>
@@ -157,9 +137,9 @@
       <div id="importJsonPane" style="display:none">
         <div class="form-item">
           <label class="field-label">粘贴 JSON（{&quot;records&quot;: [...]}）</label>
-          <textarea class="input" id="importJsonText" rows="8" style="font-family:monospace;font-size:12px" placeholder='{"records":[{"record_date":"2026-11-03","distance_m":1500,"duration_min":25,"main_stroke":"自由泳"}]}'></textarea>
+          <textarea class="input" id="importJsonText" rows="8" style="font-family:monospace;font-size:12px" placeholder='{"records":[{"date":"2026-11-03","distance_m":1500,"duration_min":25,"main_stroke":"自由泳"}]}'></textarea>
         </div>
-        <div class="modal-note">格式：{&quot;records&quot;:[{&quot;record_date&quot;:&quot;YYYY-MM-DD&quot;,&quot;distance_m&quot;:1500,&quot;duration_min&quot;:25,&quot;main_stroke&quot;:&quot;自由泳&quot;,&quot;avg_heart_rate&quot;:135,&quot;total_strokes&quot;:600,&quot;laps&quot;:30,&quot;avg_stroke_rate&quot;:24,&quot;calories&quot;:320,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条。</div>
+        <div class="modal-note">格式：{&quot;records&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;distance_m&quot;:1500,&quot;duration_min&quot;:25,&quot;main_stroke&quot;:&quot;自由泳&quot;,&quot;avg_heart_rate&quot;:135,&quot;total_strokes&quot;:600,&quot;laps&quot;:30,&quot;avg_stroke_rate&quot;:24,&quot;calories&quot;:320,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条。</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>

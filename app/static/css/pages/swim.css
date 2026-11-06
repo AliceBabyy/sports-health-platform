@@ -10,26 +10,7 @@
 /* 当日游泳行：备注列限宽 */
 .swim-page .cell-remark { max-width: 200px; }
 
-/* 游泳档案卡 */
-.swim-profile { }
-.sp-topline { display: flex; gap: 28px; font-size: 13px; color: var(--color-text-secondary); margin-bottom: 12px; }
-.sp-topline b { font-weight: 400; color: var(--color-text); font-variant-numeric: tabular-nums; }
-.swim-profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.sp-item {
-  box-shadow: inset 0 0 0 0.667px var(--color-border);
-  border-radius: var(--radius);
-  padding: 12px 16px;
-  background: var(--bg-section, var(--bg-card));
-}
-.sp-label { font-size: 12.5px; color: var(--color-text-secondary); }
-.sp-value { font-size: 24px; font-weight: 400; margin-top: 4px; font-variant-numeric: tabular-nums; }
-.sp-value small { font-size: 13px; font-weight: 400; color: var(--color-text-secondary); margin-left: 3px; }
-
 .sp-latest-plain { margin-top: 12px; font-size: 13px; color: var(--color-text-secondary); }
-.sp-cheer { margin-top: 10px; font-size: 13px; color: var(--color-accent); }
-@media (max-width: 720px) {
-  .swim-profile-grid { grid-template-columns: 1fr; }
-}
 
 /* 顶部按钮分隔线 + 导入弹窗辅助样式（与 training/body 一致） */
 .actions-divider { width: 1px; height: 20px; background: var(--color-border-strong); align-self: center; margin-left: auto; }

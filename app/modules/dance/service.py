@@ -3,6 +3,7 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
+from app.core.sport_ops import require_recorded, validate_status_change
 from app.modules.dance.models import DanceNote, DanceRecord
 
 
@@ -10,7 +11,7 @@ def to_dict(row: DanceRecord) -> dict:
     note = row.note
     return {
         "id": row.id,
-        "record_date": row.record_date.isoformat(),
+        "date": row.date.isoformat(),
         "start_time": row.start_time.isoformat() if row.start_time else None,
         "end_time": row.end_time.isoformat() if row.end_time else None,
         "status": row.status,
@@ -28,7 +29,7 @@ def to_dict(row: DanceRecord) -> dict:
                 "id": note.id,
                 "rating": note.rating,
                 "video_effect": note.video_effect,
-                "insight": note.insight,
+                "notes": note.notes,
             }
             if note
             else None
@@ -49,14 +50,14 @@ def list_records(db: Session, user_id: int, page: int = 1, page_size: int = 10, 
     q = db.query(DanceRecord).filter(DanceRecord.user_id == user_id)
     if dance_type:
         q = q.filter(DanceRecord.dance_type == dance_type)
-    return paginate(q, page, page_size, order_by=DanceRecord.record_date.desc())
+    return paginate(q, page, page_size, order_by=(DanceRecord.date.desc(), DanceRecord.id.desc()))
 
 
-def get_by_date(db: Session, user_id: int, record_date) -> list[DanceRecord]:
+def get_by_date(db: Session, user_id: int, date) -> list[DanceRecord]:
     """某日全部行（计划 + 记录，按 id 升序）。"""
     return (
         db.query(DanceRecord)
-        .filter(DanceRecord.user_id == user_id, DanceRecord.record_date == record_date)
+        .filter(DanceRecord.user_id == user_id, DanceRecord.date == date)
         .order_by(DanceRecord.id)
         .all()
     )
@@ -75,6 +76,7 @@ def update_record(db: Session, user_id: int, record_id: int, data) -> DanceRecor
     row = db.query(DanceRecord).filter(DanceRecord.id == record_id, DanceRecord.user_id == user_id).first()
     if row is None:
         return None
+    validate_status_change(row.status, data.status)
     _derive_duration(data)
     for k, v in data.model_dump().items():
         setattr(row, k, v)
@@ -114,7 +116,7 @@ def stats(db: Session, user_id: int) -> dict:
     now = datetime.now()
     month_count = sum(
         1 for r in rows
-        if r.record_date.year == now.year and r.record_date.month == now.month
+        if r.date.year == now.year and r.date.month == now.month
     )
     for r in rows:
         if r.dance_type:
@@ -139,11 +141,12 @@ def get_note(db: Session, user_id: int, record_id: int) -> DanceNote | None:
     return row.note if row else None
 
 
-def upsert_note(db: Session, user_id: int, record_id: int, *, rating, video_effect, insight) -> DanceNote:
+def upsert_note(db: Session, user_id: int, record_id: int, *, rating, video_effect, notes) -> DanceNote:
     """心得 upsert：记录归属校验 → 有则改、无则建。星级均限定 1~5。"""
     row = db.query(DanceRecord).filter(DanceRecord.id == record_id, DanceRecord.user_id == user_id).first()
     if row is None:
         raise AppError(404, "舞蹈记录不存在")
+    require_recorded(row)
     for v in (rating, video_effect):
         if v is not None and not (1 <= v <= 5):
             raise AppError(400, "星级评分需为 1~5")
@@ -153,7 +156,7 @@ def upsert_note(db: Session, user_id: int, record_id: int, *, rating, video_effe
         row.note = note
     note.rating = rating
     note.video_effect = video_effect
-    note.insight = insight or None
+    note.notes = notes or None
     db.commit()
     db.refresh(note)
     return note

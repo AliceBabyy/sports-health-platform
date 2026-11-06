@@ -33,3 +33,4 @@
 .reg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 .login-foot { margin-top: 16px; font-size: 13px; color: var(--color-text-secondary); text-align: center; }
 .login-link { color: var(--color-primary); text-decoration: underline; }
+.restore-option { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; }

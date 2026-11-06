@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import SWIM_STROKE_LABELS
 from app.core.exceptions import AppError
+from app.core.sport_ops import require_recorded, validate_status_change
 from app.modules.swim.models import SwimNote, SwimRecord
 
 
@@ -28,13 +29,16 @@ def to_dict(row: SwimRecord) -> dict:
     note = row.note
     return {
         "id": row.id,
-        "record_date": row.record_date.isoformat(),
+        "date": row.date.isoformat(),
+        "start_time": row.start_time.isoformat() if row.start_time else None,
+        "end_time": row.end_time.isoformat() if row.end_time else None,
         "status": row.status,
         "remark": row.remark,
         "distance_m": row.distance_m,
         "duration_s": row.duration_s,
         "pace": calc_pace(row.duration_s, row.distance_m),
         "avg_heart_rate": row.avg_heart_rate,
+        "max_heart_rate": row.max_heart_rate,
         "total_strokes": row.total_strokes,
         "main_stroke": row.main_stroke,
         "main_stroke_label": SWIM_STROKE_LABELS.get(row.main_stroke, row.main_stroke),
@@ -46,7 +50,7 @@ def to_dict(row: SwimRecord) -> dict:
                 "id": note.id,
                 "rating": note.rating,
                 "stroke_insight": note.stroke_insight,
-                "other": note.other,
+                "notes": note.notes,
             }
             if note
             else None
@@ -58,14 +62,14 @@ def list_records(db: Session, user_id: int, page: int = 1, page_size: int = 10):
     from app.core.pagination import paginate
 
     q = db.query(SwimRecord).filter(SwimRecord.user_id == user_id)
-    return paginate(q, page, page_size, order_by=SwimRecord.record_date.desc())
+    return paginate(q, page, page_size, order_by=(SwimRecord.date.desc(), SwimRecord.id.desc()))
 
 
-def get_by_date(db: Session, user_id: int, record_date) -> list[SwimRecord]:
+def get_by_date(db: Session, user_id: int, date) -> list[SwimRecord]:
     """某日全部行（计划 + 记录，按 id 升序）。"""
     return (
         db.query(SwimRecord)
-        .filter(SwimRecord.user_id == user_id, SwimRecord.record_date == record_date)
+        .filter(SwimRecord.user_id == user_id, SwimRecord.date == date)
         .order_by(SwimRecord.id)
         .all()
     )
@@ -83,6 +87,7 @@ def update_record(db: Session, user_id: int, record_id: int, data) -> SwimRecord
     row = db.query(SwimRecord).filter(SwimRecord.id == record_id, SwimRecord.user_id == user_id).first()
     if row is None:
         return None
+    validate_status_change(row.status, data.status)
     for k, v in data.model_dump().items():
         setattr(row, k, v)
     db.commit()
@@ -118,11 +123,12 @@ def get_note(db: Session, user_id: int, record_id: int) -> SwimNote | None:
     return row.note if row else None
 
 
-def upsert_note(db: Session, user_id: int, record_id: int, *, rating, stroke_insight, other) -> SwimNote:
+def upsert_note(db: Session, user_id: int, record_id: int, *, rating, stroke_insight, notes) -> SwimNote:
     """心得 upsert：记录归属校验 → 有则改、无则建。rating 限定 1~5。"""
     row = db.query(SwimRecord).filter(SwimRecord.id == record_id, SwimRecord.user_id == user_id).first()
     if row is None:
         raise AppError(404, "游泳记录不存在")
+    require_recorded(row)
     if rating is not None and not (1 <= rating <= 5):
         raise AppError(400, "自我评估需为 1~5 星")
     note = row.note
@@ -131,7 +137,7 @@ def upsert_note(db: Session, user_id: int, record_id: int, *, rating, stroke_ins
         row.note = note
     note.rating = rating
     note.stroke_insight = stroke_insight or None
-    note.other = other or None
+    note.notes = notes or None
     db.commit()
     db.refresh(note)
     return note
@@ -148,7 +154,7 @@ def stats(db: Session, user_id: int) -> dict:
     rows = (
         db.query(SwimRecord)
         .filter(SwimRecord.user_id == user_id, SwimRecord.status == "recorded")
-        .order_by(SwimRecord.record_date.desc(), SwimRecord.id.desc())
+        .order_by(SwimRecord.date.desc(), SwimRecord.id.desc())
         .all()
     )
     count = len(rows)
@@ -180,7 +186,7 @@ def stats(db: Session, user_id: int) -> dict:
     # 最新一次记录（rows 已按日期倒序）
     latest_row = rows[0]
     latest = {
-        "record_date": latest_row.record_date.isoformat(),
+        "date": latest_row.date.isoformat(),
         "distance_m": latest_row.distance_m,
         "duration_s": latest_row.duration_s,
         "pace": calc_pace(latest_row.duration_s, latest_row.distance_m),

@@ -18,7 +18,7 @@ from app.modules.dance.models import DanceRecord
 from app.modules.swim import service as swim_service
 from app.modules.swim.models import SwimRecord
 from app.modules.training import service as training_service
-from app.modules.training.models import TrainingPlan
+from app.modules.training.models import TrainingRecord
 
 SPORT_KEYS = ("fitness", "swim", "dance")
 SPORT_LABELS = {"fitness": "健身", "swim": "游泳", "dance": "舞蹈"}
@@ -58,13 +58,13 @@ def _item_main(sport: str, r, status: str, minutes: int) -> str:
 
 
 def _fitness_minutes(plan) -> int:
-    """健身时长（分钟）：优先 duration_s；否则 recorded 时按 endtime - starttime 推导。"""
+    """健身时长（分钟）：优先 duration_s；否则 recorded 时按 end_time - start_time 推导。"""
     if plan.status != TR_STATUS_RECORDED:
         return 0
     if getattr(plan, "duration_s", None):
         return int(plan.duration_s) // 60
-    if plan.starttime is not None and plan.endtime is not None:
-        return max(0, int((plan.endtime - plan.starttime).total_seconds())) // 60
+    if plan.start_time is not None and plan.end_time is not None:
+        return max(0, int((plan.end_time - plan.start_time).total_seconds())) // 60
     return 0
 
 
@@ -110,20 +110,20 @@ def _counts(rows: list, sport: str) -> dict:
 def _day_rows(db: Session, user_id: int, day: date) -> dict:
     return {
         "fitness": (
-            db.query(TrainingPlan)
-            .filter(TrainingPlan.user_id == user_id, TrainingPlan.plan_date == day)
-            .order_by(TrainingPlan.id)
+            db.query(TrainingRecord)
+            .filter(TrainingRecord.user_id == user_id, TrainingRecord.date == day)
+            .order_by(TrainingRecord.id)
             .all()
         ),
         "swim": (
             db.query(SwimRecord)
-            .filter(SwimRecord.user_id == user_id, SwimRecord.record_date == day)
+            .filter(SwimRecord.user_id == user_id, SwimRecord.date == day)
             .order_by(SwimRecord.id)
             .all()
         ),
         "dance": (
             db.query(DanceRecord)
-            .filter(DanceRecord.user_id == user_id, DanceRecord.record_date == day)
+            .filter(DanceRecord.user_id == user_id, DanceRecord.date == day)
             .order_by(DanceRecord.id)
             .all()
         ),

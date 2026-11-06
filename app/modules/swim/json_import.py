@@ -2,7 +2,7 @@
 
 请求格式：
     {"records": [
-        {"record_date": "2026-11-03", "distance_m": 1500, "duration_min": 25,
+        {"date": "2026-11-03", "distance_m": 1500, "duration_min": 25,
          "main_stroke": "自由泳", "avg_heart_rate": 135, "total_strokes": 600,
          "laps": 30, "avg_stroke_rate": 24, "calories": 320, "remark": "今天状态不错"},
         ...
@@ -19,7 +19,7 @@ STROZE_CN_TO_KEY = {v: k for k, v in SWIM_STROKE_LABELS.items()}
 
 
 class JsonImportRecordIn(BaseModel):
-    record_date: date
+    date: date
     distance_m: int = Field(ge=1)
     duration_min: float | None = Field(default=None, ge=0.1)
     main_stroke: str | None = None
@@ -32,7 +32,7 @@ class JsonImportRecordIn(BaseModel):
 
 
 FIELD_CN = {
-    "record_date": "日期",
+    "date": "日期",
     "distance_m": "距离(m)",
     "duration_min": "时长(分钟)",
     "main_stroke": "主泳姿",
@@ -72,7 +72,7 @@ def validate_json_records(raw_records: list) -> tuple[list[dict], list[dict]]:
                 continue
 
         valid.append({
-            "record_date": rec.record_date,
+            "date": rec.date,
             "distance_m": rec.distance_m,
             "duration_s": int(round(rec.duration_min * 60)) if rec.duration_min is not None else None,
             "main_stroke": main_stroke,

@@ -36,16 +36,16 @@ def test_create_plan_schema_status(db):
 
     from app.modules.training.schemas import PlanCreateIn
 
-    rec = PlanCreateIn(plan_date=date(2026, 11, 4), items=[ITEM], status="recorded")
+    rec = PlanCreateIn(date=date(2026, 11, 4), items=[ITEM], status="recorded")
     assert rec.status == "recorded"
-    default = PlanCreateIn(plan_date=date(2026, 11, 4), items=[ITEM])
+    default = PlanCreateIn(date=date(2026, 11, 4), items=[ITEM])
     assert default.status == "planned"
     with pytest.raises(ValidationError):
-        PlanCreateIn(plan_date=date(2026, 11, 4), items=[ITEM], status="done")
+        PlanCreateIn(date=date(2026, 11, 4), items=[ITEM], status="done")
 
 
 def test_multi_plans_same_day(db):
-    """一日可多个计划，按 id 区分（不再有 (user_id, plan_date) 唯一约束）。"""
+    """一日可多个计划，按 id 区分（不再有 (user_id, date) 唯一约束）。"""
     p1 = service.create_plan(db, USER, _today(), [ITEM])
     p2 = service.create_plan(db, USER, _today(), [ITEM_MIX])
     p3 = service.create_plan(db, USER, _today(), [ITEM_EMPTY])
@@ -72,12 +72,12 @@ def test_update_plan_can_change_date(db):
     """2026-11-04 起编辑可改归属日期：planned 挪期、recorded 记录改期（补录/修正）。"""
     plan = service.create_plan(db, USER, date(2026, 11, 10), [ITEM])
     moved = service.update_plan(db, USER, plan.id, date(2026, 11, 11), [ITEM], remark="挪到明天")
-    assert moved.plan_date == date(2026, 11, 11)
-    assert service.get_plan(db, USER, plan.id).plan_date == date(2026, 11, 11)
+    assert moved.date == date(2026, 11, 11)
+    assert service.get_plan(db, USER, plan.id).date == date(2026, 11, 11)
     # 已记录改期：原日期不再有记录，新日期下有
     done = service.complete_plan(db, USER, plan.id)
     moved_rec = service.update_plan(db, USER, done.id, date(2026, 11, 12), [ITEM])
-    assert moved_rec.status == TR_STATUS_RECORDED and moved_rec.plan_date == date(2026, 11, 12)
+    assert moved_rec.status == TR_STATUS_RECORDED and moved_rec.date == date(2026, 11, 12)
     assert len(service.get_plans_by_date(db, USER, date(2026, 11, 11))) == 0
     assert len(service.get_plans_by_date(db, USER, date(2026, 11, 12))) == 1
 
@@ -96,17 +96,17 @@ def test_update_recorded_allowed_keeps_checked(db):
     assert data["items"][0]["checked"] is True    # 第 1 个动作勾选保留
     assert data["items"][1]["checked"] is False
     assert data["status"] == TR_STATUS_RECORDED
-    assert data["plan_date"] == _today().isoformat()   # 改期不丢失（此处日期未变）
+    assert data["date"] == _today().isoformat()   # 改期不丢失（此处日期未变）
 
 
 def test_complete_plan_flow(db):
-    """完成训练：planned → recorded，写 endtime（不强制写 starttime/时长）；重复完成拒绝；2026-11-04 起不限当日。"""
+    """完成训练：planned → recorded，写 end_time（不强制写 start_time/时长）；重复完成拒绝；2026-11-04 起不限当日。"""
     plan = service.create_plan(db, USER, _today(), [ITEM])
-    assert plan.starttime is None
+    assert plan.start_time is None
     done = service.complete_plan(db, USER, plan.id)
     assert done.status == TR_STATUS_RECORDED
-    assert done.endtime is not None
-    assert done.starttime is None
+    assert done.end_time is not None
+    assert done.start_time is None
     data = service.plan_to_dict(done)
     assert data["item_count"] == 1 and data["total_volume"] == 70 * 5 * 8
     # 幂等保护：已记录再次完成拒绝
@@ -124,7 +124,7 @@ def test_other_date_complete_allowed(db):
     plan = service.create_plan(db, USER, date(2020, 1, 1), [ITEM])
     done = service.complete_plan(db, USER, plan.id)
     assert done.status == TR_STATUS_RECORDED
-    assert done.endtime is not None
+    assert done.end_time is not None
 
 
 def test_delete_and_batch_delete(db):
@@ -135,22 +135,22 @@ def test_delete_and_batch_delete(db):
     assert service.delete_plan(db, USER, p1.id) is True
     assert service.get_plan(db, USER, p1.id) is None
     assert service.delete_plan(db, USER, p1.id) is False  # 不存在返回 False
-    # 批量删除：p3 已保存记录 → 跳过
+    # 批量删除选中的计划和记录，未知 id 跳过
     service.complete_plan(db, USER, p3.id)
     res = service.batch_delete_plans(db, USER, [p2.id, p3.id, 999])
-    assert set(res["deleted"]) == {p2.id}
-    assert set(res["skipped"]) == {p3.id}
+    assert set(res["deleted"]) == {p2.id, p3.id}
+    assert set(res["skipped"]) == {999}
     assert service.get_plan(db, USER, p2.id) is None
-    assert service.get_plan(db, USER, p3.id) is not None
+    assert service.get_plan(db, USER, p3.id) is None
     # 重复 id 去重
     res2 = service.batch_delete_plans(db, USER, [p3.id, p3.id])
     assert res2["deleted"] == [] and res2["skipped"] == [p3.id]
 
 
-def test_history_only_recorded(db):
+def test_history_includes_plans_and_records(db):
     p1 = service.create_plan(db, USER, _today(), [ITEM])
     h = service.history(db, USER)
-    assert h["total"] == 0  # 未完成不进入历史
+    assert h["total"] == 1
     service.complete_plan(db, USER, p1.id)
     h = service.history(db, USER)
     assert h["total"] == 1
@@ -169,7 +169,7 @@ def test_copy_plan_to_date_reuse_old_plan(db):
     new_plan = service.copy_plan_to_date(db, USER, src.id, _today())
     assert new_plan.id != src.id
     assert new_plan.status == TR_STATUS_PLANNED
-    assert new_plan.plan_date == _today()
+    assert new_plan.date == _today()
     assert new_plan.remark == "旧计划"                       # 备注复用
     assert [i.exercise_name for i in new_plan.items] == ["杠铃深蹲", "杠铃卧推"]
     assert all(i.checked is False for i in new_plan.items)   # 勾选不复用
@@ -253,4 +253,4 @@ def test_stats_week_and_month_aggregation(db):
     assert res["month_count"] == 2
     assert res["month_duration_s"] == 1800 + 3600
     # 跨年边界一致性：本周另一日若属上一年（1 月初），周判定仍按 ISO (year, week) 计算
-    assert in_week.plan_date.isocalendar()[:2] == iso or res["week_count"] >= 1
+    assert in_week.date.isocalendar()[:2] == iso or res["week_count"] >= 1

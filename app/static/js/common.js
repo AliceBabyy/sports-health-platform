@@ -13,6 +13,41 @@
       const planned = status === 'planned';
       return '<span class="tag ' + (planned ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (text || (planned ? '计划' : '记录')) + '</span>';
     },
+    bindBatchDelete: function (bodyId, allId, buttonId, endpoint, reload) {
+      const body = document.getElementById(bodyId);
+      const all = document.getElementById(allId);
+      const button = document.getElementById(buttonId);
+      const selected = () => Array.from(body.querySelectorAll('.batch-row:checked')).map(el => Number(el.value));
+      const update = () => {
+        const rows = body.querySelectorAll('.batch-row');
+        const count = selected().length;
+        button.disabled = count === 0;
+        button.textContent = count ? '删除所选 (' + count + ')' : '删除所选';
+        all.checked = rows.length > 0 && count === rows.length;
+        all.indeterminate = count > 0 && count < rows.length;
+      };
+      body.addEventListener('change', e => { if (e.target.matches('.batch-row')) update(); });
+      all.addEventListener('change', () => {
+        body.querySelectorAll('.batch-row').forEach(el => { el.checked = all.checked; });
+        update();
+      });
+      button.addEventListener('click', () => {
+        const ids = selected();
+        if (!ids.length) return;
+        this.confirmDialog({ title: '删除所选', message: '确定删除选中的 ' + ids.length + ' 条计划或记录？删除后不可恢复。' })
+          .then(ok => {
+            if (!ok) return;
+            button.disabled = true;
+            this.api(endpoint + '/batch-delete', { method: 'POST', body: { ids } })
+              .then(result => {
+                this.toast('已删除 ' + result.deleted.length + ' 条');
+                reload();
+              })
+              .catch(err => { this.toast(err.message, true); update(); });
+          });
+      });
+      return { reset: () => { all.checked = false; all.indeterminate = false; update(); } };
+    },
     api: async function (path, opts = {}) {
       const options = { headers: { 'Content-Type': 'application/json' }, ...opts };
       if (options.body && typeof options.body === 'object') options.body = JSON.stringify(options.body);
@@ -53,19 +88,19 @@
       if (kind === 'training') {
         const rec = row.status === 'recorded';
         title.textContent = rec ? '训练记录详情' : '训练计划详情';
-        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.plan_date) + '</span>';
+        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.date) + '</span>';
         let dur = '—';
         if (row.duration_s) {
           dur = this.fmtDuration(row.duration_s);
-        } else if (row.starttime && row.endtime) {
-          dur = this.fmtDuration(Math.max(0, Math.round((Date.parse(row.endtime) - Date.parse(row.starttime)) / 1000)));
+        } else if (row.start_time && row.end_time) {
+          dur = this.fmtDuration(Math.max(0, Math.round((Date.parse(row.end_time) - Date.parse(row.start_time)) / 1000)));
         }
         const kv = [
           ['训练内容', row.body_parts_summary || '—'],
           ['时长', dur],
         ];
-        if (rec && (row.starttime || row.endtime)) {
-          kv.push(['起止时间', (row.starttime ? row.starttime.replace('T', ' ').slice(0, 16) : '—') + ' ~ ' + (row.endtime ? row.endtime.replace('T', ' ').slice(0, 16) : '—')]);
+        if (rec && (row.start_time || row.end_time)) {
+          kv.push(['起止时间', (row.start_time ? row.start_time.replace('T', ' ').slice(0, 16) : '—') + ' ~ ' + (row.end_time ? row.end_time.replace('T', ' ').slice(0, 16) : '—')]);
         }
         kv.push(
           ['完成度', '完成 ' + (row.completed_count || 0) + ' / ' + row.item_count],
@@ -90,7 +125,7 @@
           html += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
             ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
             ['最佳动作', n.best_movement ? esc(n.best_movement) : '—'],
-            ['复盘反思', n.reflection ? esc(n.reflection) : '—'],
+            ['复盘反思', n.notes ? esc(n.notes) : '—'],
             ['下一步想法', n.next_steps ? esc(n.next_steps) : '—'],
           ]) + '</div>';
         }
@@ -98,7 +133,7 @@
       } else if (kind === 'swim') {
         const rec = row.status === 'recorded';
         title.textContent = rec ? '游泳记录详情' : '游泳计划详情';
-        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.record_date) + '</span>';
+        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.date) + '</span>';
         body.innerHTML = kvRows([
           ['距离', row.distance_m != null ? row.distance_m + ' m' : '—'],
           ['时长', this.fmtClock(row.duration_s)],
@@ -116,13 +151,13 @@
           body.innerHTML += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
             ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
             ['泳姿感悟', n.stroke_insight ? esc(n.stroke_insight) : '—'],
-            ['其他', n.other ? esc(n.other) : '—'],
+            ['其他', n.notes ? esc(n.notes) : '—'],
           ]) + '</div>';
         }
       } else if (kind === 'dance') {
         const rec = row.status === 'recorded';
         title.textContent = rec ? '舞蹈记录详情' : '舞蹈计划详情';
-        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.record_date) + '</span>';
+        sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.date) + '</span>';
         body.innerHTML = kvRows([
           ['舞种', row.dance_type || '—'],
           ['星级', row.stars != null ? '★'.repeat(row.stars) : '—'],
@@ -140,7 +175,7 @@
           body.innerHTML += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
             ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
             ['视频效果', n.video_effect ? '★'.repeat(n.video_effect) : '—'],
-            ['感悟', n.insight ? esc(n.insight) : '—'],
+            ['感悟', n.notes ? esc(n.notes) : '—'],
           ]) + '</div>';
         }
       }

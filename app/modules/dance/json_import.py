@@ -2,7 +2,7 @@
 
 请求格式：
     {"records": [
-        {"record_date": "2026-11-04",
+        {"date": "2026-11-04",
          "start_time": "2026-11-04T19:00:00", "end_time": "2026-11-04T20:30:00",
          "dance_type": "爵士", "stars": 5, "teacher": "王老师",
          "style": "编舞·力量", "duration_min": 90,
@@ -17,7 +17,7 @@ from app.modules.dance.schemas import DanceRecordIn
 
 # 字段内部名 → 错误明细用中文列名（与 Excel 模板表头一致）
 FIELD_CN = {
-    "record_date": "日期",
+    "date": "日期",
     "start_time": "开始时间",
     "end_time": "结束时间",
     "dance_type": "舞种",

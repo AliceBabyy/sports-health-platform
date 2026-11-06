@@ -93,8 +93,8 @@
       let meta = e.total_sets + ' 组 · ' + e.total_volume + ' kg · ' + e.item_count + ' 动作';
       if (rec && e.duration_s) {
         meta += ' · ' + fmtClock(e.duration_s);
-      } else if (rec && e.starttime && e.endtime) {
-        meta += ' · ' + fmtClock((Date.parse(e.endtime) - Date.parse(e.starttime)) / 1000);
+      } else if (rec && e.start_time && e.end_time) {
+        meta += ' · ' + fmtClock((Date.parse(e.end_time) - Date.parse(e.start_time)) / 1000);
       }
       return '<div class="osc-item" data-open-day="' + state.anchor + '">' +
         '<div class="oi-title">' + dot + esc(title) + '</div>' +
@@ -246,8 +246,8 @@
       meta = e.item_count + ' 个动作 · ' + e.total_sets + ' 组 · ' + e.total_volume + ' kg';
       if (rec && e.duration_s) {
         meta += ' · ' + fmtClock(e.duration_s);
-      } else if (rec && e.starttime && e.endtime) {
-        meta += ' · ' + fmtClock((Date.parse(e.endtime) - Date.parse(e.starttime)) / 1000);
+      } else if (rec && e.start_time && e.end_time) {
+        meta += ' · ' + fmtClock((Date.parse(e.end_time) - Date.parse(e.start_time)) / 1000);
       }
     } else if (k === 'swim') {
       title = (rec ? '游泳记录' : '游泳计划') + ' · ' + (e.distance_m != null ? e.distance_m + ' m' : '—') +
@@ -311,9 +311,9 @@
     if (!entry) { App.toast('未找到该条目', true); return; }
     let url, body;
     if (sport === 'fitness') {
-      url = '/api/training/plans/' + id;
+      url = '/api/training/' + id;
       body = {
-        plan_date: entry.plan_date,
+        date: entry.date,
         items: entry.items.map(function (it) {
           return {
             exercise_name: it.exercise_name,
@@ -325,17 +325,26 @@
           };
         }),
         remark: val,
+        start_time: entry.start_time,
+        end_time: entry.end_time,
+        duration_s: entry.duration_s,
+        avg_heart_rate: entry.avg_heart_rate,
+        max_heart_rate: entry.max_heart_rate,
+        calories: entry.calories,
       };
     } else if (sport === 'swim') {
       url = '/api/swim-records/' + id;
       body = {
-        record_date: entry.record_date,
+        date: entry.date,
         status: entry.status,
+        start_time: entry.start_time,
+        end_time: entry.end_time,
         distance_m: entry.distance_m,
         duration_s: entry.duration_s,
         main_stroke: entry.main_stroke,
         remark: val,
         avg_heart_rate: entry.avg_heart_rate,
+        max_heart_rate: entry.max_heart_rate,
         total_strokes: entry.total_strokes,
         laps: entry.laps,
         calories: entry.calories,
@@ -344,10 +353,13 @@
     } else {
       url = '/api/dance-records/' + id;
       body = {
-        record_date: entry.record_date,
+        date: entry.date,
         status: entry.status,
+        start_time: entry.start_time,
+        end_time: entry.end_time,
         dance_type: entry.dance_type,
         stars: entry.stars,
+        teacher: entry.teacher,
         remark: val,
         style: entry.style,
         duration_s: entry.duration_s,

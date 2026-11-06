@@ -2,7 +2,7 @@
 
 请求格式（与前端导入弹窗 JSON 面板一致）：
     {"plans": [
-        {"plan_date": "2026-11-04", "remark": "练胸",
+        {"date": "2026-11-04", "remark": "练胸",
          "items": [{"exercise_name": "杠铃卧推", "body_part": "胸", "weight_kg": 40,
                     "sets": 3, "reps": "10+8+6", "target_weight_kg": 50}]},
         ...
@@ -14,7 +14,7 @@ from app.modules.training.schemas import JsonImportPlanIn
 
 # 字段内部名 → 错误明细用中文列名（与 Excel 模板表头一致）
 FIELD_CN = {
-    "plan_date": "计划日期",
+    "date": "计划日期",
     "remark": "备注",
     "exercise_name": "动作名称",
     "body_part": "部位",

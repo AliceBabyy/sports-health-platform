@@ -15,7 +15,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             raise AppError(401, "未登录或会话已过期")
         raise RedirectRequest("/login")
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or user.status != "启用":
+        request.session.clear()
         if request.url.path.startswith("/api"):
             raise AppError(401, "未登录或会话已过期")
         raise RedirectRequest("/login")

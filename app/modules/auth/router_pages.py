@@ -9,15 +9,26 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import AppError
 from app.core.templating import render_page
 from app.modules.auth.models import User
-from app.modules.auth.service import authenticate, create_user
+from app.modules.auth.service import authenticate, create_user, restore_user
 from database import get_db
 
 router = APIRouter()
 
 
+def _active_session(request: Request, db: Session) -> bool:
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return False
+    user = db.get(User, user_id)
+    if user is not None and user.status == "启用":
+        return True
+    request.session.clear()
+    return False
+
+
 @router.get("/login")
-def login_page(request: Request):
-    if request.session.get("user_id"):
+def login_page(request: Request, db: Session = Depends(get_db)):
+    if _active_session(request, db):
         return RedirectResponse("/body", status_code=303)
     return render_page(request, "auth/login.html", {"active": "login"})
 
@@ -34,13 +45,14 @@ def login_submit(
         return render_page(
             request, "auth/login.html", {"active": "login", "error": "用户名或密码错误", "username": username}
         )
+    request.session.clear()
     request.session["user_id"] = user.id
     return RedirectResponse("/body", status_code=303)
 
 
 @router.get("/register")
-def register_page(request: Request):
-    if request.session.get("user_id"):
+def register_page(request: Request, db: Session = Depends(get_db)):
+    if _active_session(request, db):
         return RedirectResponse("/body", status_code=303)
     return render_page(request, "auth/register.html", {"active": "register"})
 
@@ -50,9 +62,10 @@ def register_submit(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    display_name: str = Form(...),
+    display_name: str = Form(""),
     gender: str = Form(""),
     age: str = Form(""),
+    restore_account: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     username = username.strip()
@@ -61,10 +74,15 @@ def register_submit(
         return _register_error(request, "用户名长度需为 3~32 个字符", username, display_name, gender, age)
     if len(password) < 6:
         return _register_error(request, "密码长度至少 6 位", username, display_name, gender, age)
+    existing = db.query(User).filter(User.username == username).first()
+    if existing is not None:
+        if restore_account and restore_user(db, existing, password):
+            request.session.clear()
+            request.session["user_id"] = existing.id
+            return RedirectResponse("/profile", status_code=303)
+        return _register_error(request, "用户名已存在；恢复停用账号请勾选恢复并输入原密码", username, display_name, gender, age)
     if not display_name:
         return _register_error(request, "请填写昵称", username, display_name, gender, age)
-    if db.query(User).filter(User.username == username).first() is not None:
-        return _register_error(request, "用户名已存在，请换一个", username, display_name, gender, age)
 
     age_val: int | None = None
     if age.strip():

@@ -1,12 +1,12 @@
 """个人信息 API 路由（/api/profile）：基本资料更新 / 密码修改。"""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.profile import service
-from app.modules.profile.schemas import PasswordChangeIn, ProfileUpdateIn
+from app.modules.profile.schemas import AccountDeleteIn, PasswordChangeIn, ProfileUpdateIn
 from database import get_db
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
@@ -33,4 +33,16 @@ def change_password(
     if payload.new_password != payload.confirm_password:
         raise AppError(400, "两次输入的新密码不一致")
     service.change_password(db, user, payload.current_password, payload.new_password)
+    return {"ok": True}
+
+
+@router.delete("/account")
+def delete_account(
+    payload: AccountDeleteIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    service.delete_account(db, user, payload.mode, payload.current_password)
+    request.session.clear()
     return {"ok": True}

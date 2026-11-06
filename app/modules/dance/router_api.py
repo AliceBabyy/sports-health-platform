@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
+from app.core.sport_ops import batch_delete
+from app.core.sport_schemas import BatchDeleteIn
+from app.modules.dance.models import DanceRecord
 from app.modules.auth.models import User
 from app.modules.dance import excel_io, json_import, service
 from app.modules.dance.schemas import DanceNoteIn, DanceRecordIn
@@ -125,6 +128,15 @@ def create_dance(
     return service.to_dict(row)
 
 
+@router.post("/batch-delete")
+def batch_delete_dance(
+    payload: BatchDeleteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return batch_delete(db, DanceRecord, user.id, payload.ids)
+
+
 @router.put("/{record_id}")
 def update_dance(
     record_id: int,
@@ -159,7 +171,7 @@ def get_dance_note(
     user: User = Depends(get_current_user),
 ):
     note = service.get_note(db, user.id, record_id)
-    return {"note": ({"id": note.id, "rating": note.rating, "video_effect": note.video_effect, "insight": note.insight} if note else None)}
+    return {"note": ({"id": note.id, "rating": note.rating, "video_effect": note.video_effect, "notes": note.notes} if note else None)}
 
 
 @router.put("/{record_id}/note")
@@ -173,9 +185,9 @@ def put_dance_note(
         db, user.id, record_id,
         rating=payload.rating,
         video_effect=payload.video_effect,
-        insight=payload.insight,
+        notes=payload.notes,
     )
-    return {"note": {"id": note.id, "rating": note.rating, "video_effect": note.video_effect, "insight": note.insight}}
+    return {"note": {"id": note.id, "rating": note.rating, "video_effect": note.video_effect, "notes": note.notes}}
 
 
 @router.get("/stats")

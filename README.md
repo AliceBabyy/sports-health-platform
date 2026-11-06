@@ -3,19 +3,19 @@
 SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **8010**（避开 8000）。
 
 V1 范围：注册/登录认证 + 六大模块（身材数据 BD / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC / 个人信息 PR）。
+
+账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。当前无管理员角色或管理员接口；管理员恢复需通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。
 
 > 2026-11 改版：**运动训练/计划统一「计划/记录」两态 + 跨运动总览（日/周/月）+ 单日详情跳转**。
 > - 侧边栏改为分组结构：身材数据 / 运动训练·计划（健身、游泳、舞蹈）/ 生理周期 / 个人信息；
 >   总览页 `/overview` 取代原「本周/本月一览」占位菜单。
-> - 数据层：swim_records、dance_records 新增 `status`（planned|recorded，默认 recorded）+ `remark`；
->   记录必填列（距离/时长/舞种/星级）转可空；计划态弃用笼统字符串，改为结构化字段
->   （游泳=距离/时长/主泳姿/备注，舞蹈=舞种/星级/备注），原 `plan_text` 列已移除（内容保全至 remark）；
->   training_plans 新增 `remark`。健身保持既有三表特殊构造不动。
+> - 数据层：三运动统一 `{sport}_records` 主表与 `{sport}_notes` 心得表，必备列和外键见
+>   《数据库建表设计.md》。健身另有 `training_records_items` 动作明细。现有库运行
+>   `scripts/migrate_sport_contract.py`，迁移保留原有数据与模块专属字段。
 > - 接口：新增 `GET /api/overview?granularity=day|week|month&date=`（跨运动聚合）与
 >   `GET /api/overview/day?date=`（单日详情）；swim/dance 新增 `GET /api/swim-records|dance-records/daily?date=`；
->   删除已弃用的 `GET /api/training/plans/week`（前端周面板已由总览承接，`service.week_plans` 一并移除，
->   原测试改造为总览聚合断言）。详见《数据库建表设计.md》与本章「2026-11 改版口径」。
+>   健身接口统一挂在 `/api/training`；三运动均提供列表、单日、增改删、批量删除、心得及导入接口。
 > - 总览布局（2026-11-03）：日视图顶部仅保留「训练计划」卡，运动次数/时长并入底部「当日运动情况」；
 >   周/月视图「每日运动」卡片置顶并加高、每条标签含时长，顶部聚合收敛为「运动次数+运动时长」并与
 >   「每日运动时长」图合并为「运动情况」卡（月视图图表按每日粒度，labels=日号）；消耗估算卡已移除。
@@ -66,12 +66,6 @@ SECRET_KEY=<随机生成，勿提交仓库>
 
 ### 4. 启动
 ```powershell
-netstat -ano | findstr :8010
-```
-```powershell
-taskkill /F /PID 4388
-```
-```powershell
 .\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8010
 ```
 
@@ -96,7 +90,7 @@ sports-health-platform/
 ├─ database.py             # SQLAlchemy 引擎 / SessionLocal / Base
 ├─ models_registry.py      # 全部模型集中注册（建表入口）
 ├─ app/
-│  ├─ core/                # security / deps(登录门禁) / constants / exceptions / pagination / templating
+│  ├─ core/                # 公共认证、错误、分页、运动契约与操作
 │  ├─ modules/
 │  │  ├─ auth/             # 登录/注册/登出/会话（users 表含性别年龄）
 │  │  ├─ body/             # 身材数据：4 表拆分 upsert + 未填继承 + 四档趋势 + BMI + 剪影 + Excel 导入/导出
@@ -111,12 +105,13 @@ sports-health-platform/
 ├─ scripts/
 │  ├─ init_db.py           # 建表 + 账号幂等
 │  ├─ migrate_training_multi_plan.py  # 2026-11：训练一日多计划（删唯一约束、加联合索引，幂等）
+│  ├─ migrate_sport_contract.py # 三运动统一表、字段、外键（幂等）
 │  ├─ migrate_plan_status.py  # 2026-11：swim/dance 加 status、记录列转可空（幂等）
 │  ├─ migrate_remark.py       # 2026-11：三表加 remark、swim/dance 移除 plan_text（幂等）
 │  ├─ migrate_notes.py        # 2026-11：training_notes 扩四字段心得 + 新建 swim_notes/dance_notes
 │  ├─ migrate_swim_avg_stroke_rate.py # 2026-11：swim_records 加 avg_stroke_rate（幂等）
 │  └─ schema.sql           # 全量建表 DDL（整改后结构，含中文 COMMENT 段）
-└─ tests/                  # pytest 单测（60 项，含总览聚合 4 项）
+└─ tests/                  # pytest 单测（含运动契约与总览聚合）
 ```
 
 ## 需求口径（锁定实现）
@@ -130,24 +125,20 @@ sports-health-platform/
 - 训练负荷宽松化：动作名称必填，部位/重量/组数/每组个数可空；每组个数为字符串（如 "10+8+6"），容量 = Σ 重量×组数×个数首段数字；期望突破重量计划/记录均可填
 - 七阶段：经期 N≤period_length；排卵日 N=cycle_length-14；排卵后 1~2 天排卵后期、3~6 黄体前期、7~10 黄体中期、11 起黄体后期；其余排卵期前期（默认 28/5）
 - 运动四档：排卵期前期/排卵日/后期为精力旺盛；黄体前期及黄体中期前 2 天为状态良好；黄体中期余下日期及黄体后期前 2 天为状态一般；黄体后期余下日期及经期前 3 天为适合休息；经期第 4 天状态一般、第 5 天起状态良好。疼痛 ≥2 优先覆盖为适合休息
-- 训练状态机：planned → recorded 由「完成训练」一键完成（2026-11-04 started_at/saved_at 改名 starttime/endtime 并新增 duration_s，均仅记录态填写；填了起止时间且未手填时长时后端自动推导）；已记录当日锁定、不可再改/删
+- 训练状态机：planned → recorded 由「完成训练」一键完成；起止时间统一 `start_time/end_time`，未手填时长时可由起止时间推导；历史记录可编辑和删除
 - 周期锚点：逐日取当日之前最近一次真实月经首日；无记录时以今天为默认锚点，锚点前不推算；下次月经按周期长度滚动预测到今天之后
 - 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录并填写结束日；四档疼痛独立记录，保存后同步刷新运动等级；未有真实记录时不向运动模块提供周期建议
 - 周期配色：日历格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；阶段保留文字标签，图例与详情使用同一状态配色；窄屏月历保留两字状态名（旺盛/良好/一般/休息）
-- 心得（三表均 1:1 挂记录、仅记录态可填，所有文本字段与星级均可空）：training_notes = rating/best_movement/reflection/next_steps；swim_notes = rating/stroke_insight/other；dance_notes = rating/video_effect/insight；旧 training_notes.status_text 仅保留兼容，新 UI 不读写
+- 心得（三表均 1:1 挂记录、仅记录态可填）：共有 `rating/notes`，健身另有 `best_movement/next_steps`，游泳另有 `stroke_insight`，舞蹈另有 `video_effect`；页面字段称呼维持现状
 
 ## 2026-11 改版口径（运动训练/计划）
 
-- **统一两态**：所有运动均为「计划 planned / 记录 recorded」。健身 = 特殊构造（训练动作 items 量身定制，
-  沿用 training_plans/training_plan_items/training_notes 三表；计划练完点「完成训练」二次确认后转 recorded）；
+- **统一两态**：所有运动均为「计划 planned / 记录 recorded」。健身用 `training_records`、
+  `training_records_items`、`training_notes` 三表；计划练完点「完成训练」二次确认后转 recorded；
   游泳/舞蹈的计划态为结构化字段：游泳=距离/时长/主泳姿/备注，舞蹈=舞种/星级/备注（不再使用笼统字符串）。
-- **数据层**：`scripts/migrate_training_multi_plan.py`（幂等）删除 training_plans 的 (user_id, plan_date) 唯一约束、
-  改为联合索引 `ix_training_plans_user_date`（一日可多计划）；`scripts/migrate_plan_status.py`（幂等）为 swim/dance
-  加 `status`、记录必填列转可空、建 `(user_id, record_date)` 联合索引；`scripts/migrate_remark.py`（幂等）三表加
-  `remark`（swim/dance 移除 `plan_text`，旧计划文本保全至 remark）；`scripts/migrate_notes.py` 为 training_notes
-  扩四字段心得（rating/best_movement/reflection/next_steps）并新建 `swim_notes`/`dance_notes`；
-  `scripts/migrate_swim_avg_stroke_rate.py` 为 swim_records 加 `avg_stroke_rate`（记录态可手填，未填仍由
-  total_strokes/duration 派生）。API 层按状态校验必填
+- **数据层**：旧迁移脚本保留供历史升级；最终统一契约由 `scripts/migrate_sport_contract.py`
+  幂等迁移。主表统一日期、起止时间、心率、热量等列，心得文本统一 `notes`，
+  三运动主表 `user_id` 升级为数据库外键。API 层按状态校验必填
   （游泳计划=距离+时长+主泳姿、记录=距离+时长；舞蹈计划=舞种+星级、记录=舞种+星级+时长；泳姿合法）。
   统计口径：stats 只统计 recorded 行；总览聚合中 planned 计 plans、recorded 计 records/时长/热量。
 - **总览**：`GET /api/overview?granularity=day|week|month&date=` 返回逐日 per-sport 计数、汇总卡与图表序列
@@ -162,7 +153,7 @@ sports-health-platform/
   直接保存（回传完整 body，含只读字段），保存后 toast + 重开弹窗 + 刷新视图。
 - **单日页**：健身/游泳/舞蹈页支持 `?date=` 参数 + 前后翻页导航，默认当天；
   总览跳转某日即某日；非当日健身计划不开放「完成训练」（后端同口径校验）。
-- **清理**：删除已无前端的 `GET /api/training/plans/week` 与 `service.week_plans`；
+- **清理**：删除旧的健身周计划接口，跨运动总览统一从 `/api/overview` 读取；
   对应测试 `test_week_plans_multi` 改造为 `test_overview_week_includes_training`，
   新增 `tests/test_overview.py`（聚合口径/单日详情/计划态）。
 

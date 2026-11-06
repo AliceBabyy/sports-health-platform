@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}注册 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/login.css">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/login.css?v=20261106b">{% endblock %}
 {% block standalone %}
 <div class="login-wrap">
   <div class="login-card">
@@ -18,8 +18,9 @@
       <input class="input" name="username" value="{{ username or '' }}" minlength="3" maxlength="32" autocomplete="username" required autofocus>
       <label class="field-label" style="margin-top:12px">密码</label>
       <input class="input" type="password" name="password" minlength="6" autocomplete="new-password" required>
+      <label class="restore-option"><input type="checkbox" name="restore_account" value="true"> 恢复已停用的同名账号（输入原密码）</label>
       <label class="field-label" style="margin-top:12px">昵称</label>
-      <input class="input" name="display_name" value="{{ display_name or '' }}" maxlength="32" placeholder="页面右上角展示的名字" required>
+      <input class="input" name="display_name" value="{{ display_name or '' }}" maxlength="32" placeholder="新账号必填">
       <div class="reg-row">
         <div>
           <label class="field-label">性别</label>

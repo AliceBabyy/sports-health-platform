@@ -1,7 +1,7 @@
 """健身训练 Excel 导入模板与解析校验（2026-11-04 新增，思路参考身材数据模块 body/excel_io.py）。
 
 模板约定（第一行为表头）：
-    计划日期 | 备注 | 动作名称 | 部位 | 重量 kg | 组数 | 每组个数 | 目标重量 kg
+    计划日期 | 训练组编号 | 备注 | 动作名称 | 部位 | 重量 kg | 组数 | 每组个数 | 目标重量 kg
 
 - 每行代表一个训练动作；同一「计划日期」的多行动作自动合并为一个训练计划（动作按文件行序）。
 - 导入不会修改/覆盖已存在的计划：同一日期可多次导入，每次都会新建一个计划（一日多计划已支持）。
@@ -19,11 +19,12 @@ HELP_SHEET = "填写说明"
 DATE_HEADER = "计划日期"
 
 # 模板表头（顺序即列顺序）
-HEADERS = ["计划日期", "备注", "动作名称", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg"]
+HEADERS = ["计划日期", "训练组编号", "备注", "动作名称", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg"]
 
 # 表头文本 → 内部 key（用于列匹配与错误明细）
 COL_KEYS = {
-    "计划日期": "plan_date",
+    "计划日期": "date",
+    "训练组编号": "group_key",
     "备注": "remark",
     "动作名称": "exercise_name",
     "部位": "body_part",
@@ -64,13 +65,13 @@ def build_template() -> BytesIO:
     ws_help = wb.create_sheet(HELP_SHEET)
     help_lines = [
         "1. 每行代表一个训练动作；第一行表头请勿修改，请勿新增列。",
-        "2. 计划日期必填（格式 YYYY-MM-DD，例如 2026-11-03）。",
+        "2. 计划日期和训练组编号必填；同一天不同编号表示不同训练。",
         "3. 动作名称必填；备注、部位、重量、组数、每组个数、目标重量可留空。",
         "4. 每组个数支持自由文本，例如 10+8+6、40s。",
         "5. 数值范围校验：重量 0~999kg，组数 1~99，目标重量 0~999kg。",
-        "6. 同一日期的多行动作会合并为一条训练记录（动作按行序排列）。",
+        "6. 相同日期与训练组编号的多行动作属于一条训练记录（动作按行序排列）。",
         "7. 导入的数据将直接作为训练记录保存（不经过「完成训练」）；同一日期可多次导入，每次都会新建一条记录。",
-        "8. 示例：2026-11-03 / 今天练腿 / 杠铃深蹲 / 腿 / 60 / 4 / 10 / 70",
+        "8. 示例：2026-11-03 / A / 今天练腿 / 杠铃深蹲 / 腿 / 60 / 4 / 10 / 70",
     ]
     for line in help_lines:
         ws_help.append([line])
@@ -134,8 +135,10 @@ def _match_columns(header: tuple) -> dict[int, str]:
         name = str(cell).strip() if cell is not None else ""
         if name in COL_KEYS:
             col_map[idx] = COL_KEYS[name]
-    if "plan_date" not in col_map.values():
+    if "date" not in col_map.values():
         raise ValueError(f"工作表「{SHEET_NAME}」缺少「{DATE_HEADER}」列")
+    if "group_key" not in col_map.values():
+        raise ValueError(f"工作表「{SHEET_NAME}」缺少「训练组编号」列")
     if "exercise_name" not in col_map.values():
         raise ValueError(f"工作表「{SHEET_NAME}」缺少「动作名称」列")
     return col_map
@@ -154,11 +157,17 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
         cells = item["cells"]
         row_errors: list[dict] = []
 
-        plan_date: date | None = None
-        if "plan_date" in cells:
-            plan_date, reason = _parse_date(cells.get("plan_date"))
+        date: date | None = None
+        if "date" in cells:
+            date, reason = _parse_date(cells.get("date"))
             if reason:
                 row_errors.append(_err(item, DATE_HEADER, reason))
+
+        group_key = _clean_text(cells.get("group_key"))
+        if not group_key:
+            row_errors.append(_err(item, "训练组编号", "训练组编号不能为空"))
+        elif len(group_key) > 64:
+            row_errors.append(_err(item, "训练组编号", "训练组编号过长（最多 64 字符）"))
 
         exercise_name = _clean_text(cells.get("exercise_name"))
         if not exercise_name:
@@ -200,7 +209,8 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
         else:
             valid.append(
                 {
-                    "plan_date": plan_date,
+                    "date": date,
+                    "group_key": group_key,
                     "remark": remark or None,
                     "exercise_name": exercise_name,
                     "body_part": body_part or None,

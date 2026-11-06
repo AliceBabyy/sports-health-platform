@@ -29,7 +29,7 @@ HEADERS = [
 
 # 表头文本 → 内部 key
 COL_KEYS = {
-    "日期": "record_date",
+    "日期": "date",
     "距离(m)": "distance_m",
     "时长(分钟)": "duration_min",
     "主泳姿": "main_stroke",
@@ -145,7 +145,7 @@ def _match_columns(header: tuple) -> dict[int, str]:
         name = str(cell).strip() if cell is not None else ""
         if name in COL_KEYS:
             col_map[idx] = COL_KEYS[name]
-    if "record_date" not in col_map.values():
+    if "date" not in col_map.values():
         raise ValueError(f"工作表「{SHEET_NAME}」缺少「{DATE_HEADER}」列")
     if "distance_m" not in col_map.values():
         raise ValueError(f"工作表「{SHEET_NAME}」缺少「距离(m)」列")
@@ -162,9 +162,9 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
         cells = item["cells"]
         row_errors: list[dict] = []
 
-        record_date: date | None = None
-        if "record_date" in cells:
-            record_date, reason = _parse_date(cells.get("record_date"))
+        date: date | None = None
+        if "date" in cells:
+            date, reason = _parse_date(cells.get("date"))
             if reason:
                 row_errors.append(_err(item, DATE_HEADER, reason))
 
@@ -208,7 +208,7 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
             errors.extend(row_errors)
         else:
             valid.append({
-                "record_date": record_date,
+                "date": date,
                 "distance_m": values.get("distance_m"),
                 "duration_s": int(round(values["duration_min"] * 60)) if "duration_min" in values else None,
                 "main_stroke": main_stroke,

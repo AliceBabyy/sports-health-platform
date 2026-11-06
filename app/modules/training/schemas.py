@@ -1,5 +1,6 @@
 """健身训练 schemas。"""
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -20,24 +21,27 @@ class PlanSaveIn(BaseModel):
 
     起止时间与训练时长仅记录态有意义；填了起止时间且未手填时长时，后端自动推导时长。
     """
-    plan_date: date
+    date: date
     items: list[PlanItemIn] = Field(default_factory=list)
     remark: str | None = Field(default=None, max_length=255)  # 备注（计划/记录均可填）
-    starttime: datetime | None = None      # 开始训练时刻（ISO，仅记录态）
-    endtime: datetime | None = None         # 结束训练时刻（ISO，仅记录态）
+    start_time: datetime | None = None      # 开始训练时刻（ISO，仅记录态）
+    end_time: datetime | None = None         # 结束训练时刻（ISO，仅记录态）
     duration_s: int | None = Field(default=None, ge=0, le=24 * 3600)  # 训练时长秒，仅记录态
+    avg_heart_rate: int | None = Field(default=None, ge=1, le=300)
+    max_heart_rate: int | None = Field(default=None, ge=1, le=300)
+    calories: Decimal | None = Field(default=None, ge=0)
 
 
 class PlanCreateIn(PlanSaveIn):
     """新建计划/记录（2026-11-04 起 status 可指定：前端「＋ 新建记录」直接落 recorded）。"""
-    plan_date: date
+    date: date
     status: Literal["planned", "recorded"] = "planned"
 
 
 class JsonImportPlanIn(BaseModel):
     """JSON 导入：一个计划对象（2026-11-04 新增）。"""
 
-    plan_date: date
+    date: date
     remark: str | None = Field(default=None, max_length=255)  # 备注可空
     items: list[PlanItemIn] = Field(min_length=1)             # 动作至少 1 条
 
@@ -48,13 +52,9 @@ class JsonImportIn(BaseModel):
     plans: list[JsonImportPlanIn] = Field(min_length=1, max_length=200)
 
 
-class BatchDeleteIn(BaseModel):
-    ids: list[int] = Field(min_length=1, max_length=200)
-
-
 class TrainingNoteIn(BaseModel):
     """健身练后心得：自我评估星级 + 最佳动作 + 复盘反思 + 下一步想法。"""
     rating: int | None = Field(default=None, ge=1, le=5)
     best_movement: str | None = Field(default=None, max_length=128)
-    reflection: str | None = Field(default=None)
+    notes: str | None = Field(default=None)
     next_steps: str | None = Field(default=None)

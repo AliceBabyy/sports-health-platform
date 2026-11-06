@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from app.core.constants import SWIM_STROKES
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
+from app.core.sport_ops import batch_delete
+from app.core.sport_schemas import BatchDeleteIn
+from app.modules.swim.models import SwimRecord
 from app.modules.auth.models import User
 from app.modules.swim import excel_io, json_import, service
 from app.modules.swim.schemas import SwimNoteIn, SwimRecordIn
@@ -111,6 +114,15 @@ def create_swim(
     return service.to_dict(row)
 
 
+@router.post("/batch-delete")
+def batch_delete_swim(
+    payload: BatchDeleteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return batch_delete(db, SwimRecord, user.id, payload.ids)
+
+
 @router.put("/{record_id}")
 def update_swim(
     record_id: int,
@@ -145,7 +157,7 @@ def get_swim_note(
     user: User = Depends(get_current_user),
 ):
     note = service.get_note(db, user.id, record_id)
-    return {"note": ({"id": note.id, "rating": note.rating, "stroke_insight": note.stroke_insight, "other": note.other} if note else None)}
+    return {"note": ({"id": note.id, "rating": note.rating, "stroke_insight": note.stroke_insight, "notes": note.notes} if note else None)}
 
 
 @router.put("/{record_id}/note")
@@ -159,9 +171,9 @@ def put_swim_note(
         db, user.id, record_id,
         rating=payload.rating,
         stroke_insight=payload.stroke_insight,
-        other=payload.other,
+        notes=payload.notes,
     )
-    return {"note": {"id": note.id, "rating": note.rating, "stroke_insight": note.stroke_insight, "other": note.other}}
+    return {"note": {"id": note.id, "rating": note.rating, "stroke_insight": note.stroke_insight, "notes": note.notes}}
 
 
 @router.get("/stats")

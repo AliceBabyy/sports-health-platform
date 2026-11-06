@@ -8,11 +8,20 @@ from app.modules.auth.models import User
 def authenticate(db: Session, username: str, password: str) -> User | None:
     """校验账号密码；失败统一返回 None，不暴露差异细节。"""
     user = db.query(User).filter(User.username == username).first()
-    if user is None:
+    if user is None or user.status != "启用":
         return None
     if not verify_password(password, user.password_hash):
         return None
     return user
+
+
+def restore_user(db: Session, user: User, password: str) -> bool:
+    """停用账号凭原密码自助恢复，保留原 user_id 和数据。"""
+    if user.status != "停用" or not verify_password(password, user.password_hash):
+        return False
+    user.status = "启用"
+    db.commit()
+    return True
 
 
 def create_user(

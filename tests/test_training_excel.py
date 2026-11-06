@@ -1,6 +1,6 @@
 """健身训练 Excel 导入单测（2026-11-04 新增：模板生成 / 解析 / 行级校验 / 按日期分组建记录）。
 
-2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 endtime），不再经 planned。
+2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 end_time），不再经 planned。
 """
 from datetime import date
 from io import BytesIO
@@ -14,7 +14,7 @@ from app.modules.training.schemas import PlanItemIn
 
 USER = 1
 
-HEADERS = ["计划日期", "备注", "动作名称", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg"]
+HEADERS = excel_io.HEADERS
 
 
 def _make_workbook(rows: list[list]) -> bytes:
@@ -70,33 +70,34 @@ def test_parse_requires_sheet_and_columns():
         excel_io.parse_workbook(_make_with_header(["备注", "动作名称", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg"]))
 
     with pytest.raises(ValueError, match="动作名称"):
-        excel_io.parse_workbook(_make_with_header(["计划日期", "备注", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg"]))
+        excel_io.parse_workbook(_make_with_header(["计划日期", "训练组编号", "备注", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg"]))
 
 
-def test_import_groups_rows_by_date(db):
-    """按日期分组建记录：同日期 3 行 → 1 条记录 3 动作；两日期 → 2 条记录，动作按行序。
+def test_import_groups_rows_by_date_and_group(db):
+    """同一天可导入多条训练，各动作按训练组编号关联主记录。
 
-    2026-11-04 起导入落 recorded：status=recorded、endtime 写入；同日期可多次导入再建记录。
+    2026-11-04 起导入落 recorded：status=recorded、end_time 写入；同日期可多次导入再建记录。
     """
     content = _make_workbook([
-        ["2026-11-05", "练腿", "深蹲", "腿", 60, 4, "10", 70],
-        ["2026-11-05", None, "腿举", "腿", 80, 3, "12", None],
-        ["2026-11-05", None, "拉伸", None, None, None, None, None],
-        ["2026-11-06", "练胸", "卧推", "胸", 40, 3, "10+8+6", 50],
-        ["2026-11-06", None, "飞鸟", "胸", None, 3, "12", None],
+        ["2026-11-05", "A", "练腿", "深蹲", "腿", 60, 4, "10", 70],
+        ["2026-11-05", "A", None, "腿举", "腿", 80, 3, "12", None],
+        ["2026-11-05", "A", None, "拉伸", None, None, None, None, None],
+        ["2026-11-05", "B", "晚间", "慢跑", None, None, None, None, None],
+        ["2026-11-06", "A", "练胸", "卧推", "胸", 40, 3, "10+8+6", 50],
+        ["2026-11-06", "A", None, "飞鸟", "胸", None, 3, "12", None],
     ])
     parsed = excel_io.parse_workbook(content)
     valid, errors = excel_io.validate_rows(parsed)
     assert not errors
 
-    groups: dict[date, list[dict]] = {}
+    groups: dict[tuple[date, str], list[dict]] = {}
     for row in valid:
-        groups.setdefault(row["plan_date"], []).append(row)
-    assert sorted(groups) == [date(2026, 11, 5), date(2026, 11, 6)]
-    assert len(groups[date(2026, 11, 5)]) == 3
+        groups.setdefault((row["date"], row["group_key"]), []).append(row)
+    assert sorted(groups) == [(date(2026, 11, 5), "A"), (date(2026, 11, 5), "B"), (date(2026, 11, 6), "A")]
+    assert len(groups[(date(2026, 11, 5), "A")]) == 3
 
     created = []
-    for plan_date, rows in groups.items():
+    for (day, _group), rows in groups.items():
         remark = next((r["remark"] for r in rows if r["remark"]), None)
         items = [
             PlanItemIn(
@@ -106,29 +107,30 @@ def test_import_groups_rows_by_date(db):
             )
             for r in rows
         ]
-        created.append(service.create_plan(db, USER, plan_date, items, remark=remark, status=TR_STATUS_RECORDED))
+        created.append(service.create_plan(db, USER, day, items, remark=remark, status=TR_STATUS_RECORDED))
 
-    p1, p2 = sorted(created, key=lambda p: p.plan_date)
-    assert p1.plan_date == date(2026, 11, 5) and p1.status == TR_STATUS_RECORDED and p1.endtime is not None
+    p1, p_mid, p2 = created
+    assert p1.date == date(2026, 11, 5) and p1.status == TR_STATUS_RECORDED and p1.end_time is not None
     assert p1.remark == "练腿"
     assert [i.exercise_name for i in p1.items] == ["深蹲", "腿举", "拉伸"]
     assert [i.sort for i in p1.items] == [1, 2, 3]
-    assert p2.plan_date == date(2026, 11, 6) and p2.remark == "练胸"
+    assert p_mid.date == p1.date and p_mid.id != p1.id and p_mid.items[0].exercise_name == "慢跑"
+    assert p2.date == date(2026, 11, 6) and p2.remark == "练胸"
     assert p2.items[0].reps == "10+8+6" and p2.items[0].target_weight_kg == 50
     # 同日期多计划：再导一次会再建一条，不覆盖
     service.create_plan(db, USER, date(2026, 11, 5), [PlanItemIn(exercise_name="额外动作")], remark=None, status=TR_STATUS_RECORDED)
-    assert len(service.get_plans_by_date(db, USER, date(2026, 11, 5))) == 2
+    assert len(service.get_plans_by_date(db, USER, date(2026, 11, 5))) == 3
 
 
 def test_validate_rejects_bad_rows_keeps_good():
     """行级校验：日期为空/格式错、动作名空、重量越界、组数 0 报错，好行不受影响。"""
     content = _make_workbook([
-        [None, None, "动作A", "腿", 60, 4, "10", None],                     # 日期空
-        ["2026-13-99", None, "动作B", "腿", 60, 4, "10", None],             # 日期格式错
-        ["2026-11-05", None, None, "腿", 60, 4, "10", None],                # 动作名空
-        ["2026-11-05", None, "动作C", "腿", 1500, 4, "10", None],           # 重量越界
-        ["2026-11-05", None, "动作D", "腿", 60, 0, "10", None],             # 组数越界
-        ["2026-11-05", None, "动作E", "腿", 60, 4, "10", 60],               # 正常
+        [None, "A", None, "动作A", "腿", 60, 4, "10", None],
+        ["2026-13-99", "A", None, "动作B", "腿", 60, 4, "10", None],
+        ["2026-11-05", "A", None, None, "腿", 60, 4, "10", None],
+        ["2026-11-05", "A", None, "动作C", "腿", 1500, 4, "10", None],
+        ["2026-11-05", "A", None, "动作D", "腿", 60, 0, "10", None],
+        ["2026-11-05", "A", None, "动作E", "腿", 60, 4, "10", 60],
     ])
     parsed = excel_io.parse_workbook(content)
     valid, errors = excel_io.validate_rows(parsed)
@@ -144,12 +146,12 @@ def test_validate_rejects_bad_rows_keeps_good():
 def test_parse_skips_blank_rows_and_ignores_unknown_columns():
     """空行跳过、未知列忽略、整行空白不产生错误。"""
     content = _make_workbook([
-        [None, None, None, None, None, None, None, None],                   # 整行空白
-        ["2026-11-05", None, "有效动作", "腿", 60, 4, "10", None],
+        [None, None, None, None, None, None, None, None, None],
+        ["2026-11-05", "A", None, "有效动作", "腿", 60, 4, "10", None],
     ])
     wb = load_workbook(BytesIO(content))
     ws = wb[excel_io.SHEET_NAME]
-    ws["I3"] = "未知列的值"  # 第 9 列不在模板中，且只加在有效数据行
+    ws["J3"] = "未知列的值"
     buf = BytesIO()
     wb.save(buf)
     parsed = excel_io.parse_workbook(buf.getvalue())

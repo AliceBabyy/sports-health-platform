@@ -4,6 +4,7 @@
 (function () {
   const App = window.App;
   let currentPage = 1, editingId = null, formMode = 'recorded';
+  let editingRow = null;
   let editingWasRecorded = false;   // 打开编辑弹窗时原行是否已是记录态（决定保存后是否弹庆祝）
   let noteTargetId = null;         // 心得弹窗当前编辑的游泳记录 id
   let starGetRating = null;        // 心得弹窗星级取值器
@@ -12,6 +13,7 @@
   const qs = new URLSearchParams(location.search);
   const fromOv = qs.get('fromov') === '1';               // 是否从总览点日期格「＋ 计划」过来
   const dailyWrap = document.getElementById('swimDaily');
+  const historyBatch = App.bindBatchDelete('swimBody', 'swimSelectAll', 'swimBatchDelete', '/api/swim-records', () => load(currentPage));
 
   function fmtDur(sec) { return sec != null ? App.fmtClock(sec) : '—'; }
   function statusTag(r) { return App.statusTag(r.status); }
@@ -88,6 +90,7 @@
   function load(page) {
     currentPage = page || 1;
     App.api('/api/swim-records?page=' + currentPage + '&page_size=10').then(function (res) {
+      if (!res.list.length && res.page > 1 && res.total > 0) { load(res.page - 1); return; }
       const tbody = document.getElementById('swimBody');
       if (!res.list.length) {
         tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state"><div class="icon">🏊</div>暂无游泳数据，点击右上角「新增记录 / 新建计划」开始</div></td></tr>';
@@ -95,7 +98,7 @@
         tbody.innerHTML = res.list.map(function (r) {
           const planned = r.status === 'planned';
           return '<tr>' +
-            '<td class="num">' + r.record_date + '</td>' +
+            '<td class="num"><input type="checkbox" class="batch-row" value="' + r.id + '" aria-label="选择游泳记录">' + r.date + '</td>' +
             '<td>' + statusTag(r) + '</td>' +
             '<td class="num">' + (r.distance_m != null ? r.distance_m + ' m' : '—') + '</td>' +
             '<td class="num">' + fmtDur(r.duration_s) + '</td>' +
@@ -111,6 +114,7 @@
             '<button class="btn btn-sm btn-danger" data-act="del" data-id="' + r.id + '">删除</button></td></tr>';
         }).join('');
       }
+      historyBatch.reset();
       renderPagination(res);
     }).catch(e => App.toast(e.message, true));
   }
@@ -143,6 +147,7 @@
 
   function openForm(row, mode) {
     editingId = row ? row.id : null;
+    editingRow = row || null;
     editingWasRecorded = row ? row.status === 'recorded' : false;
     const m = mode || (row && row.status) || 'recorded';
     document.getElementById('modalSwimTitle').textContent = row
@@ -150,8 +155,8 @@
       : (m === 'planned' ? '新建游泳计划' : '新增游泳记录');
     const form = document.getElementById('formSwim');
     form.reset();
-    form.record_date.value = row ? row.record_date : viewDate;
-    form.record_date.max = '';
+    form.date.value = row ? row.date : viewDate;
+    form.date.max = '';
     applyFormMode(m);
     if (row) {
       form.elements.remark.value = row.remark || '';
@@ -172,7 +177,7 @@
     if (showNoteSec) {
       const n = row.note || {};
       document.getElementById('swimEditStrokeInsight').value = n.stroke_insight || '';
-      document.getElementById('swimEditOther').value = n.other || '';
+      document.getElementById('swimEditOther').value = n.notes || '';
       const box = document.getElementById('swimEditStars');
       box.innerHTML = App.starWidgetHtml(n.rating || 0);
       editNoteStars = App.bindStars(box, n.rating || 0);
@@ -215,7 +220,7 @@
     const form = e.target;
     const planned = formMode === 'planned';
     const payload = {
-      record_date: form.record_date.value,
+      date: form.date.value,
       status: planned ? 'planned' : 'recorded',
       distance_m: form.elements.distance_m.value !== '' ? parseInt(form.elements.distance_m.value, 10) : null,
       duration_s: form.elements.duration_min.value !== '' ? Math.round(parseFloat(form.elements.duration_min.value) * 60) : null,
@@ -226,6 +231,9 @@
       laps: planned ? null : (form.elements.laps.value !== '' ? parseInt(form.elements.laps.value, 10) : null),
       calories: planned ? null : (form.elements.calories.value !== '' ? parseFloat(form.elements.calories.value) : null),
       avg_stroke_rate: planned ? null : (form.elements.avg_stroke_rate.value !== '' ? parseFloat(form.elements.avg_stroke_rate.value) : null),
+      start_time: editingRow ? editingRow.start_time : null,
+      end_time: editingRow ? editingRow.end_time : null,
+      max_heart_rate: editingRow ? editingRow.max_heart_rate : null,
     };
     const req = editingId
       ? App.api('/api/swim-records/' + editingId, { method: 'PUT', body: payload })
@@ -244,7 +252,7 @@
           body: {
             rating: (editNoteStars && editNoteStars() > 0) ? editNoteStars() : null,
             stroke_insight: document.getElementById('swimEditStrokeInsight').value.trim() || null,
-            other: document.getElementById('swimEditOther').value.trim() || null,
+            notes: document.getElementById('swimEditOther').value.trim() || null,
           },
         }).then(cb).catch(function (err) { App.toast('心得保存失败：' + err.message, true); cb(); });
       }
@@ -269,7 +277,7 @@
   function openSwimNote(recordId, existing) {
     noteTargetId = recordId;
     document.getElementById('swimNoteStrokeInsight').value = (existing && existing.stroke_insight) || '';
-    document.getElementById('swimNoteOther').value = (existing && existing.other) || '';
+    document.getElementById('swimNoteOther').value = (existing && existing.notes) || '';
     const starBox = document.getElementById('swimNoteStars');
     starBox.innerHTML = App.starWidgetHtml(existing ? existing.rating : 0);
     starGetRating = App.bindStars(starBox, existing ? existing.rating || 0 : 0);
@@ -282,7 +290,7 @@
       body: {
         rating: (starGetRating && starGetRating() > 0) ? starGetRating() : null,
         stroke_insight: document.getElementById('swimNoteStrokeInsight').value.trim() || null,
-        other: document.getElementById('swimNoteOther').value.trim() || null,
+        notes: document.getElementById('swimNoteOther').value.trim() || null,
       },
     }).then(function () {
       App.closeModal('modalSwimNote');

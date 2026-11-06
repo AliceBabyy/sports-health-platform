@@ -31,7 +31,7 @@ def _seed(db):
         db,
         USER,
         SwimRecordIn(
-            record_date=monday, status=TR_STATUS_PLANNED,
+            date=monday, status=TR_STATUS_PLANNED,
             distance_m=1000, duration_s=1800, main_stroke="freestyle", remark="练换气",
         ),
     )
@@ -39,20 +39,20 @@ def _seed(db):
         db,
         USER,
         SwimRecordIn(
-            record_date=monday, status=TR_STATUS_RECORDED, distance_m=1500, duration_s=1800,
+            date=monday, status=TR_STATUS_RECORDED, distance_m=1500, duration_s=1800,
             calories=Decimal("120"),
         ),
     )
     dance_service.create_record(
         db,
         USER,
-        DanceRecordIn(record_date=monday, status=TR_STATUS_PLANNED, dance_type="爵士", stars=4, remark="练爆发力"),
+        DanceRecordIn(date=monday, status=TR_STATUS_PLANNED, dance_type="爵士", stars=4, remark="练爆发力"),
     )
     dance_service.create_record(
         db,
         USER,
         DanceRecordIn(
-            record_date=monday, status=TR_STATUS_RECORDED, dance_type="爵士", stars=4,
+            date=monday, status=TR_STATUS_RECORDED, dance_type="爵士", stars=4,
             duration_s=3600, calories=Decimal("200"),
         ),
     )

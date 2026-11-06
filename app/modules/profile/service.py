@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import AppError
 from app.core.security import hash_password, verify_password
 from app.modules.auth.models import User
+from app.modules.body.models import BodyBasicRecord, BodyBasicGoalRecord, BodyDimensionsRecord, BodyDimensionsGoalRecord
+from app.modules.cycle.models import CycleSetting, PeriodRecord, DailyPainLog
+from app.modules.training.models import TrainingRecord, TrainingRecordItem, TrainingNote
+from app.modules.swim.models import SwimRecord, SwimNote
+from app.modules.dance.models import DanceRecord, DanceNote
 
 GENDERS = ("男", "女")
 
@@ -59,3 +64,32 @@ def change_password(db: Session, user: User, current_password: str, new_password
         raise AppError(400, "新密码不能与当前密码相同")
     user.password_hash = hash_password(new_password)
     db.commit()
+
+
+def delete_account(db: Session, user: User, mode: str, current_password: str) -> None:
+    if mode not in ("retain", "purge"):
+        raise AppError(400, "注销方式不正确")
+    if not verify_password(current_password, user.password_hash):
+        raise AppError(400, "当前密码不正确")
+    try:
+        if mode == "retain":
+            user.status = "停用"
+        else:
+            for parent, child, key in (
+                (TrainingRecord, TrainingRecordItem, "training_id"),
+                (TrainingRecord, TrainingNote, "training_id"),
+                (SwimRecord, SwimNote, "swim_id"),
+                (DanceRecord, DanceNote, "dance_id"),
+            ):
+                ids = db.query(parent.id).filter(parent.user_id == user.id)
+                db.query(child).filter(getattr(child, key).in_(ids)).delete(synchronize_session=False)
+            for model in (
+                BodyBasicRecord, BodyBasicGoalRecord, BodyDimensionsRecord, BodyDimensionsGoalRecord,
+                CycleSetting, PeriodRecord, DailyPainLog, TrainingRecord, SwimRecord, DanceRecord,
+            ):
+                db.query(model).filter(model.user_id == user.id).delete(synchronize_session=False)
+            db.delete(user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise

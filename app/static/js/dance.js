@@ -12,6 +12,7 @@
   const qs = new URLSearchParams(location.search);
   const fromOv = qs.get('fromov') === '1';
   const dailyWrap = document.getElementById('danceDaily');
+  const historyBatch = App.bindBatchDelete('danceBody', 'danceSelectAll', 'danceBatchDelete', '/api/dance-records', () => load(currentPage));
 
   const STAR_TEXT = ['', '★', '★★', '★★★', '★★★★', '★★★★★'];
 
@@ -108,6 +109,7 @@
     let url = '/api/dance-records?page=' + currentPage + '&page_size=10';
     if (filterType) url += '&dance_type=' + encodeURIComponent(filterType);
     App.api(url).then(function (res) {
+      if (!res.list.length && res.page > 1 && res.total > 0) { load(res.page - 1); return; }
       const tbody = document.getElementById('danceBody');
       if (!res.list.length) {
         tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state"><div class="icon">💃</div>暂无舞蹈数据，点击右上角「新增记录 / 新建计划」开始</div></td></tr>';
@@ -115,9 +117,9 @@
         tbody.innerHTML = res.list.map(function (r) {
           const planned = r.status === 'planned';
           return '<tr>' +
-            '<td class="num">' + r.record_date + '</td>' +
-            '<td class="num">' + (planned ? '—' : timeRange(r)) + '</td>' +
+            '<td class="num"><input type="checkbox" class="batch-row" value="' + r.id + '" aria-label="选择舞蹈记录">' + r.date + '</td>' +
             '<td>' + statusTag(r) + '</td>' +
+            '<td class="num">' + (planned ? '—' : timeRange(r)) + '</td>' +
             '<td>' + App.escapeHtml(r.dance_type || '—') + '</td>' +
             '<td>' + App.escapeHtml(r.teacher || '—') + '</td>' +
             '<td class="stars" title="' + (r.stars != null ? r.stars : 0) + ' 星">' + (r.stars != null ? STAR_TEXT[r.stars] : '—') + '</td>' +
@@ -131,6 +133,7 @@
             '<button class="btn btn-sm btn-danger" data-act="del" data-id="' + r.id + '">删除</button></td></tr>';
         }).join('');
       }
+      historyBatch.reset();
       renderPagination(res);
     }).catch(e => App.toast(e.message, true));
   }
@@ -186,7 +189,7 @@
     const form = document.getElementById('formDance');
     form.reset();
     durationManual = false;
-    form.record_date.value = row ? row.record_date : viewDate;
+    form.date.value = row ? row.date : viewDate;
     applyFormMode(m);
     if (row) {
       form.elements.remark.value = row.remark || '';
@@ -208,7 +211,7 @@
     editNoteStars = null; editNoteVideo = null;
     if (showNoteSec) {
       const n = row.note || {};
-      document.getElementById('danceEditInsight').value = n.insight || '';
+      document.getElementById('danceEditInsight').value = n.notes || '';
       const sb = document.getElementById('danceEditStars');
       const vb = document.getElementById('danceEditVideo');
       sb.innerHTML = App.starWidgetHtml(n.rating || 0);
@@ -269,11 +272,11 @@
     e.preventDefault();
     const form = e.target;
     const planned = formMode === 'planned';
-    const dateStr = form.record_date.value;
+    const dateStr = form.date.value;
     const sTm = form.elements.start_tm.value;
     const eTm = form.elements.end_tm.value;
     const payload = {
-      record_date: dateStr,
+      date: dateStr,
       start_time: (dateStr && sTm) ? (dateStr + 'T' + sTm + ':00') : null,
       end_time: (dateStr && eTm) ? (dateStr + 'T' + eTm + ':00') : null,
       status: planned ? 'planned' : 'recorded',
@@ -304,7 +307,7 @@
           body: {
             rating: (editNoteStars && editNoteStars() > 0) ? editNoteStars() : null,
             video_effect: (editNoteVideo && editNoteVideo() > 0) ? editNoteVideo() : null,
-            insight: document.getElementById('danceEditInsight').value.trim() || null,
+            notes: document.getElementById('danceEditInsight').value.trim() || null,
           },
         }).then(cb).catch(function (err) { App.toast('心得保存失败：' + err.message, true); cb(); });
       }
@@ -328,7 +331,7 @@
   /* ---------- 练后心得弹窗（2026-11） ---------- */
   function openDanceNote(recordId, existing) {
     noteTargetId = recordId;
-    document.getElementById('danceNoteInsight').value = (existing && existing.insight) || '';
+    document.getElementById('danceNoteInsight').value = (existing && existing.notes) || '';
     const starBox = document.getElementById('danceNoteStars');
     const videoBox = document.getElementById('danceNoteVideo');
     starBox.innerHTML = App.starWidgetHtml(existing ? existing.rating : 0);
@@ -344,7 +347,7 @@
       body: {
         rating: (starGetRating && starGetRating() > 0) ? starGetRating() : null,
         video_effect: (starGetVideo && starGetVideo() > 0) ? starGetVideo() : null,
-        insight: document.getElementById('danceNoteInsight').value.trim() || null,
+        notes: document.getElementById('danceNoteInsight').value.trim() || null,
       },
     }).then(function () {
       App.closeModal('modalDanceNote');

@@ -17,14 +17,14 @@
 <div class="two-col">
 <div class="three-row-stack">
 <div class="card dance-page daily-card">
-  <div class="card-title">当日舞蹈
+  <div class="day-head">
+    <div><div class="day-title">当日舞蹈</div><div class="day-sub">{{ selected_date_str }} · {{ selected_weekday }}</div></div>
     <span class="date-nav">
       <a class="dn-btn" href="/dance?date={{ prev_date }}" title="前一天">‹</a>
       <span class="dn-label num">{{ selected_date }}{% if not is_today %} · <a class="dn-today" href="/dance">回到今天</a>{% endif %}</span>
       <a class="dn-btn" href="/dance?date={{ next_date }}" title="后一天">›</a>
     </span>
   </div>
-  <div class="daily-meta">{{ selected_date_str }}（{{ selected_weekday }}） · 计划与记录统一按日展示</div>
   <div id="danceDaily"></div>
 </div>
 
@@ -55,14 +55,15 @@
 </div>
 
 <div class="card dance-page">
-  <div class="card-title">全部记录 <span class="sub">计划 + 记录，按日期倒序 · 星级为当日课程完成度自评</span>
+  <div class="card-title">全部记录
     <div class="filter-chips" id="danceFilters"></div>
+    <button type="button" class="btn btn-sm btn-danger batch-delete" id="danceBatchDelete" disabled>删除所选</button>
   </div>
   <div class="table-wrap">
     <table class="tbl">
       <thead>
         <tr>
-          <th>日期</th><th>时间</th><th>类型</th><th>舞种</th><th>老师</th><th>星级</th><th>风格</th><th>时长</th><th>平均心率</th><th>最大心率</th><th>卡路里</th><th>操作</th>
+          <th>日期 <input type="checkbox" class="batch-all" id="danceSelectAll" aria-label="选择本页全部舞蹈"></th><th>类型</th><th>时间</th><th>舞种</th><th>老师</th><th>星级</th><th>风格</th><th>时长</th><th>平均心率</th><th>最大心率</th><th>卡路里</th><th>操作</th>
         </tr>
       </thead>
       <tbody id="danceBody"></tbody>
@@ -93,7 +94,7 @@
     <div class="modal-desc" id="modalDanceDesc">记下这节课的舞种、老师与强度，星级用于自评完成度。</div>
     <form id="formDance">
       <div class="form-grid">
-        <div class="form-item"><label class="field-label">日期</label><input class="input" type="date" name="record_date" required></div>
+        <div class="form-item"><label class="field-label">日期</label><input class="input" type="date" name="date" required></div>
         <div class="form-item"><label class="field-label">开始时间</label><input class="input" type="time" name="start_tm"></div>
         <div class="form-item"><label class="field-label">结束时间</label><input class="input" type="time" name="end_tm"></div>
         <div class="form-item"><label class="field-label">舞种</label>
@@ -147,9 +148,9 @@
       <div id="importJsonPane" style="display:none">
         <div class="form-item">
           <label class="field-label">粘贴 JSON（{&quot;records&quot;: [...]}）</label>
-          <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder='{"records":[{"record_date":"2026-11-04","start_time":"2026-11-04T19:00:00","end_time":"2026-11-04T20:30:00","dance_type":"爵士","stars":5,"teacher":"王老师","style":"编舞·力量","avg_heart_rate":130,"max_heart_rate":160,"calories":350,"remark":"重点练爆发力"}]}'></textarea>
+          <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder='{"records":[{"date":"2026-11-04","start_time":"2026-11-04T19:00:00","end_time":"2026-11-04T20:30:00","dance_type":"爵士","stars":5,"teacher":"王老师","style":"编舞·力量","avg_heart_rate":130,"max_heart_rate":160,"calories":350,"remark":"重点练爆发力"}]}'></textarea>
         </div>
-        <div class="modal-note">格式：{&quot;records&quot;:[{&quot;record_date&quot;:&quot;YYYY-MM-DD&quot;,&quot;start_time&quot;:&quot;ISO datetime 可选&quot;,&quot;end_time&quot;:&quot;ISO datetime 可选&quot;,&quot;dance_type&quot;:&quot;必填&quot;,&quot;stars&quot;:1~5 必填,&quot;teacher&quot;:&quot;可选&quot;,&quot;style&quot;:&quot;可选&quot;,&quot;duration_s&quot;:&quot;可选 秒&quot;,&quot;avg_heart_rate&quot;:&quot;可选&quot;,&quot;max_heart_rate&quot;:&quot;可选&quot;,&quot;calories&quot;:&quot;可选&quot;,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条。</div>
+        <div class="modal-note">格式：{&quot;records&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;start_time&quot;:&quot;ISO datetime 可选&quot;,&quot;end_time&quot;:&quot;ISO datetime 可选&quot;,&quot;dance_type&quot;:&quot;必填&quot;,&quot;stars&quot;:1~5 必填,&quot;teacher&quot;:&quot;可选&quot;,&quot;style&quot;:&quot;可选&quot;,&quot;duration_s&quot;:&quot;可选 秒&quot;,&quot;avg_heart_rate&quot;:&quot;可选&quot;,&quot;max_heart_rate&quot;:&quot;可选&quot;,&quot;calories&quot;:&quot;可选&quot;,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条。</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>

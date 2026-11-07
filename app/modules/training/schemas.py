@@ -19,14 +19,14 @@ class PlanItemIn(BaseModel):
 class PlanSaveIn(BaseModel):
     """编辑计划/记录（2026-11-04 起可改归属日期：计划挪期、记录补录/改期均支持）。
 
-    起止时间与训练时长仅记录态有意义；填了起止时间且未手填时长时，后端自动推导时长。
+    起止时间与训练时长计划态/记录态均可填（均可空）；填了起止时间且未手填时长时，后端自动推导时长。
     """
     date: date
     items: list[PlanItemIn] = Field(default_factory=list)
     remark: str | None = Field(default=None, max_length=255)  # 备注（计划/记录均可填）
-    start_time: datetime | None = None      # 开始训练时刻（ISO，仅记录态）
-    end_time: datetime | None = None         # 结束训练时刻（ISO，仅记录态）
-    duration_s: int | None = Field(default=None, ge=0, le=24 * 3600)  # 训练时长秒，仅记录态
+    start_time: datetime | None = None      # 开始训练时刻（ISO，计划/记录均可填、可空）
+    end_time: datetime | None = None         # 结束训练时刻（ISO，计划/记录均可填、可空）
+    duration_s: int | None = Field(default=None, ge=0, le=24 * 3600)  # 训练时长秒，可空
     avg_heart_rate: int | None = Field(default=None, ge=1, le=300)
     max_heart_rate: int | None = Field(default=None, ge=1, le=300)
     calories: Decimal | None = Field(default=None, ge=0)

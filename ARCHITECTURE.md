@@ -70,6 +70,7 @@
 - **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段均由 service 实时计算。
 - **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`daily_pain_logs` 按 `(user_id, log_date)` 唯一。三运动同日可多条，按主表 id 定位。
 - **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded；统计口径只计 recorded 行。
+- **时间与时长展示口径统一**（2026-11-07）：三运动（健身/游泳/舞蹈）的表单（含计划态）均展示起止时间与时长，均可填、可空（不因计划态隐藏、不设必填）；Excel 模板与 JSON 导入同样提供开始/结束时间列（可空，Excel 填 HH:MM，JSON 填 "HH:MM" 或完整 ISO 时间），未填时长时按起止时间推导；列表与「查看详情」弹窗对时段/时长/配速/划频等字段不做状态判断，有值即显示、无值显示「—」；总览日卡计划态时长一律按 0 计，仅 recorded 且有时长才拼时长；心得区块仍仅记录态且确有心得内容才展示。舞蹈的时间字段统一称「上课时间」。
 - **统一运动契约**：主表名为 `{sport}_records`，心得表为 `{sport}_notes`；主表必含 id/user_id/date/status/start_time/end_time/duration_s/remark/avg_heart_rate/max_heart_rate/calories/created_at/updated_at，心得必含 id、专属主表外键、rating、notes。各模块可增加字段和表，健身的 `training_records_items` 即专属表。ORM 共用 `SportRecordMixin`、`SportNoteMixin`；规则共用 `sport_ops.py`。详见《数据库建表设计.md》。
 - **统一接口**：`/api/training`、`/api/swim-records`、`/api/dance-records` 均提供列表、新建、按 id 编辑/删除、`/daily`、`/stats`、`/template`、`/import`、`/import-json`、`/batch-delete`、`/{id}/note` 读写。列表包含计划和记录，批量删除限当前用户的所选 id，心得仅记录态可写。模块专属接口可额外提供。
 - **账号状态与注销**：`users.status ∈ {启用, 停用}`，注册默认启用；登录和请求门禁拦截停用账号。`DELETE /api/profile/account` 要求当前密码，`retain` 停用并清会话，`purge` 在事务中删除用户及全部关联数据后清会话。停用账号通过注册页显式选择恢复、验证原密码后复用原 user_id。无管理员角色及管理员恢复接口。
@@ -80,8 +81,10 @@
 - 身材：4 组（basic/goal/girth/target）映射 4 表；新增记录未填字段沿用该维度最近一次非空值；趋势四档（week/month/half_year/year）窗口与锚点见常量。
 - 周期：七阶段独立枚举；锚点=最近月经首日；排卵日 = 周期长度 − 14；四档状态按阶段内日序判定（黄体中期前 2 天良好、余下日期一般；黄体后期前 2 天一般、余下日期休息；经期前 3 天休息、第 4 天一般、第 5 天起良好），疼痛 ≥2 覆盖为休息。
 - 周期颜色由 `app/static/css/tokens.css` 统一提供：月历单元格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；窄屏仍显示两字状态名；周期静态资源带版本号以避免旧样式缓存。
-- 运动类型编码色同由 tokens.css 提供：`--ov-fit`（健身·灰）、`--ov-swim`（游泳·蓝）、`--ov-dance`（舞蹈·粉），日视图色条、图例圆点、汇总卡 chip 共用；ECharts 读不到 CSS 变量，`app/static/js/overview.js` 的 `COLORS` 必须与这三个令牌取值一致。
+- 运动类型编码色同由 tokens.css 提供：`--ov-fit`（健身·灰）、`--ov-swim`（游泳·蓝）、`--ov-dance`（舞蹈·粉），日视图色条、图例圆点、汇总卡 chip 共用；chip 底色为 `--ov-fit-soft/--ov-swim-soft/--ov-dance-soft`（同基色独立透明度）。ECharts 读不到 CSS 变量，`app/static/js/overview.js` 的 `COLORS` 与 `body.js` 的图表配色一律通过 `App.cssVar('--令牌名')` 运行时读取，不再维护手工副本。
 - 记录 / 计划态标记统一取 `--state-plan`（计划·蓝绿）与 `--state-record`（记录·深灰）：总览页列表圆点、chip 圆点，以及 `App.statusTag` 输出的「计划 / 记录」标签同一口径，不得各自取色。
+- 配色规范：颜色唯一来源是 `app/static/css/tokens.css`。CSS 与 Jinja 模板一律用 `var(--令牌)`；**SVG 不能把 `var()` 写进 `fill` / `stroke` 属性**（presentation attribute 不解析变量），必须改写 `style="fill:var(--…)"`。JS / ECharts 用 `App.cssVar(name, fallback)`。
+- 同值但语义不同、**禁止合并**的令牌对（合并会让两条业务线绑死）：`#6b7280` = 次要文字 / 记录态 / 健身编码；`#17b3a6` = 品牌强调 / 计划态；`rgba(23,179,166,.10)` = hover 浅底 / 计划标签底；`rgba(27,36,52,.08)` = 焦点环 / 轻投影；`rgba(107,114,128,.10)` = 中性标签底 / 健身 chip 底。要“当前同值、将来可分”，用 `var()` 别名而非删令牌。
 - 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长优先 duration_s，缺失时按 recorded 的 end_time−start_time 推导，游泳/舞蹈= duration_s；热量按记录字段汇总。
 - 训练容量：Σ 重量 × 组数 × 每组个数首段数字（reps 为字符串，如 `"10+8+6"` 按 10 计），负荷任一为空跳过。
 
@@ -94,9 +97,10 @@
 ## 10. 前端组织
 
 - 页面模板 `app/templates`：`base.html` 提供公共布局与 `#modalDetail` 详情弹窗；`layout/sidebar.html` 为分组导航（身材 / 运动训练·计划[健身/游泳/舞蹈] / 生理周期 / 个人信息，男性账号隐藏周期入口）。
-- `app/core/templating.py::render_page` 统一注入登录用户、导航高亮、面包屑、侧栏「今日」信息与常量。
+- `app/core/templating.py::render_page` 统一注入登录用户、导航高亮、面包屑、侧栏「今日」信息与常量；`today` 按请求取当天（`date.today()`），进程长跑跨天不会停留在启动日。
 - 静态资源 `app/static`：css（base/layout/pages/*）、js（common.js 共享弹窗与工具函数 + 各模块页面脚本）、vendor（echarts）、img。
 - 三运动页顶部都有新建计划、新增记录、Excel/JSON 导入；主体为当日、档案、全部记录、周期联动四块。全部记录首列日期、次列类型、末列操作，含查看详情、编辑、删除及批量删除。共用双栏使用可收缩网格列，宽表在卡片内部横向滚动；健身动作表和编辑动作区单独滚动。
+- 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 
 ### 新增运动模块需求确认
 

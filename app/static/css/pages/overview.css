@@ -1,6 +1,15 @@
 /* 运动训练/计划 总览页（2026-11）：日/周/月三视图 + 单日详情弹窗
    2026-11-03：日=训练计划卡(顶)→三运动卡→当日运动情况(底)；周/月=每日卡(最上)→运动情况卡(次数+时长+每日时长图) */
 .ov-date { font-size: 12.5px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+/* 周期切换（复用 layout.css 的 .date-nav 造型）：日=前后天 / 周=前后周 / 月=前后月；贴右上 */
+.ov-period-nav { margin-left: auto; }
+.ov-period-nav .dn-btn { padding: 0; cursor: pointer; }
+.ov-period-nav .dn-label { min-width: 118px; text-align: center; color: var(--color-text); }
+.ov-period-nav .dn-today {
+  border: 0; background: transparent; padding: 0; margin-left: 2px;
+  font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.ov-period-nav .dn-today[hidden] { display: none; }
 .ov-view { margin-top: 4px; }
 
 /* 日视图顶部：训练计划单卡（全宽） */
@@ -95,12 +104,16 @@
 .ws-day:hover { box-shadow: inset 0 0 0 0.667px var(--color-border-strong); }
 .ws-day.is-today { box-shadow: inset 0 0 0 1.5px var(--color-border-strong); }
 .ws-day .wd-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.ws-day .wd-week { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.ws-day .wd-week {
+  display: inline-flex; align-items: baseline; gap: 5px; min-width: 0;
+  font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.ws-day .wd-date { font-style: normal; font-size: 11px; font-weight: 400; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
 .ws-day .wd-add {
   flex: none; border: 0; background: transparent; cursor: pointer;
   font-size: 13px; line-height: 1; color: var(--color-text-secondary); padding: 2px 4px; border-radius: 4px;
 }
-.ws-day .wd-add:hover { color: var(--color-accent); background: rgba(23,179,166,.1); }
+.ws-day .wd-add:hover { color: var(--color-accent); background: var(--color-accent-soft); }
 .ws-day .wd-sports { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .ws-day .wd-empty { font-size: 11px; color: var(--color-text-secondary); padding: 3px 0; }
 
@@ -132,9 +145,9 @@
   font-style: normal; font-size: 11px; line-height: 1.45; opacity: .78;
   word-break: break-all; min-width: 0;
 }
-.ov-chip.fit { background: rgba(107,114,128,.10); color: var(--ov-fit); }
-.ov-chip.swim { background: rgba(20,119,195,.12); color: var(--ov-swim); }
-.ov-chip.dance { background: rgba(232,85,140,.12); color: var(--ov-dance); }
+.ov-chip.fit { background: var(--ov-fit-soft); color: var(--ov-fit); }
+.ov-chip.swim { background: var(--ov-swim-soft); color: var(--ov-swim); }
+.ov-chip.dance { background: var(--ov-dance-soft); color: var(--ov-dance); }
 
 /* 月视图：日历（格子加高，与周视图一致加详细时长） */
 .ov-cal { width: 100%; }
@@ -192,7 +205,7 @@
   border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--bg-card);
   padding: 4px 7px;
 }
-.ov-detail-item .di-rm-input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 1.5px rgba(23,179,166,.18); }
+.ov-detail-item .di-rm-input:focus { outline: none; border-color: var(--color-accent); box-shadow: 0 0 0 1.5px var(--color-accent-ring); }
 .ov-detail-item .di-rm-save { align-self: flex-end; padding: 2px 9px; font-size: 11.5px; }
 .ov-detail-item .di-go { flex: none; align-self: center; }
 .ov-detail-item .di-go .btn { padding: 2px 10px; font-size: 12px; }

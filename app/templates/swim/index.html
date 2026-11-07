@@ -86,7 +86,9 @@
     <div class="modal-desc" id="modalSwimDesc">配速会根据距离与时长自动计算，保存后可在列表中继续修改。</div>
     <form id="formSwim">
       <div class="form-grid-3">
-        <div class="form-item full"><label class="field-label">日期</label><input class="input" type="date" name="date" required></div>
+        <div class="form-item"><label class="field-label">日期</label><input class="input" type="date" name="date" required></div>
+        <div class="form-item"><label class="field-label">开始时间</label><input class="input" type="time" name="start_tm"></div>
+        <div class="form-item"><label class="field-label">结束时间</label><input class="input" type="time" name="end_tm"></div>
         <div class="form-item"><label class="field-label">距离 (m)</label><input class="input num" type="number" name="distance_m" min="1"></div>
         <div class="form-item"><label class="field-label">时长 (分钟)</label><input class="input num" type="number" name="duration_min" min="1" step="0.1"></div>
         <div class="form-item"><label class="field-label">主泳姿</label>
@@ -137,9 +139,9 @@
       <div id="importJsonPane" style="display:none">
         <div class="form-item">
           <label class="field-label">粘贴 JSON（{&quot;records&quot;: [...]}）</label>
-          <textarea class="input" id="importJsonText" rows="8" style="font-family:monospace;font-size:12px" placeholder='{"records":[{"date":"2026-11-03","distance_m":1500,"duration_min":25,"main_stroke":"自由泳"}]}'></textarea>
+          <textarea class="input" id="importJsonText" rows="8" style="font-family:monospace;font-size:12px" placeholder='{"records":[{"date":"2026-11-03","start_time":"19:00","end_time":"19:40","distance_m":1500,"duration_min":40,"main_stroke":"自由泳"}]}'></textarea>
         </div>
-        <div class="modal-note">格式：{&quot;records&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;distance_m&quot;:1500,&quot;duration_min&quot;:25,&quot;main_stroke&quot;:&quot;自由泳&quot;,&quot;avg_heart_rate&quot;:135,&quot;total_strokes&quot;:600,&quot;laps&quot;:30,&quot;avg_stroke_rate&quot;:24,&quot;calories&quot;:320,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条。</div>
+        <div class="modal-note">格式：{&quot;records&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;start_time&quot;:&quot;19:00&quot;,&quot;end_time&quot;:&quot;19:40&quot;,&quot;distance_m&quot;:1500,&quot;duration_min&quot;:40,&quot;main_stroke&quot;:&quot;自由泳&quot;,&quot;avg_heart_rate&quot;:135,&quot;total_strokes&quot;:600,&quot;laps&quot;:30,&quot;avg_stroke_rate&quot;:24,&quot;calories&quot;:320,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条；起止时间可留空，未填时长时按起止自动推导。</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>

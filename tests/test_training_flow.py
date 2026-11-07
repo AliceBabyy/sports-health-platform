@@ -1,5 +1,5 @@
 """健身训练单测（TR，2026-11 整改：id 维度 CRUD / 一日多计划；2026-11-03：移除计时记录模式，改「完成训练」一键转 recorded）。"""
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -42,6 +42,20 @@ def test_create_plan_schema_status(db):
     assert default.status == "planned"
     with pytest.raises(ValidationError):
         PlanCreateIn(date=date(2026, 11, 4), items=[ITEM], status="done")
+
+
+def test_planned_keeps_timing(db):
+    """2026-11-07 统一口径：计划态也可落起止时间与时长（均可空），未手填时长按起止推导。"""
+    day = date(2026, 11, 7)
+    start, end = datetime(2026, 11, 7, 19, 0), datetime(2026, 11, 7, 20, 0)
+    plan = service.create_plan(db, USER, day, [ITEM], start_time=start, end_time=end)
+    data = service.plan_to_dict(plan)
+    assert data["status"] == TR_STATUS_PLANNED
+    assert data["start_time"] == start.isoformat() and data["end_time"] == end.isoformat()
+    assert data["duration_s"] == 3600
+    # 编辑计划同样可清空时间
+    edited = service.update_plan(db, USER, plan.id, day, [ITEM])
+    assert edited.start_time is None and edited.end_time is None and edited.duration_s is None
 
 
 def test_multi_plans_same_day(db):

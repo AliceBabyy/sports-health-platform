@@ -28,9 +28,9 @@
       grid: { left: 48, right: 18, top: 34, bottom: 28 },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: '#ffffff',
-        borderColor: 'rgba(27, 36, 52, 0.055)',
-        textStyle: { color: '#1f2430', fontSize: 12 },
+        backgroundColor: App.cssVar('--bg-card', '#ffffff'),
+        borderColor: App.cssVar('--color-border', 'rgba(27, 36, 52, 0.05)'),
+        textStyle: { color: App.cssVar('--color-text', '#1f2430'), fontSize: 12 },
         formatter: function (ps) {
           const p = ps[0];
           return p.name + '<br/>' + label + '：' + (p.value == null ? '无记录' : p.value);
@@ -38,14 +38,14 @@
       },
       xAxis: {
         type: 'category', data: dates, boundaryGap: false,
-        axisLine: { lineStyle: { color: 'rgba(27, 36, 52, 0.055)' } },
+        axisLine: { lineStyle: { color: App.cssVar('--color-border', 'rgba(27, 36, 52, 0.05)') } },
         axisTick: { show: false },
-        axisLabel: { color: '#6b7280', fontSize: 11 }
+        axisLabel: { color: App.cssVar('--color-text-secondary', '#6b7280'), fontSize: 11 }
       },
       yAxis: {
         type: 'value', scale: true,
-        splitLine: { lineStyle: { color: 'rgba(27, 36, 52, 0.026)' } },
-        axisLabel: { color: '#6b7280', fontSize: 11 }
+        splitLine: { lineStyle: { color: App.cssVar('--color-chart-grid-light', 'rgba(27, 36, 52, 0.026)') } },
+        axisLabel: { color: App.cssVar('--color-text-secondary', '#6b7280'), fontSize: 11 }
       },
       series: [{
         type: 'line',
@@ -54,18 +54,18 @@
         symbol: 'circle',
         symbolSize: 5,
         showSymbol: true,
-        lineStyle: { width: 2.5, color: '#17b3a6' },
-        itemStyle: { color: '#17b3a6' },
+        lineStyle: { width: 2.5, color: App.cssVar('--color-accent', '#17b3a6') },
+        itemStyle: { color: App.cssVar('--color-accent', '#17b3a6') },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(23, 179, 166, 0.26)' },
-            { offset: 1, color: 'rgba(23, 179, 166, 0)' }
+            { offset: 0, color: App.cssVar('--color-accent-area', 'rgba(23, 179, 166, 0.26)') },
+            { offset: 1, color: 'transparent' }
           ])
         },
         label: {
           show: true,
           position: 'top',
-          color: '#6b7280',
+          color: App.cssVar('--color-text-secondary', '#6b7280'),
           fontSize: 10
         },
         emphasis: { focus: 'series' }

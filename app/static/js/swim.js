@@ -6,6 +6,7 @@
   let currentPage = 1, editingId = null, formMode = 'recorded';
   let editingRow = null;
   let editingWasRecorded = false;   // 打开编辑弹窗时原行是否已是记录态（决定保存后是否弹庆祝）
+  let durationManual = false;       // 用户是否手改过时长（手改后不再按起止时间自动换算）
   let noteTargetId = null;         // 心得弹窗当前编辑的游泳记录 id
   let starGetRating = null;        // 心得弹窗星级取值器
   let editNoteStars = null;        // 编辑弹窗内心得星级取值器（编辑记录态才有）
@@ -17,6 +18,24 @@
 
   function fmtDur(sec) { return sec != null ? App.fmtClock(sec) : '—'; }
   function statusTag(r) { return App.statusTag(r.status); }
+
+  /* 日期 + 时刻 → ISO datetime；缺其一视为未填写 */
+  function isoAt(dateStr, tm) {
+    return (dateStr && tm) ? dateStr + 'T' + tm + ':00' : null;
+  }
+  function timeToMinutes(tm) {
+    const parts = String(tm).split(':');
+    return parseInt(parts[0], 10) * 60 + parseInt(parts[1] || '0', 10);
+  }
+  /* 起止时间齐备且为正时长时，自动换算分钟写回时长（用户手改过时长则不再覆盖） */
+  function autoCalcDuration() {
+    if (durationManual) return;
+    const f = document.getElementById('formSwim');
+    const s = f.elements.start_tm.value, e = f.elements.end_tm.value;
+    if (!s || !e) return;
+    const diff = timeToMinutes(e) - timeToMinutes(s);
+    if (diff > 0) f.elements.duration_min.value = +(diff / 60).toFixed(2);
+  }
 
   /* ---------- 当日视图（表格化：计划/记录分块，列对齐） ---------- */
   function swimDailyButtons(r) {
@@ -96,18 +115,17 @@
         tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state"><div class="icon">🏊</div>暂无游泳数据，点击右上角「新增记录 / 新建计划」开始</div></td></tr>';
       } else {
         tbody.innerHTML = res.list.map(function (r) {
-          const planned = r.status === 'planned';
           return '<tr>' +
             '<td class="num"><input type="checkbox" class="batch-row" value="' + r.id + '" aria-label="选择游泳记录">' + r.date + '</td>' +
             '<td>' + statusTag(r) + '</td>' +
             '<td class="num">' + (r.distance_m != null ? r.distance_m + ' m' : '—') + '</td>' +
             '<td class="num">' + fmtDur(r.duration_s) + '</td>' +
-            '<td class="num">' + (planned ? '—' : (r.pace != null ? r.pace : '—')) + '</td>' +
+            '<td class="num">' + (r.pace != null ? r.pace : '—') + '</td>' +
             '<td class="num">' + (r.avg_heart_rate != null ? r.avg_heart_rate : '—') + '</td>' +
             '<td class="num">' + (r.total_strokes != null ? r.total_strokes : '—') + '</td>' +
             '<td>' + App.escapeHtml(r.main_stroke_label || '—') + '</td>' +
             '<td class="num">' + (r.laps != null ? r.laps : '—') + '</td>' +
-            '<td class="num">' + (planned ? '—' : (r.avg_stroke_rate != null ? r.avg_stroke_rate : '—')) + '</td>' +
+            '<td class="num">' + (r.avg_stroke_rate != null ? r.avg_stroke_rate : '—') + '</td>' +
             '<td class="num">' + (r.calories != null ? r.calories + ' kcal' : '—') + '</td>' +
             '<td class="row-actions"><button class="btn btn-sm" data-act="view" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>查看详情</button>' +
             '<button class="btn btn-sm" data-act="edit" data-id="' + r.id + '" data-row=\'' + JSON.stringify(r).replace(/'/g, "&#39;") + '\'>编辑</button>' +
@@ -141,8 +159,8 @@
       el.style.display = mode === 'planned' ? 'none' : '';
     });
     document.getElementById('modalSwimDesc').textContent = mode === 'planned'
-      ? '计划 = 目标距离（必填）；时长与主泳姿选填，完成后可一键「去记录」补全实测。'
-      : '配速会根据距离与时长自动计算；平均划频可手填，留空则自动估算。';
+      ? '计划 = 目标距离（必填）；时长、起止时间与主泳姿选填，完成后可一键「去记录」补全实测。'
+      : '起止时间选填，填了两端会按时长自动换算；配速按距离与时长自动计算。';
   }
 
   function openForm(row, mode) {
@@ -155,10 +173,13 @@
       : (m === 'planned' ? '新建游泳计划' : '新增游泳记录');
     const form = document.getElementById('formSwim');
     form.reset();
+    durationManual = false;
     form.date.value = row ? row.date : viewDate;
     form.date.max = '';
     applyFormMode(m);
     if (row) {
+      form.elements.start_tm.value = row.start_time ? String(row.start_time).slice(11, 16) : '';
+      form.elements.end_tm.value = row.end_time ? String(row.end_time).slice(11, 16) : '';
       form.elements.remark.value = row.remark || '';
       form.elements.distance_m.value = row.distance_m != null ? row.distance_m : '';
       form.elements.duration_min.value = row.duration_s != null ? row.duration_s / 60 : '';
@@ -215,6 +236,12 @@
     if (b && !b.disabled) load(parseInt(b.dataset.pg, 10));
   });
 
+  const swimForm = document.getElementById('formSwim');
+  ['date', 'start_tm', 'end_tm'].forEach(function (name) {
+    swimForm.elements[name].addEventListener('change', autoCalcDuration);
+  });
+  swimForm.elements.duration_min.addEventListener('input', function () { durationManual = true; });
+
   document.getElementById('formSwim').addEventListener('submit', function (e) {
     e.preventDefault();
     const form = e.target;
@@ -231,8 +258,8 @@
       laps: planned ? null : (form.elements.laps.value !== '' ? parseInt(form.elements.laps.value, 10) : null),
       calories: planned ? null : (form.elements.calories.value !== '' ? parseFloat(form.elements.calories.value) : null),
       avg_stroke_rate: planned ? null : (form.elements.avg_stroke_rate.value !== '' ? parseFloat(form.elements.avg_stroke_rate.value) : null),
-      start_time: editingRow ? editingRow.start_time : null,
-      end_time: editingRow ? editingRow.end_time : null,
+      start_time: isoAt(form.date.value, form.elements.start_tm.value),
+      end_time: isoAt(form.date.value, form.elements.end_tm.value),
       max_heart_rate: editingRow ? editingRow.max_heart_rate : null,
     };
     const req = editingId

@@ -186,13 +186,19 @@ def swim_stats(
 
 def _validate(payload: SwimRecordIn):
     if payload.status == "recorded":
-        if payload.distance_m is None or payload.duration_s is None:
-            raise AppError(400, "记录态需填写距离与时长")
+        if payload.distance_m is None:
+            raise AppError(400, "记录态需填写距离")
+        if payload.duration_s is None and not (payload.start_time and payload.end_time):
+            raise AppError(400, "记录态需填写时长（或填写起止时间由系统推导）")
+        if payload.start_time and payload.end_time and payload.end_time <= payload.start_time:
+            raise AppError(400, "结束时间需晚于开始时间")
         if payload.main_stroke is not None and payload.main_stroke not in SWIM_STROKES:
             raise AppError(400, "主泳姿不合法")
     else:
-        # 计划态：仅目标距离必填；时长、主泳姿均为可选目标
+        # 计划态：仅目标距离必填；时长、主泳姿、起止时间均为可选目标
         if payload.distance_m is None:
             raise AppError(400, "计划态需填写目标距离")
+        if payload.start_time and payload.end_time and payload.end_time <= payload.start_time:
+            raise AppError(400, "结束时间需晚于开始时间")
         if payload.main_stroke is not None and payload.main_stroke not in SWIM_STROKES:
             raise AppError(400, "主泳姿不合法")

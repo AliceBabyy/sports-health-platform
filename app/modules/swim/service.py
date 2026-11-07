@@ -21,6 +21,26 @@ def calc_stroke_rate(total_strokes: int | None, duration_s: int) -> float | None
     return round(total_strokes / (duration_s / 60), 1)
 
 
+def _seconds_between(start, end) -> int | None:
+    """起止时间 → 正整数秒；缺失或逆序返回 None。"""
+    if start is None or end is None:
+        return None
+    secs = int((end - start).total_seconds())
+    return secs if secs > 0 else None
+
+
+def _derive_duration(data) -> None:
+    """未手填时长且起止时间齐备时，按起止推导 duration_s（计划/记录通用）。"""
+    if getattr(data, "duration_s", None) is None:
+        data.duration_s = _seconds_between(getattr(data, "start_time", None), getattr(data, "end_time", None))
+
+
+def _derive_duration_dict(data: dict) -> None:
+    """导入行（dict）版本：同 `_derive_duration`，原地补 duration_s。"""
+    if data.get("duration_s") is None:
+        data["duration_s"] = _seconds_between(data.get("start_time"), data.get("end_time"))
+
+
 def to_dict(row: SwimRecord) -> dict:
     # 平均划频：优先取用户手填值；未填时由总划水/时长派生
     avg_stroke_rate = row.avg_stroke_rate
@@ -76,6 +96,7 @@ def get_by_date(db: Session, user_id: int, date) -> list[SwimRecord]:
 
 
 def create_record(db: Session, user_id: int, data) -> SwimRecord:
+    _derive_duration(data)
     row = SwimRecord(user_id=user_id, **data.model_dump())
     db.add(row)
     db.commit()
@@ -88,6 +109,7 @@ def update_record(db: Session, user_id: int, record_id: int, data) -> SwimRecord
     if row is None:
         return None
     validate_status_change(row.status, data.status)
+    _derive_duration(data)
     for k, v in data.model_dump().items():
         setattr(row, k, v)
     db.commit()
@@ -108,6 +130,8 @@ def bulk_create_records(db: Session, user_id: int, rows: list[dict]) -> list[int
     """批量导入记录（status 固定 recorded），rows 为已校验的字段 dict，返回新建记录 id 列表。"""
     created: list[int] = []
     for data in rows:
+        data = dict(data)
+        _derive_duration_dict(data)
         row = SwimRecord(user_id=user_id, status="recorded", **data)
         db.add(row)
         db.flush()  # 拿到 id

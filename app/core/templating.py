@@ -1,4 +1,5 @@
 """模板渲染公共件：Jinja2 实例与页面公共上下文注入。"""
+from datetime import date
 from pathlib import Path
 
 from fastapi import Request
@@ -50,7 +51,7 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
     面包屑：page_title 默认取当前 active 模块名，页面可显式覆盖。
     """
     user = getattr(request.state, "user", None)
-    today = request.app.state.today
+    today = date.today()  # 按请求取当天：进程长跑跨天也不会把「今天」停留在启动日
     cycle_info = {}
     is_male = user is not None and user.gender == "男"
     if user is not None and not is_male:

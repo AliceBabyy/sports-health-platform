@@ -80,7 +80,7 @@ def test_week_aggregate_counts(db):
     assert sw["plans"] == 1 and sw["records"] == 1 and sw["minutes"] == 30 and sw["kcal"] == 120.0
     assert sw["remarks"] == []
     assert [it["tag"] for it in sw["items"]] == ["计", "记"]
-    assert sw["items"][0]["main"] == "1000m · 30:00" and sw["items"][0]["remark"] == "练换气"
+    assert sw["items"][0]["main"] == "1000m" and sw["items"][0]["remark"] == "练换气"   # 计划态不拼时长
     assert sw["items"][1]["main"] == "1500m · 30:00"
     da = day0["sports"]["dance"]
     assert da["plans"] == 1 and da["records"] == 1 and da["minutes"] == 60 and da["kcal"] == 200.0

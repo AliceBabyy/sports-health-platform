@@ -222,35 +222,30 @@
     const rowsWrap = document.getElementById('planRows');
     rowsWrap.innerHTML = '';
     form.elements.remark.value = plan ? (plan.remark || '') : '';
-    // 记录态（新建记录 / 编辑记录）：显示起止时间与训练时长；计划态隐藏
+    // 计划态与记录态均展示起止时间与训练时长（均可空，2026-11 统一口径）
     planDurationManual = false;
-    const timingRow = document.getElementById('planTimingRow');
-    const showTiming = state.recordMode || (!!plan && plan.status === 'recorded');
-    timingRow.style.display = showTiming ? '' : 'none';
     document.getElementById('planStartDate').value = '';
     document.getElementById('planStartTime').value = '';
     document.getElementById('planEndDate').value = '';
     document.getElementById('planEndTime').value = '';
     document.getElementById('planDurationMin').value = '';
-    if (showTiming) {
-      if (plan && plan.start_time) {
-        const t = String(plan.start_time).replace('T', ' ');
-        document.getElementById('planStartDate').value = t.slice(0, 10);
-        document.getElementById('planStartTime').value = t.slice(11, 16);
-      }
-      if (plan && plan.end_time) {
-        const t = String(plan.end_time).replace('T', ' ');
-        document.getElementById('planEndDate').value = t.slice(0, 10);
-        document.getElementById('planEndTime').value = t.slice(11, 16);
-      }
-      if (plan && plan.duration_s != null) {
-        document.getElementById('planDurationMin').value = Math.round(plan.duration_s / 60);
-        planDurationManual = true;
-      }
-      // 默认起止日期 = 计划日期
-      if (!document.getElementById('planStartDate').value) document.getElementById('planStartDate').value = dateInput.value;
-      if (!document.getElementById('planEndDate').value) document.getElementById('planEndDate').value = dateInput.value;
+    if (plan && plan.start_time) {
+      const t = String(plan.start_time).replace('T', ' ');
+      document.getElementById('planStartDate').value = t.slice(0, 10);
+      document.getElementById('planStartTime').value = t.slice(11, 16);
     }
+    if (plan && plan.end_time) {
+      const t = String(plan.end_time).replace('T', ' ');
+      document.getElementById('planEndDate').value = t.slice(0, 10);
+      document.getElementById('planEndTime').value = t.slice(11, 16);
+    }
+    if (plan && plan.duration_s != null) {
+      document.getElementById('planDurationMin').value = Math.round(plan.duration_s / 60);
+      planDurationManual = true;
+    }
+    // 默认起止日期 = 计划日期
+    if (!document.getElementById('planStartDate').value) document.getElementById('planStartDate').value = dateInput.value;
+    if (!document.getElementById('planEndDate').value) document.getElementById('planEndDate').value = dateInput.value;
     const items = (plan && plan.items && plan.items.length) ? plan.items.slice() : [];
     items.forEach(function (it) { addPlanRow(it); });
     if (!items.length || appendMode) addPlanRow({});   // 新建留空行；追加模式额外补一个空行
@@ -339,11 +334,12 @@
   document.getElementById('btnNewRecord').addEventListener('click', function () { openPlan(null, false, true); });
   document.getElementById('btnAddRow').addEventListener('click', function () { addPlanRow({}); });
 
-  /* ---------- 记录态：起止时间自动推导训练时长（手填优先） ---------- */
+  /* ---------- 起止时间与时长（计划/记录通用；只填日期不填时刻视为未填） ---------- */
   function timingIso(dateId, timeId) {
     const d = document.getElementById(dateId).value;
-    if (!d) return null;
-    return d + 'T' + (document.getElementById(timeId).value || '00:00') + ':00';
+    const t = document.getElementById(timeId).value;
+    if (!d || !t) return null;
+    return d + 'T' + t + ':00';
   }
   function autoCalcDuration() {
     if (planDurationManual) return;
@@ -389,18 +385,15 @@
       remark: remark,
     };
     if (!editingId && state.recordMode) body.status = 'recorded';   // 「＋ 新建记录」直接落历史
-    // 记录态：起止时间 + 训练时长（秒）；后端在未手填时长时自动按起止推导
-    const timingVisible = state.recordMode || state.editingPlanWasRecorded;
-    if (timingVisible) {
-      body.start_time = timingIso('planStartDate', 'planStartTime');
-      body.end_time = timingIso('planEndDate', 'planEndTime');
-      const dmRaw = document.getElementById('planDurationMin').value;
-      body.duration_s = dmRaw !== '' ? Math.round(parseFloat(dmRaw) * 60) : null;
-      if (state.editingPlanSource) {
-        body.avg_heart_rate = state.editingPlanSource.avg_heart_rate;
-        body.max_heart_rate = state.editingPlanSource.max_heart_rate;
-        body.calories = state.editingPlanSource.calories;
-      }
+    // 计划态/记录态均提交起止时间 + 训练时长（秒，均可空）；后端在未手填时长时自动按起止推导
+    body.start_time = timingIso('planStartDate', 'planStartTime');
+    body.end_time = timingIso('planEndDate', 'planEndTime');
+    const dmRaw = document.getElementById('planDurationMin').value;
+    body.duration_s = dmRaw !== '' ? Math.round(parseFloat(dmRaw) * 60) : null;
+    if (state.editingPlanWasRecorded && state.editingPlanSource) {
+      body.avg_heart_rate = state.editingPlanSource.avg_heart_rate;
+      body.max_heart_rate = state.editingPlanSource.max_heart_rate;
+      body.calories = state.editingPlanSource.calories;
     }
     App.api(editingId ? '/api/training/' + editingId : '/api/training', {
       method: editingId ? 'PUT' : 'POST',

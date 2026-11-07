@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}运动训练/计划 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/overview.css?v=20261108">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/overview.css?v=20261108b">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>运动训练/计划</h1>
@@ -10,7 +10,13 @@
       <button type="button" data-mode="week" class="active">周视图</button>
       <button type="button" data-mode="month">月视图</button>
     </div>
-    <span class="ov-date" id="ovDateLabel"></span>
+    <!-- 周期切换（2026-11-08）：日=前后天、周=前后周、月=前后月；锚点日随切换变化，标签显示当前区间 -->
+    <div class="date-nav ov-period-nav" id="ovPeriodNav">
+      <button type="button" class="dn-btn" data-step="-1" title="上一周期" aria-label="上一周期">‹</button>
+      <span class="dn-label ov-date num" id="ovDateLabel"></span>
+      <button type="button" class="dn-btn" data-step="1" title="下一周期" aria-label="下一周期">›</button>
+      <button type="button" class="dn-today" id="ovTodayBtn" title="回到今天">回到今天</button>
+    </div>
   </div>
 </div>
 
@@ -24,24 +30,24 @@
   </div>
 </div>
 
-<!-- 周视图：本周每日运动（最上面）→ 本周运动情况（次数/时长 + 每日时长图） -->
+<!-- 周视图：每日运动（最上面）→ 运动情况（次数/时长 + 每日时长图） -->
 <div id="ovWeekView" class="ov-view">
   <div class="card">
-    <div class="card-title">本周每日运动 <span class="sub">点「标签」看当日详情 · 点「日期格」为这一天添加计划</span></div>
+    <div class="card-title">每日运动 <span class="sub">点「标签」看当日详情 · 点「日期格」为这一天添加计划</span></div>
     <div class="week-strip" id="ovWeekStrip"></div>
   </div>
   <div class="card summary-card" id="ovWeekSummary">
-    <div class="card-title">本周运动情况 <span class="sub">运动次数与运动时长 · 仅统计运动记录</span></div>
+    <div class="card-title">运动情况 <span class="sub">运动次数与运动时长 · 仅统计运动记录</span></div>
     <div class="summary-grid" id="ovWeekSummaryGrid"></div>
     <div class="chart" id="chartOvWeek" style="height:250px"></div>
     <div class="chart-fallback" id="chartOvWeekFallback" style="display:none">图表组件加载失败，请刷新重试。</div>
   </div>
 </div>
 
-<!-- 月视图：本月日历（最上面）→ 本月运动情况（次数/时长 + 每日时长图） -->
+<!-- 月视图：日历（最上面）→ 运动情况（次数/时长 + 每日时长图） -->
 <div id="ovMonthView" class="ov-view" style="display:none">
   <div class="card">
-    <div class="card-title">本月日历 <span class="sub">点「标签」看当日详情 · 点「日期格」为这一天添加计划</span></div>
+    <div class="card-title">日历 <span class="sub">点「标签」看当日详情 · 点「日期格」为这一天添加计划</span></div>
     <div id="ovCalGrid"></div>
     <div class="legend">
       <span class="legend-block"><span class="sdot" style="background:var(--ov-fit)"></span>健身</span>
@@ -50,7 +56,7 @@
     </div>
   </div>
   <div class="card summary-card" id="ovMonthSummary">
-    <div class="card-title">本月运动情况 <span class="sub">运动次数与运动时长 · 仅统计运动记录</span></div>
+    <div class="card-title">运动情况 <span class="sub">运动次数与运动时长 · 仅统计运动记录</span></div>
     <div class="summary-grid" id="ovMonthSummaryGrid"></div>
     <div class="chart" id="chartOvMonth" style="height:250px"></div>
     <div class="chart-fallback" id="chartOvMonthFallback" style="display:none">图表组件加载失败，请刷新重试。</div>

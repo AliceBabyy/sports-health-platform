@@ -10,16 +10,24 @@
   --color-accent: #17b3a6;              /* 清新蓝绿（初音未来发色系）：按钮描边 + 按钮字体 */
   --color-accent-strong: #0f9d92;       /* 蓝绿 hover/加深态 */
   --color-accent-soft: rgba(23, 179, 166, 0.10); /* 蓝绿 hover 浅底 */
+  --color-accent-light: #74d6cd;         /* 蓝绿渐变浅端（目标箭头） */
+  --color-accent-ring: rgba(23, 179, 166, 0.18); /* 输入聚焦外圈 */
+  --color-on-dark: #ffffff;              /* 深色底上的文字/图标（不等于卡片白） */
   --color-text: #1f2430;
   --color-text-secondary: #6b7280;
   --color-text-tertiary: #9aa4b2;  /* 三级文字：单位、变化量小字、卡片脚注、引线 */
   --color-border: rgba(27, 36, 52, 0.05);         /* 普通分割线（卡片描边/表格行线/弹窗分组等；比发丝档加深一点） */
   --color-border-strong: rgba(27, 36, 52, 0.09);  /* 强描边：输入框/按钮（加深一点） */
+  --color-focus-ring: rgba(27, 36, 52, 0.08);     /* 输入框聚焦外圈 */
+  --color-shadow-soft: rgba(27, 36, 52, 0.08);    /* 轻投影（与焦点环同值但语义不同，勿合并） */
+  --color-mask: rgba(27, 36, 52, 0.38);           /* 弹窗遮罩 */
 
   /* 状态色 */
   --state-done-row: #eefaf1;   /* 已勾选（完成）行浅绿底 */
   --state-danger: #c0392b;
   --state-danger-bg: #fdf0ee;
+  --color-positive: #0e8f72;   /* 正向：导入成功、体态下降 */
+  --state-warning: #c77e08;    /* 目标偏离的橙（比 danger 轻一档） */
 
   /* 记录 / 计划态标记：列表圆点、标签圆点共用同一组，不再各自取色 */
   --state-plan: #17b3a6;       /* 计划 · 蓝绿 */
@@ -39,8 +47,12 @@
 
   /* 运动类型编码：健身 / 游泳 / 舞蹈，色条、图例、图表系列共用同一组 */
   --ov-fit: #6b7280;               /* 健身 · 中性灰 */
-  --ov-swim: #1477c3;              /* 游泳 · 蓝 */
+  --ov-swim: #3d8fd1;              /* 游泳 · 蓝 */
   --ov-dance: #e8558c;             /* 舞蹈 · 粉红 */
+  /* chip 底色：与运动色同基色，透明度各自独立（fit 与 --tag-gray-bg 同值但语义不同） */
+  --ov-fit-soft: rgba(107, 114, 128, 0.10);
+  --ov-swim-soft: rgba(61, 143, 209, 0.12);
+  --ov-dance-soft: rgba(232, 85, 140, 0.12);
 
   /* 运动四档：日历底色与状态标签共用浅色系。 */
   --tag-high-bg: #e2f4f3;  --tag-high-dot: #248d89;  --tag-high-fg: #176b68;
@@ -54,6 +66,15 @@
 
   /* 「计划」标签：底与圆点同取 --state-plan 基色，文字用深阶保证小字对比 */
   --tag-mint-bg: rgba(23, 179, 166, 0.10);  --tag-mint-fg: #0a7c4c;  --tag-mint-dot: var(--state-plan);
+
+  /* 星级金（训练/舞蹈/游泳心得星级共用） */
+  --color-star: #f59e0b;
+
+  /* 图表：ECharts 读不到 CSS 变量，由 common.js 的 App.cssVar 运行时读取 */
+  --color-chart-axis: #d7dce3;              /* 坐标轴线 */
+  --color-chart-grid: #eeeeee;              /* 网格线（总览堆叠柱） */
+  --color-chart-grid-light: rgba(27, 36, 52, 0.026); /* 网格线（体态趋势线） */
+  --color-accent-area: rgba(23, 179, 166, 0.26);     /* 面积渐变起点，终点为透明 */
 
   /* 阴影 */
   --shadow-card: none; /* 面板卡片完全无阴影（扁平，仅发丝描边定型） */

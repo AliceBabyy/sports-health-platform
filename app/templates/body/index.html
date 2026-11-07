@@ -85,21 +85,21 @@
           {% for key, label in [('chest','胸围'),('arm','臂围'),('waist','腰围'),('hip','臀围'),('thigh','大腿围')] %}
           {% set p = pts[key] %}
           {% set val = snapshot.get(key, {}) %}
-          <circle cx="{{ p[0] }}" cy="{{ p[1] }}" r="3.5" fill="#1b2434"/>
+          <circle cx="{{ p[0] }}" cy="{{ p[1] }}" r="3.5" style="fill:var(--color-primary)"/>
           <line x1="{{ p[0] }}" y1="{{ p[1] }}" x2="{{ p[2] }}" y2="{{ p[3] }}" style="stroke:var(--color-text-tertiary)" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
           {% if key == 'arm' or key == 'thigh' %}
-          <text x="{{ p[2] + 4 }}" y="{{ p[3] - 5 }}" font-size="11" fill="#6b7280">{{ label }}</text>
-          <text x="{{ p[2] + 4 }}" y="{{ p[3] + 8 }}" font-size="13" fill="#1b2434" font-weight="600" class="num">{{ val.value if val.value is not none else '—' }}</text>
-          <text x="{{ p[2] + 4 }}" y="{{ p[3] + 20 }}" font-size="10.5" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
+          <text x="{{ p[2] + 4 }}" y="{{ p[3] - 5 }}" font-size="11" style="fill:var(--color-text-secondary)">{{ label }}</text>
+          <text x="{{ p[2] + 4 }}" y="{{ p[3] + 8 }}" font-size="13" style="fill:var(--color-primary)" font-weight="600" class="num">{{ val.value if val.value is not none else '—' }}</text>
+          <text x="{{ p[2] + 4 }}" y="{{ p[3] + 20 }}" font-size="10.5" style="fill:{{ 'var(--state-danger)' if val.delta is not none and val.delta > 0 else 'var(--color-positive)' if val.delta is not none and val.delta < 0 else 'var(--color-text-tertiary)' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
           {% else %}
-          <text x="{{ p[2] - 4 }}" y="{{ p[3] - 5 }}" font-size="11" fill="#6b7280" text-anchor="end">{{ label }}</text>
-          <text x="{{ p[2] - 4 }}" y="{{ p[3] + 8 }}" font-size="13" fill="#1b2434" font-weight="600" class="num" text-anchor="end">{{ val.value if val.value is not none else '—' }}</text>
-          <text x="{{ p[2] - 4 }}" y="{{ p[3] + 20 }}" font-size="10.5" text-anchor="end" fill="{{ '#c8452b' if val.delta is not none and val.delta > 0 else '#0e8f72' if val.delta is not none and val.delta < 0 else '#8a94a3' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
+          <text x="{{ p[2] - 4 }}" y="{{ p[3] - 5 }}" font-size="11" style="fill:var(--color-text-secondary)" text-anchor="end">{{ label }}</text>
+          <text x="{{ p[2] - 4 }}" y="{{ p[3] + 8 }}" font-size="13" style="fill:var(--color-primary)" font-weight="600" class="num" text-anchor="end">{{ val.value if val.value is not none else '—' }}</text>
+          <text x="{{ p[2] - 4 }}" y="{{ p[3] + 20 }}" font-size="10.5" text-anchor="end" style="fill:{{ 'var(--state-danger)' if val.delta is not none and val.delta > 0 else 'var(--color-positive)' if val.delta is not none and val.delta < 0 else 'var(--color-text-tertiary)' }}">{{ '↑' if val.delta is not none and val.delta > 0 else '↓' if val.delta is not none and val.delta < 0 else '—' }}{{ (val.delta|round(1)|string) if val.delta is not none else '' }}</text>
           {% endif %}
           {% endfor %}
           <!-- 身高标注 -->
           <line x1="140" y1="28" x2="48" y2="34" style="stroke:var(--color-text-tertiary)" stroke-width="1.2" stroke-dasharray="3 3"/>
-          <text x="44" y="37" font-size="11" fill="#6b7280" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
+          <text x="44" y="37" font-size="11" style="fill:var(--color-text-secondary)" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
         </svg>
       </div>
     </div>
@@ -279,5 +279,5 @@ window.GROUP_LABELS = {{ group_labels | tojson }};
 window.CARD_KEYS = {{ card_keys | tojson }};
 </script>
 <script src="/static/vendor/echarts.min.js?v=20261031"></script>
-<script src="/static/js/body.js?v=20261031"></script>
+<script src="/static/js/body.js?v=20261107b"></script>
 {% endblock %}

@@ -13,7 +13,7 @@
   background: var(--bg-card);
 }
 .chip.active { background: transparent; border-color: var(--color-accent); color: var(--color-accent); font-weight: 400; }
-.stars { display: inline-flex; gap: 3px; color: #e0a72b; font-size: 14px; letter-spacing: 1px; }
+.stars { display: inline-flex; gap: 3px; color: var(--color-star); font-size: 14px; letter-spacing: 1px; }
 
 /* 计划态隐藏记录专属字段 */
 .form-item.record-only { display: none; }

@@ -1,6 +1,4 @@
 """应用入口：app 创建、SessionMiddleware、静态/模板目录、路由注册、全局异常处理、启动端口 8010。"""
-from datetime import date
-
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,8 +18,6 @@ app.add_middleware(
     same_site="lax",
     https_only=settings.session_cookie_secure,
 )
-
-app.state.today = date.today()  # 页面共享“今天”基准
 
 # 静态资源
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

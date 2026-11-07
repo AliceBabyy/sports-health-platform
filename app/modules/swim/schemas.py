@@ -1,7 +1,7 @@
 """游泳记录 schemas：配速/划频只读派生字段不接收前端提交。
 
-2026-11 计划态字段化：status=planned 时需 距离/时长/主泳姿（由 API 校验）；
-status=recorded 时需距离/时长。remark 计划/记录均可填。
+2026-11 计划态字段化：status=planned 时仅目标距离必填，时长/主泳姿/起止时间均可空；
+status=recorded 时需距离 + 时长（未填时长但填了起止时间时由 service 推导）；remark 计划/记录均可填。
 """
 from datetime import date, datetime
 from decimal import Decimal

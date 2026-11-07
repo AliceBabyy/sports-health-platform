@@ -1,14 +1,15 @@
 """游泳记录 Excel 导入模板与解析校验（2026-11-04 新增，思路参考 training/excel_io.py）。
 
 模板约定（第一行为表头）：
-    日期 | 距离(m) | 时长(分钟) | 主泳姿 | 平均心率(bpm) | 总划水次数 | 趟数 | 平均划频(次/分) | 活动卡路里(kcal) | 备注
+    日期 | 开始时间 | 结束时间 | 距离(m) | 时长(分钟) | 主泳姿 | 平均心率(bpm) | 总划水次数 | 趟数 | 平均划频(次/分) | 活动卡路里(kcal) | 备注
 
 - 每行代表一条游泳记录；导入的数据一律按「记录」状态保存（status=recorded）。
-- 日期、距离必填；时长建议填写（用于配速）；其余列可留空。
+- 日期、距离必填；时长建议填写（用于配速）；未填时长但填了开始/结束时间时，按起止自动推导。
+- 开始/结束时间填 HH:MM 或 HH:MM:SS，可留空；两者都不填不影响导入。
 - 主泳姿列填中文：自由泳/蛙泳/仰泳/蝶泳/混合（可留空）。
 - 行级校验失败只记录该行错误，不阻断其他行。
 """
-from datetime import date, datetime
+from datetime import date, datetime, time
 from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
@@ -23,13 +24,15 @@ DATE_HEADER = "日期"
 
 # 模板表头（顺序即列顺序）
 HEADERS = [
-    "日期", "距离(m)", "时长(分钟)", "主泳姿", "平均心率(bpm)",
+    "日期", "开始时间", "结束时间", "距离(m)", "时长(分钟)", "主泳姿", "平均心率(bpm)",
     "总划水次数", "趟数", "平均划频(次/分)", "活动卡路里(kcal)", "备注",
 ]
 
 # 表头文本 → 内部 key
 COL_KEYS = {
     "日期": "date",
+    "开始时间": "start_time",
+    "结束时间": "end_time",
     "距离(m)": "distance_m",
     "时长(分钟)": "duration_min",
     "主泳姿": "main_stroke",
@@ -80,11 +83,12 @@ def build_template() -> BytesIO:
         "1. 每行代表一条游泳记录；第一行表头请勿修改，请勿新增列。",
         "2. 日期必填（格式 YYYY-MM-DD，例如 2026-11-03）。",
         "3. 距离(m)必填；时长(分钟)建议填写（用于计算配速）。",
-        "4. 主泳姿填中文：自由泳 / 蛙泳 / 仰泳 / 蝶泳 / 混合，可留空。",
-        "5. 平均心率、总划水次数、趟数、平均划频、活动卡路里、备注均可留空。",
-        "6. 数值范围：距离 1~100000m，时长 0.1~1440 分钟，心率 1~300bpm。",
-        "7. 导入的数据将直接作为「已完成记录」保存，不会改动已存在的记录。",
-        "8. 示例：2026-11-03 / 1500 / 25 / 自由泳 / 135 / 600 / 30 / 24 / 320 / 今天状态不错",
+        "4. 开始时间 / 结束时间填 HH:MM 或 HH:MM:SS，可留空；未填时长时按起止时间自动推导。",
+        "5. 主泳姿填中文：自由泳 / 蛙泳 / 仰泳 / 蝶泳 / 混合，可留空。",
+        "6. 平均心率、总划水次数、趟数、平均划频、活动卡路里、备注均可留空。",
+        "7. 数值范围：距离 1~100000m，时长 0.1~1440 分钟，心率 1~300bpm。",
+        "8. 导入的数据将直接作为「已完成记录」保存，不会改动已存在的记录。",
+        "9. 示例：2026-11-03 / 19:00 / 19:40 / 1500 / 40 / 自由泳 / 135 / 600 / 30 / 24 / 320 / 今天状态不错",
     ]
     for line in help_lines:
         ws_help.append([line])
@@ -201,6 +205,30 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
             if remark and len(remark) > 255:
                 row_errors.append(_err(item, "备注", "备注过长（最多 255 字符）"))
 
+        # 起止时间（结合日期列拼成 datetime，可留空）
+        start_time = end_time = None
+        for key, label in (("start_time", "开始时间"), ("end_time", "结束时间")):
+            raw = cells.get(key)
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                continue
+            if date is None:
+                continue          # 日期本身有错，时间无法拼装，不再叠加报错
+            value, reason = _parse_time(raw, date)
+            if reason:
+                row_errors.append(_err(item, label, reason))
+                continue
+            if key == "start_time":
+                start_time = value
+            else:
+                end_time = value
+        if start_time and end_time and end_time <= start_time:
+            row_errors.append(_err(item, "结束时间", "结束时间需晚于开始时间"))
+
+        # 时长：手填优先；未填但起止齐备时按起止推导
+        duration_s = int(round(values["duration_min"] * 60)) if "duration_min" in values else None
+        if duration_s is None and start_time and end_time:
+            duration_s = int((end_time - start_time).total_seconds())
+
         if "distance_m" not in values:
             row_errors.append(_err(item, "距离(m)", "距离不能为空"))
 
@@ -209,8 +237,10 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
         else:
             valid.append({
                 "date": date,
+                "start_time": start_time,
+                "end_time": end_time,
                 "distance_m": values.get("distance_m"),
-                "duration_s": int(round(values["duration_min"] * 60)) if "duration_min" in values else None,
+                "duration_s": duration_s,
                 "main_stroke": main_stroke,
                 "avg_heart_rate": values.get("avg_heart_rate"),
                 "total_strokes": values.get("total_strokes"),
@@ -245,6 +275,31 @@ def _parse_date(value) -> tuple[date | None, str | None]:
         except ValueError:
             continue
     return None, "日期格式应为 YYYY-MM-DD"
+
+
+def _parse_time(value, day: date) -> tuple[datetime | None, str | None]:
+    """单元格 → 与日期列拼装的 datetime；支持 Excel 时间/日期时间、时间小数、HH:MM(:SS)、完整日期时间文本。"""
+    if isinstance(value, datetime):
+        t = value.time()
+    elif isinstance(value, time):
+        t = value
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not (0 <= value < 1):
+            return None, "时间格式应为 HH:MM"
+        seconds = int(round(value * 86400))
+        t = time(seconds // 3600 % 24, seconds // 60 % 60, seconds % 60)
+    else:
+        text = str(value).strip()
+        for fmt in ("%H:%M", "%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M"):
+            try:
+                t = datetime.strptime(text, fmt).time()
+                break
+            except ValueError:
+                continue
+        else:
+            return None, "时间格式应为 HH:MM"
+    return datetime.combine(day, t), None
 
 
 def _parse_number(value) -> tuple[float | None, str | None]:

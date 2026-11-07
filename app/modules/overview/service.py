@@ -48,7 +48,7 @@ def _item_main(sport: str, r, status: str, minutes: int) -> str:
         return base
     if sport == "swim":
         base = f"{r.distance_m}m" if r.distance_m else "游泳"
-        if r.duration_s:
+        if status == "recorded" and r.duration_s:
             base += f" · {_fmt_sec(r.duration_s)}"
         return base
     base = (r.dance_type or "舞蹈") + (f" ★{r.stars}" if r.stars else "")

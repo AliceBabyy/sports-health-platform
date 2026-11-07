@@ -190,13 +190,13 @@ def create_plan(
 ) -> TrainingRecord:
     """新建计划/记录（TR-03）：一日可多个，无需查重；status 可指定（导入数据直接落 recorded，2026-11-04）。
 
-    起止时间/时长仅记录态落库；导入未显式给时刻时 end_time 取当前时刻。
+    起止时间/时长计划态与记录态均可落库（均可空）；导入未显式给时刻时 end_time 取当前时刻。
     """
     plan = TrainingRecord(user_id=user_id, date=date, status=status, remark=remark or None)
+    plan.start_time = start_time
+    plan.end_time = end_time or (datetime.now() if status == TR_STATUS_RECORDED else None)
+    plan.duration_s = _derive_duration_s(start_time, plan.end_time, duration_s)
     if status == TR_STATUS_RECORDED:
-        plan.start_time = start_time
-        plan.end_time = end_time or datetime.now()
-        plan.duration_s = _derive_duration_s(start_time, plan.end_time, duration_s)
         plan.avg_heart_rate = avg_heart_rate
         plan.max_heart_rate = max_heart_rate
         plan.calories = calories
@@ -229,12 +229,12 @@ def update_plan(
     """
     plan = get_plan_or_404(db, user_id, training_id)
     plan.date = date
+    plan.remark = remark or None
+    plan.start_time = start_time
+    plan.end_time = end_time
+    plan.duration_s = _derive_duration_s(start_time, end_time, duration_s)
     if plan.status == TR_STATUS_RECORDED:
         old_checked = {i.sort: i.checked for i in plan.items}
-        plan.remark = remark or None
-        plan.start_time = start_time
-        plan.end_time = end_time
-        plan.duration_s = _derive_duration_s(start_time, end_time, duration_s)
         plan.avg_heart_rate = avg_heart_rate
         plan.max_heart_rate = max_heart_rate
         plan.calories = calories
@@ -243,7 +243,6 @@ def update_plan(
             if item.sort in old_checked:
                 item.checked = old_checked[item.sort]
     else:
-        plan.remark = remark or None
         replace_items(plan, items_payload)
     db.commit()
     db.refresh(plan)

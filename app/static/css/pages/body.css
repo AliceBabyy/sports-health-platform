@@ -17,10 +17,10 @@
 /* 箭头纵向堆叠：上方小字标注变化数据，下方渐变蓝绿箭头 */
 .goal-arrow-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 72px; }
 .goal-delta { font-size: 11px; line-height: 1.2; white-space: nowrap; color: var(--color-text-tertiary); }
-.goal-delta.down { color: #0f9d92; }
-.goal-delta.up { color: #c77e08; }
+.goal-delta.down { color: var(--color-accent-strong); }
+.goal-delta.up { color: var(--state-warning); }
 .goal-delta.same, .goal-delta.muted { color: var(--color-text-tertiary); }
-.goal-arrow { font-size: 16px; line-height: 1; font-weight: 700; background: linear-gradient(90deg, #74d6cd, #17b3a6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.goal-arrow { font-size: 16px; line-height: 1; font-weight: 700; background: linear-gradient(90deg, var(--color-accent-light), var(--color-accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .goal-foot { margin-top: 6px; min-height: 14px; font-size: 11px; color: var(--color-text-tertiary); }
 
 .chart-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
@@ -74,7 +74,7 @@
 }
 .import-result { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border); }
 .import-result .summary { font-size: 13px; margin-bottom: 10px; }
-.import-result .ok { color: #0e8f72; }
+.import-result .ok { color: var(--color-positive); }
 .import-result .fail { color: var(--state-danger); }
 .import-result .tbl-wrap { max-height: 200px; overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .import-result table.tbl { font-size: 12.5px; }

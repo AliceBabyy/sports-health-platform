@@ -2,11 +2,14 @@
 
 请求格式：
     {"records": [
-        {"date": "2026-11-03", "distance_m": 1500, "duration_min": 25,
-         "main_stroke": "自由泳", "avg_heart_rate": 135, "total_strokes": 600,
-         "laps": 30, "avg_stroke_rate": 24, "calories": 320, "remark": "今天状态不错"},
+        {"date": "2026-11-03", "start_time": "19:00", "end_time": "19:40",
+         "distance_m": 1500, "duration_min": 25, "main_stroke": "自由泳",
+         "avg_heart_rate": 135, "total_strokes": 600, "laps": 30,
+         "avg_stroke_rate": 24, "calories": 320, "remark": "今天状态不错"},
         ...
     ]}
+- start_time / end_time 可填 "HH:MM"（与 date 拼装）或完整 ISO 时间（2026-11-03T19:00:00），可留空。
+- 未填 duration_min 但填了起止时间时，按起止自动推导时长。
 导入一律按记录状态保存。
 """
 from datetime import date, datetime
@@ -17,9 +20,13 @@ from app.core.constants import SWIM_STROKE_LABELS
 
 STROZE_CN_TO_KEY = {v: k for k, v in SWIM_STROKE_LABELS.items()}
 
+TIME_ONLY_FORMATS = ("%H:%M", "%H:%M:%S")
+
 
 class JsonImportRecordIn(BaseModel):
     date: date
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     distance_m: int = Field(ge=1)
     duration_min: float | None = Field(default=None, ge=0.1)
     main_stroke: str | None = None
@@ -33,6 +40,8 @@ class JsonImportRecordIn(BaseModel):
 
 FIELD_CN = {
     "date": "日期",
+    "start_time": "开始时间",
+    "end_time": "结束时间",
     "distance_m": "距离(m)",
     "duration_min": "时长(分钟)",
     "main_stroke": "主泳姿",
@@ -53,6 +62,7 @@ def validate_json_records(raw_records: list) -> tuple[list[dict], list[dict]]:
         if not isinstance(raw, dict):
             errors.append({"sheet": "JSON", "row": idx, "column": "记录", "reason": "记录项必须是对象"})
             continue
+        raw = _normalize_time_fields(raw)
         try:
             rec = JsonImportRecordIn(**raw)
         except ValidationError as exc:
@@ -71,10 +81,20 @@ def validate_json_records(raw_records: list) -> tuple[list[dict], list[dict]]:
                                "reason": "泳姿应为：自由泳/蛙泳/仰泳/蝶泳/混合"})
                 continue
 
+        if rec.start_time and rec.end_time and rec.end_time <= rec.start_time:
+            errors.append({"sheet": "JSON", "row": idx, "column": "结束时间", "reason": "结束时间需晚于开始时间"})
+            continue
+
+        duration_s = int(round(rec.duration_min * 60)) if rec.duration_min is not None else None
+        if duration_s is None and rec.start_time and rec.end_time:
+            duration_s = int((rec.end_time - rec.start_time).total_seconds())
+
         valid.append({
             "date": rec.date,
+            "start_time": rec.start_time,
+            "end_time": rec.end_time,
             "distance_m": rec.distance_m,
-            "duration_s": int(round(rec.duration_min * 60)) if rec.duration_min is not None else None,
+            "duration_s": duration_s,
             "main_stroke": main_stroke,
             "avg_heart_rate": rec.avg_heart_rate,
             "total_strokes": rec.total_strokes,
@@ -84,6 +104,33 @@ def validate_json_records(raw_records: list) -> tuple[list[dict], list[dict]]:
             "remark": rec.remark,
         })
     return valid, errors
+
+
+def _normalize_time_fields(raw: dict) -> dict:
+    """把 "HH:MM(:SS)" 形式的起止时间与 date 拼成 ISO 时间；其它形式原样留给 pydantic 校验。"""
+    out = dict(raw)
+    day_txt = out.get("date")
+    for key in ("start_time", "end_time"):
+        value = out.get(key)
+        if not isinstance(value, str):
+            continue
+        value = value.strip()
+        if not value:
+            out[key] = None
+            continue
+        for fmt in TIME_ONLY_FORMATS:
+            try:
+                t = datetime.strptime(value, fmt).time()
+            except ValueError:
+                continue
+            try:
+                day = date.fromisoformat(str(day_txt)) if day_txt else None
+            except ValueError:
+                day = None
+            if day is not None:
+                out[key] = datetime.combine(day, t).isoformat()
+            break
+    return out
 
 
 def _map_error(loc: tuple, err: dict) -> tuple[str, str]:

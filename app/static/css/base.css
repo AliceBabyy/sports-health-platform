@@ -84,7 +84,7 @@ label.field-label {
 }
 .input:focus, .select:focus, textarea.input:focus {
   outline: none;
-  box-shadow: inset 0 0 0 0.5px var(--color-primary), 0 0 0 3px rgba(27, 36, 52, .08);
+  box-shadow: inset 0 0 0 0.5px var(--color-primary), 0 0 0 3px var(--color-focus-ring);
 }
 
 /* ---------- 标签（配色严格按设计稿） ---------- */
@@ -169,7 +169,7 @@ label.field-label {
   background: var(--bg-card);
   color: var(--color-primary);
   font-weight: 400;
-  box-shadow: 0 1px 2px rgba(27,36,52,.08);
+  box-shadow: 0 1px 2px var(--color-shadow-soft);
 }
 
 /* ---------- 表格 ---------- */
@@ -190,7 +190,7 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(27, 36, 52, .38);
+  background: var(--color-mask);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -273,7 +273,7 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
 .toast-wrap { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; }
 .toast {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-dark);
   padding: 9px 18px;
   border-radius: 6px;
   font-size: 13px;

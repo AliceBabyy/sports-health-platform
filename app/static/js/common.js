@@ -13,6 +13,11 @@
       const planned = status === 'planned';
       return '<span class="tag ' + (planned ? 'tag-mint' : 'tag-gray') + ' no-dot">' + (text || (planned ? '计划' : '记录')) + '</span>';
     },
+    /** 读 tokens.css 的设计令牌：ECharts 等读不到 CSS 变量的地方统一走这里，令牌仍是唯一来源（fallback 仅防样式未加载） */
+    cssVar: function (name, fallback) {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+      return v ? v.trim() : (fallback || '');
+    },
     bindBatchDelete: function (bodyId, allId, buttonId, endpoint, reload) {
       const body = document.getElementById(bodyId);
       const all = document.getElementById(allId);
@@ -85,6 +90,8 @@
       const sub = document.getElementById('detailSub');
       const body = document.getElementById('detailBody');
       const esc = this.escapeHtml.bind(this);
+      // 心得区块：仅记录态且确实有内容才展示（空心得不占位）
+      const hasNote = (n, keys) => !!n && keys.some(k => n[k] != null && String(n[k]).trim() !== '');
       if (kind === 'training') {
         const rec = row.status === 'recorded';
         title.textContent = rec ? '训练记录详情' : '训练计划详情';
@@ -97,11 +104,11 @@
         }
         const kv = [
           ['训练内容', row.body_parts_summary || '—'],
+          ['起止时间', (row.start_time || row.end_time)
+            ? ((row.start_time ? row.start_time.replace('T', ' ').slice(0, 16) : '—') + ' ~ ' + (row.end_time ? row.end_time.replace('T', ' ').slice(0, 16) : '—'))
+            : '—'],
           ['时长', dur],
         ];
-        if (rec && (row.start_time || row.end_time)) {
-          kv.push(['起止时间', (row.start_time ? row.start_time.replace('T', ' ').slice(0, 16) : '—') + ' ~ ' + (row.end_time ? row.end_time.replace('T', ' ').slice(0, 16) : '—')]);
-        }
         kv.push(
           ['完成度', '完成 ' + (row.completed_count || 0) + ' / ' + row.item_count],
           ['容量', (row.total_volume != null ? row.total_volume : 0) + ' kg'],
@@ -120,7 +127,7 @@
         if (row.remark) html += '<div class="dl-remark">' + esc(row.remark) + '</div>';
         html += '<div class="dl-block"><div class="dl-block-title">动作明细（' + row.item_count + '）</div>' +
           '<div class="table-wrap"><table class="tbl dl-tbl"><thead><tr><th>动作</th><th>部位</th><th>重量 kg</th><th>组数</th><th>每组个数</th><th>目标重量</th></tr></thead><tbody>' + items + '</tbody></table></div></div>';
-        if (rec && row.note) {
+        if (rec && hasNote(row.note, ['rating', 'best_movement', 'notes', 'next_steps'])) {
           const n = row.note;
           html += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
             ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
@@ -136,17 +143,20 @@
         sub.innerHTML = '<span class="dl-sub">' + App.statusTag(row.status) + esc(row.date) + '</span>';
         body.innerHTML = kvRows([
           ['距离', row.distance_m != null ? row.distance_m + ' m' : '—'],
+          ['时段', (row.start_time || row.end_time)
+            ? ((row.start_time ? row.start_time.substring(11, 16) : '') + (row.start_time && row.end_time ? '–' : '') + (row.end_time ? row.end_time.substring(11, 16) : ''))
+            : '—'],
           ['时长', this.fmtClock(row.duration_s)],
-          ['配速', rec ? (row.pace != null ? row.pace + ' min/100m' : '—') : '—'],
+          ['配速', row.pace != null ? row.pace + ' min/100m' : '—'],
           ['主泳姿', row.main_stroke_label || '—'],
           ['平均心率', row.avg_heart_rate != null ? row.avg_heart_rate + ' bpm' : '—'],
           ['总划水', row.total_strokes != null ? row.total_strokes + ' 次' : '—'],
           ['趟数', row.laps != null ? row.laps + ' 趟' : '—'],
-          ['平均划频', rec ? (row.avg_stroke_rate != null ? row.avg_stroke_rate + ' 次/分' : '—') : '—'],
+          ['平均划频', row.avg_stroke_rate != null ? row.avg_stroke_rate + ' 次/分' : '—'],
           ['活动卡路里', row.calories != null ? row.calories + ' kcal' : '—'],
           ['备注', esc(row.remark || '—')],
         ]);
-        if (rec && row.note) {
+        if (rec && hasNote(row.note, ['rating', 'stroke_insight', 'notes'])) {
           const n = row.note;
           body.innerHTML += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
             ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],
@@ -161,16 +171,16 @@
         body.innerHTML = kvRows([
           ['舞种', row.dance_type || '—'],
           ['星级', row.stars != null ? '★'.repeat(row.stars) : '—'],
-          ['时段', row.start_time || row.end_time ? (row.start_time ? row.start_time.substring(11, 16) : '') + (row.start_time && row.end_time ? '–' : '') + (row.end_time ? row.end_time.substring(11, 16) : '') : '—'],
+          ['上课时间', row.start_time || row.end_time ? (row.start_time ? row.start_time.substring(11, 16) : '') + (row.start_time && row.end_time ? '–' : '') + (row.end_time ? row.end_time.substring(11, 16) : '') : '—'],
           ['舞蹈老师', row.teacher || '—'],
-          ['风格', rec ? (row.style || '—') : '—'],
-          ['时长', rec ? this.fmtClock(row.duration_s) : '—'],
-          ['平均心率', rec ? (row.avg_heart_rate != null ? row.avg_heart_rate + ' bpm' : '—') : '—'],
-          ['最大心率', rec ? (row.max_heart_rate != null ? row.max_heart_rate + ' bpm' : '—') : '—'],
-          ['总卡路里', rec ? (row.calories != null ? row.calories + ' kcal' : '—') : '—'],
+          ['风格', row.style || '—'],
+          ['时长', this.fmtClock(row.duration_s)],
+          ['平均心率', row.avg_heart_rate != null ? row.avg_heart_rate + ' bpm' : '—'],
+          ['最大心率', row.max_heart_rate != null ? row.max_heart_rate + ' bpm' : '—'],
+          ['总卡路里', row.calories != null ? row.calories + ' kcal' : '—'],
           ['备注', esc(row.remark || '—')],
         ]);
-        if (rec && row.note) {
+        if (rec && hasNote(row.note, ['rating', 'video_effect', 'notes'])) {
           const n = row.note;
           body.innerHTML += '<div class="dl-block"><div class="dl-block-title">练后心得</div>' + kvRows([
             ['自我评估', n.rating ? '★'.repeat(n.rating) : '—'],

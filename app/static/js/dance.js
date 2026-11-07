@@ -54,7 +54,7 @@
       } else {
         if (plans.length) {
           html += '<div class="daily-block"><div class="daily-block-title">计划 <span class="num">' + plans.length + '</span></div>' +
-            '<table class="tbl"><thead><tr><th>舞种</th><th>星级</th><th>时段</th><th>备注</th><th></th></tr></thead><tbody>' +
+            '<table class="tbl"><thead><tr><th>舞种</th><th>星级</th><th>上课时间</th><th>备注</th><th></th></tr></thead><tbody>' +
             plans.map(function (r) {
               return '<tr>' +
                 '<td>' + App.escapeHtml(r.dance_type || '舞蹈计划') + '</td>' +
@@ -66,7 +66,7 @@
         }
         if (records.length) {
           html += '<div class="daily-block"><div class="daily-block-title">记录 <span class="num">' + records.length + '</span></div>' +
-            '<table class="tbl"><thead><tr><th>舞种</th><th>星级</th><th>时段</th><th class="num">时长</th><th>风格</th><th class="num">热量</th><th>备注</th><th></th></tr></thead><tbody>' +
+            '<table class="tbl"><thead><tr><th>舞种</th><th>星级</th><th>上课时间</th><th class="num">时长</th><th>风格</th><th class="num">热量</th><th>备注</th><th></th></tr></thead><tbody>' +
             records.map(function (r) {
               return '<tr>' +
                 '<td>' + App.escapeHtml(r.dance_type || '—') + '</td>' +
@@ -115,16 +115,15 @@
         tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state"><div class="icon">💃</div>暂无舞蹈数据，点击右上角「新增记录 / 新建计划」开始</div></td></tr>';
       } else {
         tbody.innerHTML = res.list.map(function (r) {
-          const planned = r.status === 'planned';
           return '<tr>' +
             '<td class="num"><input type="checkbox" class="batch-row" value="' + r.id + '" aria-label="选择舞蹈记录">' + r.date + '</td>' +
             '<td>' + statusTag(r) + '</td>' +
-            '<td class="num">' + (planned ? '—' : timeRange(r)) + '</td>' +
+            '<td class="num">' + timeRange(r) + '</td>' +
             '<td>' + App.escapeHtml(r.dance_type || '—') + '</td>' +
             '<td>' + App.escapeHtml(r.teacher || '—') + '</td>' +
             '<td class="stars" title="' + (r.stars != null ? r.stars : 0) + ' 星">' + (r.stars != null ? STAR_TEXT[r.stars] : '—') + '</td>' +
             '<td>' + App.escapeHtml(r.style || '—') + '</td>' +
-            '<td class="num">' + (planned ? '—' : fmtDur(r.duration_s)) + '</td>' +
+            '<td class="num">' + fmtDur(r.duration_s) + '</td>' +
             '<td class="num">' + (r.avg_heart_rate != null ? r.avg_heart_rate : '—') + '</td>' +
             '<td class="num">' + (r.max_heart_rate != null ? r.max_heart_rate : '—') + '</td>' +
             '<td class="num">' + (r.calories != null ? r.calories + ' kcal' : '—') + '</td>' +
@@ -162,7 +161,7 @@
     f.elements.stars.required = true;
     document.body.classList.toggle('dance-mode-recorded', mode === 'recorded');
     document.getElementById('modalDanceDesc').textContent = mode === 'planned'
-      ? '计划 = 日期/时间/舞种/星级/老师/备注，完成后可一键「去记录」补全实测数据。'
+      ? '计划 = 日期/上课时间/舞种/星级/老师/备注，完成后可一键「去记录」补全实测数据。'
       : '记下这节课的舞种、老师与强度，星级用于自评完成度。';
   }
 
@@ -285,7 +284,7 @@
       teacher: form.elements.teacher.value.trim() || null,
       remark: form.elements.remark.value.trim() || null,
       style: planned ? null : (form.elements.style.value.trim() || null),
-      duration_s: planned ? null : (form.elements.duration_min.value !== '' ? Math.round(parseFloat(form.elements.duration_min.value) * 60) : null),
+      duration_s: form.elements.duration_min.value !== '' ? Math.round(parseFloat(form.elements.duration_min.value) * 60) : null,
       avg_heart_rate: planned ? null : (form.elements.avg_heart_rate.value !== '' ? parseInt(form.elements.avg_heart_rate.value, 10) : null),
       max_heart_rate: planned ? null : (form.elements.max_heart_rate.value !== '' ? parseInt(form.elements.max_heart_rate.value, 10) : null),
       calories: planned ? null : (form.elements.calories.value !== '' ? parseFloat(form.elements.calories.value) : null),

@@ -1,10 +1,13 @@
 /* 运动训练/计划 总览页：日/周/月三视图（2026-11）。
    数据源：GET /api/overview?granularity=day|week|month&date=；单日详情 GET /api/overview/day?date=。
    2026-11-03 布局：日=训练计划卡(顶)→三运动卡→当日运动情况(底)；周/月=每日卡(最上)→运动情况卡(次数+时长+每日时长图)。
-   月图表粒度：按月内每日（labels=日号）。 */
+   月图表粒度：按月内每日（labels=日号）。
+   2026-11-08 周期切换：顶部 ‹ › 按视图步进（日±1天 / 周±7天 / 月±1月，跨月夹日号），
+   标签显示当前区间，非当期显示「回到今天」；周每日卡周几旁加灰色「月/日」。 */
 (function () {
   const App = window.App;
-  const todayStr = window.INIT_TODAY || App.todayStr();
+  // 「今天」以浏览器本地日期为准：服务端 app.state.today 在启动时固定，服务长时间不重启会过期
+  const todayStr = App.todayStr() || window.INIT_TODAY;
   const qs = new URLSearchParams(location.search);
   const state = {
     mode: ['day', 'week', 'month'].indexOf(qs.get('mode')) >= 0 ? qs.get('mode') : 'week',
@@ -21,8 +24,12 @@
     dance: { label: '舞蹈', cls: 'dance', url: '/dance' },
   };
   const WEEKDAY_CN = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-  // 与 tokens.css 的 --ov-fit / --ov-swim / --ov-dance 保持一致（ECharts 无法读 CSS 变量）
-  const COLORS = { fitness: '#6b7280', swim: '#1477c3', dance: '#e8558c' };
+  // 单一来源：运行时从 tokens.css 读 --ov-*（改令牌即生效）；fallback 仅防 CSS 未加载导致图表无色
+  const COLORS = {
+    fitness: App.cssVar('--ov-fit', '#6b7280'),
+    swim: App.cssVar('--ov-swim', '#3d8fd1'),
+    dance: App.cssVar('--ov-dance', '#e8558c'),
+  };
 
   function fmtClock(sec) {
     sec = Math.max(0, Math.round(sec || 0));
@@ -34,6 +41,48 @@
   function weekdayOf(iso) {
     const d = new Date(iso + 'T00:00:00');
     return WEEKDAY_CN[d.getDay() === 0 ? 6 : d.getDay() - 1];
+  }
+
+  /* ---------- 周期切换（2026-11-08）：日=前后天、周=前后周、月=前后月 ---------- */
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function isoOf(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function mdText(iso) { return Number(iso.slice(5, 7)) + '月' + Number(iso.slice(8, 10)) + '日'; }
+  function mdShort(iso) { return Number(iso.slice(5, 7)) + '/' + Number(iso.slice(8, 10)); }
+  const PERIOD_DAYS = { day: 1, week: 7 };
+
+  /* 按当前视图步进锚点日：跨月时把日号夹到目标月最后一天（1/31 → 2/28） */
+  function stepAnchor(iso, step) {
+    const d = new Date(iso + 'T00:00:00');
+    if (state.mode === 'month') {
+      const first = new Date(d.getFullYear(), d.getMonth() + step, 1);
+      const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+      first.setDate(Math.min(d.getDate(), lastDay));
+      return isoOf(first);
+    }
+    d.setDate(d.getDate() + PERIOD_DAYS[state.mode] * step);
+    return isoOf(d);
+  }
+
+  /* 顶部周期标签：日=某月某日 周X、周=起止区间、月=某年某月；并同步切换按钮提示与「回到今天」显隐 */
+  function setPeriod(res) {
+    const label = document.getElementById('ovDateLabel');
+    const curYear = todayStr.slice(0, 4);
+    if (state.mode === 'day') {
+      label.textContent = (res.date.slice(0, 4) === curYear ? '' : res.date.slice(0, 4) + '年') +
+        mdText(res.date) + ' ' + weekdayOf(res.date);
+    } else if (state.mode === 'week') {
+      const s = res.start, e = res.end;
+      label.textContent = (s.slice(0, 4) === curYear ? '' : s.slice(0, 4) + '年') + mdText(s) + ' – ' +
+        (e.slice(0, 4) === s.slice(0, 4) ? '' : e.slice(0, 4) + '年') + mdText(e);
+    } else {
+      label.textContent = res.date.slice(0, 4) + '年' + Number(res.date.slice(5, 7)) + '月';
+    }
+    const tip = { day: ['前一天', '后一天'], week: ['上一周', '下一周'], month: ['上个月', '下个月'] }[state.mode];
+    document.querySelectorAll('#ovPeriodNav .dn-btn').forEach(function (b, i) {
+      b.title = tip[i];
+      b.setAttribute('aria-label', tip[i]);
+    });
+    document.getElementById('ovTodayBtn').hidden = (todayStr >= res.start && todayStr <= res.end);
   }
 
   /* ---------- 统计块（通用） ---------- */
@@ -69,6 +118,7 @@
       const views = { day: 'ovDayView', week: 'ovWeekView', month: 'ovMonthView' };
       Object.keys(views).forEach(v => document.getElementById(views[v]).style.display = v === state.mode ? '' : 'none');
       history.replaceState(null, '', '?mode=' + state.mode + '&date=' + state.anchor);
+      setPeriod(res);
       if (state.mode === 'day') { renderDayCards(res); return; }
       if (state.mode === 'week') { renderWeek(res); return; }
       renderMonth(res);
@@ -106,7 +156,7 @@
     if (k === 'swim') {
       const title = (rec ? '游泳记录' : '游泳计划') + ' · ' +
         (e.distance_m != null ? e.distance_m + ' m' : '—') +
-        (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+        (rec && e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
       let meta = rec ? '' : (e.main_stroke_label || '');
       if (rec) {
         if (e.pace != null) meta += '配速 ' + e.pace + ' min/100m · ';
@@ -121,7 +171,7 @@
         (e.remark ? '<div class="oi-remark">' + esc(e.remark) + '</div>' : '') + '</div>';
     }
     const title = (rec ? '舞蹈记录' : '舞蹈计划') + ' · ' + (e.dance_type || '舞蹈') +
-      ' ★' + (e.stars != null ? e.stars : '—') + (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+      ' ★' + (e.stars != null ? e.stars : '—') + (rec && e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
     let meta = e.style || '';
     if (rec) {
       if (e.calories != null) meta += (meta ? ' · ' : '') + e.calories + ' kcal';
@@ -167,7 +217,8 @@
         (c.items || []).forEach(function (it) { marks.push(chipHtml(k, it, d.date)); });
       });
       return '<div class="ws-day' + (i === todayIdx ? ' is-today' : '') + '" data-add-day="' + d.date + '" title="为这一天添加计划">' +
-        '<div class="wd-top"><span class="wd-week">' + wd + '</span><button type="button" class="wd-add" title="为这一天添加计划">＋</button></div>' +
+        '<div class="wd-top"><span class="wd-week">' + wd + '<em class="wd-date">' + mdShort(d.date) + '</em></span>' +
+        '<button type="button" class="wd-add" title="为这一天添加计划">＋</button></div>' +
         '<div class="wd-sports">' + (marks.length ? marks.join('') : '<span class="wd-empty">—</span>') + '</div></div>';
     }).join('');
     document.getElementById('ovWeekSummaryGrid').innerHTML = summaryGridHtml(res.stats);
@@ -222,10 +273,10 @@
     if (!state.charts[elId]) state.charts[elId] = window.echarts.init(document.getElementById(elId));
     state.charts[elId].setOption({
       tooltip: { trigger: 'axis', confine: true, axisPointer: { type: 'shadow' } },
-      legend: { data: ['健身', '游泳', '舞蹈'], top: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { color: '#6b7280', fontSize: 12 } },
+      legend: { data: ['健身', '游泳', '舞蹈'], top: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { color: App.cssVar('--color-text-secondary', '#6b7280'), fontSize: 12 } },
       grid: { left: 8, right: 8, top: 30, bottom: 4, containLabel: true },
-      xAxis: { type: 'category', data: chart.labels, axisLine: { lineStyle: { color: '#d7dce3' } }, axisTick: { show: false }, axisLabel: { color: '#6b7280', fontSize: 11 } },
-      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#eee' } }, axisLabel: { color: '#6b7280', fontSize: 11 } },
+      xAxis: { type: 'category', data: chart.labels, axisLine: { lineStyle: { color: App.cssVar('--color-chart-axis', '#d7dce3') } }, axisTick: { show: false }, axisLabel: { color: App.cssVar('--color-text-secondary', '#6b7280'), fontSize: 11 } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: App.cssVar('--color-chart-grid', '#eeeeee') } }, axisLabel: { color: App.cssVar('--color-text-secondary', '#6b7280'), fontSize: 11 } },
       series: [
         { name: '健身', type: 'bar', stack: 't', data: chart.fitness, itemStyle: { color: COLORS.fitness }, barWidth: '46%' },
         { name: '游泳', type: 'bar', stack: 't', data: chart.swim, itemStyle: { color: COLORS.swim } },
@@ -252,7 +303,7 @@
       }
     } else if (k === 'swim') {
       title = (rec ? '游泳记录' : '游泳计划') + ' · ' + (e.distance_m != null ? e.distance_m + ' m' : '—') +
-        (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+        (rec && e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
       if (rec) {
         if (e.pace != null) meta += '配速 ' + e.pace + ' min/100m · ';
         if (e.main_stroke_label) meta += e.main_stroke_label + ' · ';
@@ -264,7 +315,7 @@
       }
     } else {
       title = (rec ? '舞蹈记录' : '舞蹈计划') + ' · ' + (e.dance_type || '舞蹈') +
-        ' ★' + (e.stars != null ? e.stars : '—') + (e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
+        ' ★' + (e.stars != null ? e.stars : '—') + (rec && e.duration_s ? ' · ' + fmtClock(e.duration_s) : '');
       if (e.style) meta += e.style;
       if (rec && e.calories != null) meta += (meta ? ' · ' : '') + e.calories + ' kcal';
       if (rec && e.max_heart_rate != null) meta += (meta ? ' · ' : '') + '心率 ' + e.max_heart_rate;
@@ -400,6 +451,21 @@
     state.mode = b.dataset.mode;
     syncSeg();
     load();
+  });
+
+  /* 周期切换：‹ › 按当前视图步进锚点日；「回到今天」直接归位 */
+  document.getElementById('ovPeriodNav').addEventListener('click', function (e) {
+    const stepBtn = e.target.closest('[data-step]');
+    if (stepBtn) {
+      state.anchor = stepAnchor(state.anchor, Number(stepBtn.dataset.step));
+      load();
+      return;
+    }
+    if (e.target.closest('#ovTodayBtn')) {
+      if (state.anchor === todayStr) return;
+      state.anchor = todayStr;
+      load();
+    }
   });
 
   function bindOpenDay(root) {

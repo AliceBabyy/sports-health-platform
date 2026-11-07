@@ -70,7 +70,7 @@
 - **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段均由 service 实时计算。
 - **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`daily_pain_logs` 按 `(user_id, log_date)` 唯一。三运动同日可多条，按主表 id 定位。
 - **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded；统计口径只计 recorded 行。
-- **时间与时长展示口径统一**（2026-11-07）：三运动（健身/游泳/舞蹈）的表单（含计划态）均展示起止时间与时长，均可填、可空（不因计划态隐藏、不设必填）；Excel 模板与 JSON 导入同样提供开始/结束时间列（可空，Excel 填 HH:MM，JSON 填 "HH:MM" 或完整 ISO 时间），未填时长时按起止时间推导；列表与「查看详情」弹窗对时段/时长/配速/划频等字段不做状态判断，有值即显示、无值显示「—」；总览日卡计划态时长一律按 0 计，仅 recorded 且有时长才拼时长；心得区块仍仅记录态且确有心得内容才展示。舞蹈的时间字段统一称「上课时间」。
+- **时间与时长展示口径统一**（2026-11-07）：三运动（健身/游泳/舞蹈）的表单（含计划态）均展示起止时间与时长，均可填、可空（不因计划态隐藏、不设必填）；导入三处同样带起止时间——Excel 模板新增「开始时间 / 结束时间」列（HH:MM，可空），JSON 导入支持 `start_time` / `end_time`（可空），未填时长时按起止时间推导；列表与「查看详情」弹窗对时段/时长/配速/划频等字段不做状态判断，有值即显示、无值显示「—」；总览日卡计划态时长一律按 0 计，仅 recorded 且有时长才拼时长；心得区块仍仅记录态且确有心得内容才展示。舞蹈的时间字段统一称「上课时间」。
 - **统一运动契约**：主表名为 `{sport}_records`，心得表为 `{sport}_notes`；主表必含 id/user_id/date/status/start_time/end_time/duration_s/remark/avg_heart_rate/max_heart_rate/calories/created_at/updated_at，心得必含 id、专属主表外键、rating、notes。各模块可增加字段和表，健身的 `training_records_items` 即专属表。ORM 共用 `SportRecordMixin`、`SportNoteMixin`；规则共用 `sport_ops.py`。详见《数据库建表设计.md》。
 - **统一接口**：`/api/training`、`/api/swim-records`、`/api/dance-records` 均提供列表、新建、按 id 编辑/删除、`/daily`、`/stats`、`/template`、`/import`、`/import-json`、`/batch-delete`、`/{id}/note` 读写。列表包含计划和记录，批量删除限当前用户的所选 id，心得仅记录态可写。模块专属接口可额外提供。
 - **账号状态与注销**：`users.status ∈ {启用, 停用}`，注册默认启用；登录和请求门禁拦截停用账号。`DELETE /api/profile/account` 要求当前密码，`retain` 停用并清会话，`purge` 在事务中删除用户及全部关联数据后清会话。停用账号通过注册页显式选择恢复、验证原密码后复用原 user_id。无管理员角色及管理员恢复接口。

@@ -107,6 +107,9 @@ async def import_plans(
     record_ids: list[int] = []
     for (date, _group_key), rows in groups.items():
         remark = next((r["remark"] for r in rows if r["remark"]), None)  # 取该组首个非空备注
+        # 起止时间为训练级字段：取该组首个非空值（Excel 为 HH:MM，已与计划日期拼成 datetime）
+        start_time = next((r["start_time"] for r in rows if r.get("start_time")), None)
+        end_time = next((r["end_time"] for r in rows if r.get("end_time")), None)
         items = [
             PlanItemIn(
                 exercise_name=r["exercise_name"],
@@ -118,7 +121,8 @@ async def import_plans(
             )
             for r in rows
         ]
-        plan = service.create_plan(db, user.id, date, items, remark=remark, status=service.TR_STATUS_RECORDED)
+        plan = service.create_plan(db, user.id, date, items, remark=remark, status=service.TR_STATUS_RECORDED,
+                                   start_time=start_time, end_time=end_time)
         plans_created += 1
         items_imported += len(items)
         record_ids.append(plan.id)
@@ -151,7 +155,9 @@ def import_plans_json(
     items_imported = 0
     record_ids: list[int] = []
     for plan_in in valid:
-        plan = service.create_plan(db, user.id, plan_in.date, plan_in.items, remark=plan_in.remark, status=service.TR_STATUS_RECORDED)
+        plan = service.create_plan(db, user.id, plan_in.date, plan_in.items, remark=plan_in.remark,
+                                   status=service.TR_STATUS_RECORDED,
+                                   start_time=plan_in.start_time, end_time=plan_in.end_time)
         plans_created += 1
         items_imported += len(plan_in.items)
         record_ids.append(plan.id)

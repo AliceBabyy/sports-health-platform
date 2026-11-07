@@ -39,9 +39,11 @@ class PlanCreateIn(PlanSaveIn):
 
 
 class JsonImportPlanIn(BaseModel):
-    """JSON 导入：一个计划对象（2026-11-04 新增）。"""
+    """JSON 导入：一个计划对象（2026-11-04 新增；2026-11-07 起支持起止时间）。"""
 
     date: date
+    start_time: datetime | None = None                         # 训练开始（ISO，可空）
+    end_time: datetime | None = None                           # 训练结束（ISO，可空）
     remark: str | None = Field(default=None, max_length=255)  # 备注可空
     items: list[PlanItemIn] = Field(min_length=1)             # 动作至少 1 条
 

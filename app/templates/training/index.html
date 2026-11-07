@@ -122,9 +122,9 @@
       <div id="importJsonPane" style="display:none">
         <div class="form-item">
           <label class="field-label">粘贴 JSON（{&quot;plans&quot;: [...]}）</label>
-          <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder="{&quot;plans&quot;:[{&quot;date&quot;:&quot;2026-11-04&quot;,&quot;remark&quot;:&quot;练胸&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;杠铃卧推&quot;,&quot;body_part&quot;:&quot;胸&quot;,&quot;weight_kg&quot;:40,&quot;sets&quot;:3,&quot;reps&quot;:&quot;10+8+6&quot;,&quot;target_weight_kg&quot;:50}]}]}"></textarea>
+          <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder="{&quot;plans&quot;:[{&quot;date&quot;:&quot;2026-11-04&quot;,&quot;start_time&quot;:&quot;2026-11-04T19:00:00&quot;,&quot;end_time&quot;:&quot;2026-11-04T20:00:00&quot;,&quot;remark&quot;:&quot;练胸&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;杠铃卧推&quot;,&quot;body_part&quot;:&quot;胸&quot;,&quot;weight_kg&quot;:40,&quot;sets&quot;:3,&quot;reps&quot;:&quot;10+8+6&quot;,&quot;target_weight_kg&quot;:50}]}]}"></textarea>
         </div>
-        <div class="modal-note">格式：{&quot;plans&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;remark&quot;:&quot;可选&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;必填&quot;,&quot;body_part&quot;:&quot;可选&quot;,&quot;weight_kg&quot;:&quot;可选&quot;,&quot;sets&quot;:&quot;可选&quot;,&quot;reps&quot;:&quot;可选&quot;,&quot;target_weight_kg&quot;:&quot;可选&quot;}]}]}，最多 200 个计划。</div>
+        <div class="modal-note">格式：{&quot;plans&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;start_time&quot;:&quot;可选，ISO 时间&quot;,&quot;end_time&quot;:&quot;可选，ISO 时间&quot;,&quot;remark&quot;:&quot;可选&quot;,&quot;items&quot;:[{&quot;exercise_name&quot;:&quot;必填&quot;,&quot;body_part&quot;:&quot;可选&quot;,&quot;weight_kg&quot;:&quot;可选&quot;,&quot;sets&quot;:&quot;可选&quot;,&quot;reps&quot;:&quot;可选&quot;,&quot;target_weight_kg&quot;:&quot;可选&quot;}]}]}，最多 200 个计划。</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>

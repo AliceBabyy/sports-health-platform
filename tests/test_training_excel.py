@@ -1,8 +1,9 @@
 """健身训练 Excel 导入单测（2026-11-04 新增：模板生成 / 解析 / 行级校验 / 按日期分组建记录）。
 
 2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 end_time），不再经 planned。
+2026-11-07 改版：模板新增可选「开始时间 / 结束时间」两列（HH:MM），未填时长时按起止推导。
 """
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
 
 import pytest
@@ -143,6 +144,36 @@ def test_validate_rejects_bad_rows_keeps_good():
     assert "超出合理范围" in reasons[6]
 
 
+def test_import_parses_times_and_derives_duration(db):
+    """开始/结束时间列可留空；填了按计划日期拼成 datetime，训练时长按起止推导。"""
+    content = _make_workbook([
+        ["2026-11-05", "A", None, "深蹲", "腿", 60, 4, "10", None, "19:00", "20:00"],
+        ["2026-11-05", "A", None, "腿举", "腿", 80, 3, "12", None, None, None],
+    ])
+    parsed = excel_io.parse_workbook(content)
+    valid, errors = excel_io.validate_rows(parsed)
+    assert not errors
+    assert valid[0]["start_time"] == datetime(2026, 11, 5, 19, 0)
+    assert valid[0]["end_time"] == datetime(2026, 11, 5, 20, 0)
+    assert valid[1]["start_time"] is None          # 同组后续行可留空，取首个非空值
+
+    plan = service.create_plan(
+        db, USER, date(2026, 11, 5), [PlanItemIn(exercise_name="深蹲")],
+        status=TR_STATUS_RECORDED,
+        start_time=valid[0]["start_time"], end_time=valid[0]["end_time"],
+    )
+    assert plan.duration_s == 3600
+
+
+def test_import_rejects_reversed_times():
+    content = _make_workbook([
+        ["2026-11-05", "A", None, "深蹲", "腿", 60, 4, "10", None, "20:00", "19:00"],
+    ])
+    valid, errors = excel_io.validate_rows(excel_io.parse_workbook(content))
+    assert valid == []
+    assert errors[0]["column"] == "结束时间"
+
+
 def test_parse_skips_blank_rows_and_ignores_unknown_columns():
     """空行跳过、未知列忽略、整行空白不产生错误。"""
     content = _make_workbook([
@@ -151,7 +182,7 @@ def test_parse_skips_blank_rows_and_ignores_unknown_columns():
     ])
     wb = load_workbook(BytesIO(content))
     ws = wb[excel_io.SHEET_NAME]
-    ws["J3"] = "未知列的值"
+    ws["M3"] = "未知列的值"   # 表头之外的列（第 13 列），应被忽略
     buf = BytesIO()
     wb.save(buf)
     parsed = excel_io.parse_workbook(buf.getvalue())

@@ -1,8 +1,9 @@
 """健身训练 JSON 导入单测（2026-11-04 新增：逐计划校验 / 失败计划跳过不阻断）。
 
 2026-11-04 改版：导入数据 status 直接为 recorded（训练记录，写 end_time），不再经 planned。
+2026-11-07 改版：计划对象支持可选 start_time / end_time。
 """
-from datetime import date
+from datetime import date, datetime
 
 from app.core.constants import TR_STATUS_RECORDED
 from app.modules.training import json_import, service
@@ -44,6 +45,22 @@ def test_json_import_valid_plans(db):
     assert p1.items[0].reps == "10+8+6" and p1.items[0].target_weight_kg == 50
     assert p2.date == date(2026, 11, 8) and p2.remark is None
     assert p2.items[0].weight_kg == 70
+
+
+def test_json_import_accepts_times(db):
+    """计划级起止时间可选；给了就落库，并按起止推导时长。"""
+    valid, errors = json_import.validate_json_plans([
+        {"date": "2026-11-09", "start_time": "2026-11-09T19:00:00", "end_time": "2026-11-09T20:00:00",
+         "items": [{"exercise_name": "杠铃深蹲"}]},
+    ])
+    assert not errors
+    plan = service.create_plan(
+        db, USER, valid[0].date, valid[0].items, status=TR_STATUS_RECORDED,
+        start_time=valid[0].start_time, end_time=valid[0].end_time,
+    )
+    assert plan.start_time == datetime(2026, 11, 9, 19, 0)
+    assert plan.end_time == datetime(2026, 11, 9, 20, 0)
+    assert plan.duration_s == 3600
 
 
 def test_json_import_bad_plans_skipped(db):

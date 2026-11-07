@@ -15,6 +15,8 @@ from app.modules.training.schemas import JsonImportPlanIn
 # 字段内部名 → 错误明细用中文列名（与 Excel 模板表头一致）
 FIELD_CN = {
     "date": "计划日期",
+    "start_time": "开始时间",
+    "end_time": "结束时间",
     "remark": "备注",
     "exercise_name": "动作名称",
     "body_part": "部位",

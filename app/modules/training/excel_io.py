@@ -7,7 +7,7 @@
 - 导入不会修改/覆盖已存在的计划：同一日期可多次导入，每次都会新建一个计划（一日多计划已支持）。
 - 行级校验失败只记录该行错误，不阻断其他行。
 """
-from datetime import date, datetime
+from datetime import date, datetime, time
 from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
@@ -19,7 +19,8 @@ HELP_SHEET = "填写说明"
 DATE_HEADER = "计划日期"
 
 # 模板表头（顺序即列顺序）
-HEADERS = ["计划日期", "训练组编号", "备注", "动作名称", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg"]
+HEADERS = ["计划日期", "训练组编号", "备注", "动作名称", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg",
+           "开始时间", "结束时间"]
 
 # 表头文本 → 内部 key（用于列匹配与错误明细）
 COL_KEYS = {
@@ -32,6 +33,8 @@ COL_KEYS = {
     "组数": "sets",
     "每组个数": "reps",
     "目标重量 kg": "target_weight_kg",
+    "开始时间": "start_time",
+    "结束时间": "end_time",
 }
 
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y年%m月%d日")
@@ -70,8 +73,9 @@ def build_template() -> BytesIO:
         "4. 每组个数支持自由文本，例如 10+8+6、40s。",
         "5. 数值范围校验：重量 0~999kg，组数 1~99，目标重量 0~999kg。",
         "6. 相同日期与训练组编号的多行动作属于一条训练记录（动作按行序排列）。",
-        "7. 导入的数据将直接作为训练记录保存（不经过「完成训练」）；同一日期可多次导入，每次都会新建一条记录。",
-        "8. 示例：2026-11-03 / A / 今天练腿 / 杠铃深蹲 / 腿 / 60 / 4 / 10 / 70",
+        "7. 开始时间 / 结束时间填 HH:MM 或 HH:MM:SS，可留空；同一训练组多行时取首个非空值。",
+        "8. 导入的数据将直接作为训练记录保存（不经过「完成训练」）；同一日期可多次导入，每次都会新建一条记录。",
+        "9. 示例：2026-11-03 / A / 今天练腿 / 杠铃深蹲 / 腿 / 60 / 4 / 10 / 70 / 19:00 / 20:00",
     ]
     for line in help_lines:
         ws_help.append([line])
@@ -183,6 +187,25 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
         if remark and len(remark) > 255:
             row_errors.append(_err(item, _column_label("remark"), "备注过长（最多 255 字符）"))
 
+        # 起止时间（训练级可选字段，与计划日期拼成 datetime）
+        start_time = end_time = None
+        for key, label in (("start_time", "开始时间"), ("end_time", "结束时间")):
+            raw = cells.get(key)
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                continue
+            if date is None:
+                continue          # 日期列本身有错，时间无法拼装
+            value, reason = _parse_time(raw, date)
+            if reason:
+                row_errors.append(_err(item, label, reason))
+                continue
+            if key == "start_time":
+                start_time = value
+            else:
+                end_time = value
+        if start_time and end_time and end_time <= start_time:
+            row_errors.append(_err(item, "结束时间", "结束时间需晚于开始时间"))
+
         reps = _clean_text(cells.get("reps"))
         if reps and len(reps) > 32:
             row_errors.append(_err(item, _column_label("reps"), "每组个数过长（最多 32 字符）"))
@@ -218,6 +241,8 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
                     "sets": values.get("sets"),
                     "reps": reps or None,
                     "target_weight_kg": values.get("target_weight_kg"),
+                    "start_time": start_time,
+                    "end_time": end_time,
                 }
             )
     return valid, errors
@@ -254,6 +279,31 @@ def _parse_date(value) -> tuple[date | None, str | None]:
         except ValueError:
             continue
     return None, "日期格式应为 YYYY-MM-DD"
+
+
+def _parse_time(value, day: date) -> tuple[datetime | None, str | None]:
+    """单元格 → 与计划日期拼装的 datetime；支持 Excel 时间/日期时间、时间小数、HH:MM(:SS)、完整日期时间文本。"""
+    if isinstance(value, datetime):
+        t = value.time()
+    elif isinstance(value, time):
+        t = value
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not (0 <= value < 1):
+            return None, "时间格式应为 HH:MM"
+        seconds = int(round(value * 86400))
+        t = time(seconds // 3600 % 24, seconds // 60 % 60, seconds % 60)
+    else:
+        text = str(value).strip()
+        for fmt in ("%H:%M", "%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d %H:%M"):
+            try:
+                t = datetime.strptime(text, fmt).time()
+                break
+            except ValueError:
+                continue
+        else:
+            return None, "时间格式应为 HH:MM"
+    return datetime.combine(day, t), None
 
 
 def _parse_number(value) -> tuple[float | None, str | None]:

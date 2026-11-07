@@ -189,6 +189,7 @@
       form.elements.laps.value = row.laps != null ? row.laps : '';
       form.elements.calories.value = row.calories != null ? row.calories : '';
       form.elements.avg_stroke_rate.value = row.avg_stroke_rate != null ? row.avg_stroke_rate : '';
+      durationManual = row.duration_s != null;   // 已有手填时长时不按起止覆盖
     }
     // 编辑「记录态」时：编辑弹窗内联展示心得区块（即使没填也显示）；计划态隐藏
     const noteSec = document.getElementById('swimEditNoteSection');
@@ -203,6 +204,7 @@
       box.innerHTML = App.starWidgetHtml(n.rating || 0);
       editNoteStars = App.bindStars(box, n.rating || 0);
     }
+    autoCalcDuration();   // 行上已有起止但没时长时，打开即按时长换算填好
     App.openModal('modalSwim');
   }
 

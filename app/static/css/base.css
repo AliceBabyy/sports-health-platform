@@ -106,12 +106,8 @@ label.field-label {
 /* 中性工具标签（部位/泳姿/未推算） */
 .tag-gray { background: var(--tag-gray-bg); color: var(--tag-gray-fg); }
 
-/* 阶段色别名标签（图例等，药丸样式） */
-.tag-pink   { background: var(--tag-pink-bg);   color: var(--tag-pink-fg);   --tag-dot: var(--tag-pink-dot); }
+/* 阶段色别名标签（「计划」标签复用，药丸样式） */
 .tag-mint   { background: var(--tag-mint-bg);   color: var(--tag-mint-fg);   --tag-dot: var(--tag-mint-dot); }
-.tag-apricot-light { background: var(--tag-apricot-light-bg); color: var(--tag-apricot-light-fg); --tag-dot: var(--tag-apricot-light-dot); }
-.tag-apricot-mid   { background: var(--tag-apricot-mid-bg);   color: var(--tag-apricot-mid-fg);   --tag-dot: var(--tag-apricot-mid-dot); }
-.tag-apricot-dark  { background: var(--tag-apricot-dark-bg);  color: var(--tag-apricot-dark-fg);  --tag-dot: var(--tag-apricot-dark-dot); }
 
 /* 运动四档标签：浅色底 + 状态圆点 + 深色文字 */
 .tag-high { background: var(--tag-high-bg); color: var(--tag-high-fg); --tag-dot: var(--tag-high-dot); }

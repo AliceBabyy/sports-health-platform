@@ -21,7 +21,8 @@
     dance: { label: '舞蹈', cls: 'dance', url: '/dance' },
   };
   const WEEKDAY_CN = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-  const COLORS = { fitness: '#1b2434', swim: '#17b3a6', dance: '#e8558c' };
+  // 与 tokens.css 的 --ov-fit / --ov-swim / --ov-dance 保持一致（ECharts 无法读 CSS 变量）
+  const COLORS = { fitness: '#6b7280', swim: '#1477c3', dance: '#e8558c' };
 
   function fmtClock(sec) {
     sec = Math.max(0, Math.round(sec || 0));

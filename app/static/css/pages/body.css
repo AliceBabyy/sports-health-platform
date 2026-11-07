@@ -13,15 +13,15 @@
 .goal-change { margin-top: 6px; display: flex; align-items: center; gap: 12px; }
 .goal-num { display: inline-flex; align-items: baseline; gap: 3px; }
 .goal-num .num { font-size: 22px; line-height: 1.15; font-weight: 600; color: var(--color-text); font-variant-numeric: tabular-nums; }
-.goal-num .unit { font-size: 11px; color: var(--color-text-tertiary, #9aa4b2); }
+.goal-num .unit { font-size: 11px; color: var(--color-text-tertiary); }
 /* 箭头纵向堆叠：上方小字标注变化数据，下方渐变蓝绿箭头 */
 .goal-arrow-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 72px; }
-.goal-delta { font-size: 11px; line-height: 1.2; white-space: nowrap; color: var(--color-text-tertiary, #9aa4b2); }
+.goal-delta { font-size: 11px; line-height: 1.2; white-space: nowrap; color: var(--color-text-tertiary); }
 .goal-delta.down { color: #0f9d92; }
 .goal-delta.up { color: #c77e08; }
-.goal-delta.same, .goal-delta.muted { color: var(--color-text-tertiary, #9aa4b2); }
+.goal-delta.same, .goal-delta.muted { color: var(--color-text-tertiary); }
 .goal-arrow { font-size: 16px; line-height: 1; font-weight: 700; background: linear-gradient(90deg, #74d6cd, #17b3a6); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.goal-foot { margin-top: 6px; min-height: 14px; font-size: 11px; color: var(--color-text-tertiary, #9aa4b2); }
+.goal-foot { margin-top: 6px; min-height: 14px; font-size: 11px; color: var(--color-text-tertiary); }
 
 .chart-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
 .chart-legend { margin-top: 10px; font-size: 12.5px; color: var(--color-text-secondary); display: flex; gap: 18px; flex-wrap: wrap; }

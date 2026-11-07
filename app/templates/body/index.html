@@ -86,7 +86,7 @@
           {% set p = pts[key] %}
           {% set val = snapshot.get(key, {}) %}
           <circle cx="{{ p[0] }}" cy="{{ p[1] }}" r="3.5" fill="#1b2434"/>
-          <line x1="{{ p[0] }}" y1="{{ p[1] }}" x2="{{ p[2] }}" y2="{{ p[3] }}" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
+          <line x1="{{ p[0] }}" y1="{{ p[1] }}" x2="{{ p[2] }}" y2="{{ p[3] }}" style="stroke:var(--color-text-tertiary)" stroke-width="1.2" stroke-dasharray="2.5 2.5"/>
           {% if key == 'arm' or key == 'thigh' %}
           <text x="{{ p[2] + 4 }}" y="{{ p[3] - 5 }}" font-size="11" fill="#6b7280">{{ label }}</text>
           <text x="{{ p[2] + 4 }}" y="{{ p[3] + 8 }}" font-size="13" fill="#1b2434" font-weight="600" class="num">{{ val.value if val.value is not none else '—' }}</text>
@@ -98,7 +98,7 @@
           {% endif %}
           {% endfor %}
           <!-- 身高标注 -->
-          <line x1="140" y1="28" x2="48" y2="34" stroke="#9aa4b2" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <line x1="140" y1="28" x2="48" y2="34" style="stroke:var(--color-text-tertiary)" stroke-width="1.2" stroke-dasharray="3 3"/>
           <text x="44" y="37" font-size="11" fill="#6b7280" text-anchor="end">身高 {{ snapshot.height.value if snapshot.height.value is not none else '—' }} cm</text>
         </svg>
       </div>

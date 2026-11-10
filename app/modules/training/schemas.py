@@ -9,11 +9,10 @@ from pydantic import BaseModel, Field
 class PlanItemIn(BaseModel):
     exercise_name: str = Field(min_length=1, max_length=128)
     body_part: str | None = Field(default=None, max_length=32)   # 部位可空
-    weight_kg: float | None = Field(default=None, ge=0, le=999)  # 重量可空
+    weight_kg: float | None = Field(default=None, allow_inf_nan=False)  # 重量可空，任意数值、保留两位小数
     sets: int | None = Field(default=None, ge=1, le=99)          # 组数可空
     reps: str | None = Field(default=None, max_length=32)        # 每组个数，字符串，可空
-    target_weight_kg: float | None = Field(default=None, ge=0, le=999)  # 期望突破重量，计划/记录均可填
-    checked: bool = False
+    target_weight_kg: float | None = Field(default=None, allow_inf_nan=False)  # 期望突破重量，计划/记录均可填，任意数值、保留两位小数
 
 
 class PlanSaveIn(BaseModel):

@@ -22,10 +22,9 @@ SHEET_NAMES = {"basic": "基础记录", "girth": "维度记录"}
 DATE_HEADER = "日期"
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y年%m月%d日")
 
-# 合理物理范围（身高 cm / 体重 kg / 体脂 % / 围度 cm），越界即该列报错
+# 合理物理范围（身高 cm / 体脂 % / 围度 cm），越界即该列报错；体重不做限值（任意数值、保留两位小数）
 RANGES: dict[str, tuple[float, float]] = {
     "height": (30, 250),
-    "weight": (2, 300),
     "body_fat": (1, 60),
     "neck": (10, 100),
     "shoulder_width": (15, 150),
@@ -178,10 +177,11 @@ def validate_rows(parsed: dict[str, list[dict]]) -> tuple[dict[str, list[dict]],
                 if reason:
                     row_errors.append(_err(item, _column_label(key), reason))
                     continue
-                lo, hi = RANGES.get(key, (0, 1_000_000))
-                if not (lo <= value <= hi):
-                    row_errors.append(_err(item, _column_label(key), f"超出合理范围（{lo:g}~{hi:g}）"))
-                    continue
+                if key in RANGES:
+                    lo, hi = RANGES[key]
+                    if not (lo <= value <= hi):
+                        row_errors.append(_err(item, _column_label(key), f"超出合理范围（{lo:g}~{hi:g}）"))
+                        continue
                 values[key] = value
 
             if not values:

@@ -1,7 +1,8 @@
 """健身训练 Excel 导入模板与解析校验（2026-11-04 新增，思路参考身材数据模块 body/excel_io.py）。
 
 模板约定（第一行为表头）：
-    计划日期 | 训练组编号 | 备注 | 动作名称 | 部位 | 重量 kg | 组数 | 每组个数 | 目标重量 kg
+    计划日期 | 训练组编号 | 备注 | 动作名称 | 部位 | 重量 kg | 组数 | 每组个数 | 目标重量 kg |
+    开始时间 | 结束时间 | 平均心率 bpm | 最大心率 bpm | 热量 kcal
 
 - 每行代表一个训练动作；同一「计划日期」的多行动作自动合并为一个训练计划（动作按文件行序）。
 - 导入不会修改/覆盖已存在的计划：同一日期可多次导入，每次都会新建一个计划（一日多计划已支持）。
@@ -20,7 +21,7 @@ DATE_HEADER = "计划日期"
 
 # 模板表头（顺序即列顺序）
 HEADERS = ["计划日期", "训练组编号", "备注", "动作名称", "部位", "重量 kg", "组数", "每组个数", "目标重量 kg",
-           "开始时间", "结束时间"]
+           "开始时间", "结束时间", "平均心率 bpm", "最大心率 bpm", "热量 kcal"]
 
 # 表头文本 → 内部 key（用于列匹配与错误明细）
 COL_KEYS = {
@@ -35,17 +36,23 @@ COL_KEYS = {
     "目标重量 kg": "target_weight_kg",
     "开始时间": "start_time",
     "结束时间": "end_time",
+    "平均心率 bpm": "avg_heart_rate",
+    "最大心率 bpm": "max_heart_rate",
+    "热量 kcal": "calories",
 }
 
 DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y年%m月%d日")
 MAX_IMPORT_ROWS = 5000  # 单文件动作行上限，防止异常超大文件
 
-# 数值合理范围（与 training/schemas.py 的 PlanItemIn 约束对齐）
+# 数值范围校验：重量不做限值；心率与热量按身体指标合理区间（与 training/schemas.py 对齐）
 RANGES: dict[str, tuple[float, float]] = {
-    "weight_kg": (0, 999),
     "sets": (1, 99),
-    "target_weight_kg": (0, 999),
+    "avg_heart_rate": (1, 300),
+    "max_heart_rate": (1, 300),
+    "calories": (0, 1_000_000),
 }
+
+INT_KEYS = ("sets", "avg_heart_rate", "max_heart_rate")   # 取整落库的数值列
 
 
 def _column_label(key: str) -> str:
@@ -71,11 +78,12 @@ def build_template() -> BytesIO:
         "2. 计划日期和训练组编号必填；同一天不同编号表示不同训练。",
         "3. 动作名称必填；备注、部位、重量、组数、每组个数、目标重量可留空。",
         "4. 每组个数支持自由文本，例如 10+8+6、40s。",
-        "5. 数值范围校验：重量 0~999kg，组数 1~99，目标重量 0~999kg。",
+        "5. 数值范围校验：组数 1~99，平均/最大心率 1~300，热量 ≥0；重量与目标重量不限值。",
         "6. 相同日期与训练组编号的多行动作属于一条训练记录（动作按行序排列）。",
         "7. 开始时间 / 结束时间填 HH:MM 或 HH:MM:SS，可留空；同一训练组多行时取首个非空值。",
-        "8. 导入的数据将直接作为训练记录保存（不经过「完成训练」）；同一日期可多次导入，每次都会新建一条记录。",
-        "9. 示例：2026-11-03 / A / 今天练腿 / 杠铃深蹲 / 腿 / 60 / 4 / 10 / 70 / 19:00 / 20:00",
+        "8. 平均心率 / 最大心率 / 热量可留空；同一训练组多行时取首个非空值（心率 1~300，热量 ≥0）。",
+        "9. 导入的数据将直接作为训练记录保存（不经过「完成训练」）；同一日期可多次导入，每次都会新建一条记录。",
+        "10. 示例：2026-11-03 / A / 今天练腿 / 杠铃深蹲 / 腿 / 60 / 4 / 10 / 70 / 19:00 / 20:00 / 135 / 168 / 320",
     ]
     for line in help_lines:
         ws_help.append([line])
@@ -211,7 +219,7 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
             row_errors.append(_err(item, _column_label("reps"), "每组个数过长（最多 32 字符）"))
 
         values: dict[str, float] = {}
-        for key in ("weight_kg", "sets", "target_weight_kg"):
+        for key in ("weight_kg", "sets", "target_weight_kg", "avg_heart_rate", "max_heart_rate", "calories"):
             raw = cells.get(key)
             if raw is None:
                 continue
@@ -219,11 +227,12 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
             if reason:
                 row_errors.append(_err(item, _column_label(key), reason))
                 continue
-            lo, hi = RANGES.get(key, (0, 1_000_000))
-            if not (lo <= value <= hi):
-                row_errors.append(_err(item, _column_label(key), f"超出合理范围（{lo:g}~{hi:g}）"))
-                continue
-            if key == "sets":
+            if key in RANGES:
+                lo, hi = RANGES[key]
+                if not (lo <= value <= hi):
+                    row_errors.append(_err(item, _column_label(key), f"超出合理范围（{lo:g}~{hi:g}）"))
+                    continue
+            if key in INT_KEYS:
                 value = int(value)
             values[key] = value
 
@@ -243,6 +252,9 @@ def validate_rows(parsed: list[dict]) -> tuple[list[dict], list[dict]]:
                     "target_weight_kg": values.get("target_weight_kg"),
                     "start_time": start_time,
                     "end_time": end_time,
+                    "avg_heart_rate": values.get("avg_heart_rate"),
+                    "max_heart_rate": values.get("max_heart_rate"),
+                    "calories": values.get("calories"),
                 }
             )
     return valid, errors

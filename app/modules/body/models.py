@@ -25,8 +25,8 @@ class _BodyRowBase(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间（ORM onupdate 自动刷新）")
 
 
-def _col(comment: str) -> Mapped[Decimal | None]:
-    return mapped_column(Numeric(6, 2), nullable=True, comment=comment)
+def _col(comment: str, precision: int = 6, scale: int = 2) -> Mapped[Decimal | None]:
+    return mapped_column(Numeric(precision, scale), nullable=True, comment=comment)
 
 
 class BodyBasicRecord(_BodyRowBase):
@@ -38,7 +38,7 @@ class BodyBasicRecord(_BodyRowBase):
     )
 
     height_cm: Mapped[Decimal | None] = _col("身高")     # 身高
-    weight_kg: Mapped[Decimal | None] = _col("体重")     # 体重
+    weight_kg: Mapped[Decimal | None] = _col("体重", 10, 2)     # 体重（任意数值、保留两位小数）
     body_fat_pct: Mapped[Decimal | None] = _col("体脂率 %")  # 体脂率 %
 
 
@@ -50,7 +50,7 @@ class BodyBasicGoalRecord(_BodyRowBase):
         {"comment": "身材期望指标（目标体重/目标体脂率）"},
     )
 
-    target_weight_kg: Mapped[Decimal | None] = _col("目标体重")    # 目标体重
+    target_weight_kg: Mapped[Decimal | None] = _col("目标体重", 10, 2)    # 目标体重（任意数值、保留两位小数）
     target_body_fat_pct: Mapped[Decimal | None] = _col("目标体脂率 %") # 目标体脂率 %
 
 

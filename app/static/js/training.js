@@ -114,13 +114,11 @@
       return;
     }
     const items = plans.reduce(function (a, p) { return a.concat(p.items || []); }, []);
-    const done = items.filter(i => i.checked).length;
     const rows = [
       ['训练内容', partsSummary(items)],
       ['计划数量', plans.length + ' 个'],
       ['动作数量', items.length + ' 个'],
       ['计划组数', sumSets(items) + ' 组'],
-      ['今日完成度', done + ' / ' + items.length],
       ['总容量', computeVolume(items) + ' kg'],
     ];
     list.innerHTML = rows.map(r => '<div class="ov-row"><span class="k">' + r[0] + '</span><span class="v num">' + r[1] + '</span></div>').join('');
@@ -279,10 +277,10 @@
         '</svg></span>' +
       '<input class="input" name="exercise_name" placeholder="动作名称" value="' + App.escapeHtml(it.exercise_name || '') + '">' +
       '<input class="input" name="body_part" placeholder="部位" value="' + App.escapeHtml(it.body_part || '') + '">' +
-      '<input class="input num" type="number" step="0.5" min="0" name="weight_kg" value="' + (it.weight_kg != null ? it.weight_kg : '') + '">' +
+      '<input class="input num" type="number" step="0.01" name="weight_kg" value="' + (it.weight_kg != null ? it.weight_kg : '') + '">' +
       '<input class="input num" type="number" min="1" name="sets" value="' + (it.sets != null ? it.sets : '') + '">' +
       '<input class="input" name="reps" placeholder="如 10+8+6" value="' + App.escapeHtml(it.reps != null ? it.reps : '') + '">' +
-      '<input class="input num" type="number" step="0.5" min="0" name="target_weight_kg" value="' + (it.target_weight_kg != null ? it.target_weight_kg : '') + '" placeholder="目标重量">' +
+      '<input class="input num" type="number" step="0.01" name="target_weight_kg" value="' + (it.target_weight_kg != null ? it.target_weight_kg : '') + '" placeholder="目标重量">' +
       '<button type="button" class="btn btn-sm btn-danger" title="删除行">✕</button>';
     div.querySelector('button').addEventListener('click', function () {
       App.confirmDialog({ title: '删除动作行', message: '删除该行动作？' })
@@ -467,7 +465,7 @@
             '<td>' + App.escapeHtml(p.body_parts_summary || '训练') + '</td>' +
             '<td class="num">' + dur + '</td>' +
             '<td class="num">' + p.item_count + ' 个</td>' +
-            '<td class="num" style="color:var(--color-text-secondary)">完成 ' + p.completed_count + '/' + p.item_count + ' · ' + p.total_volume + ' kg</td>' +
+            '<td class="num" style="color:var(--color-text-secondary)">' + p.total_volume + ' kg</td>' +
             '<td><div class="plan-actions">' +
               '<button type="button" class="btn btn-sm" data-hact="view" data-row=\'' + JSON.stringify(p).replace(/'/g, "&#39;") + '\'>查看详情</button>' +
               '<button type="button" class="btn btn-sm" data-hact="reuse" data-id="' + p.id + '">设为今日计划</button>' +

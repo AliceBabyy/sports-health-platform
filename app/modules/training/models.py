@@ -1,7 +1,7 @@
 """Training records, exercise items, and post-training notes."""
 from decimal import Decimal
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.sport_contract import SportNoteMixin, SportRecordMixin, SportStatus, status_type
@@ -29,11 +29,10 @@ class TrainingRecordItem(Base):
     sort: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     exercise_name: Mapped[str] = mapped_column(String(128), nullable=False)
     body_part: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(5, 1), nullable=True)
+    weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     sets: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reps: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    target_weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(5, 1), nullable=True)
-    checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    target_weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     record: Mapped[TrainingRecord] = relationship(back_populates="items")
 

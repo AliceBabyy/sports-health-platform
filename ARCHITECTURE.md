@@ -1,5 +1,21 @@
 # 体序 BODY ALMANAC · 架构说明
 
+## V2.0 AI 基础设施
+
+V1 的页面/API 双轨和业务服务层保持不变。新增 `app/ai/models/`、
+`app/ai/prompts/`、`app/ai/runtime/`、`app/ai/tools/`，分别负责
+OpenAI 兼容模型选择、文件提示词版本、LangChain 调用与结构化校验、
+未来受控领域工具适配。业务编排放在 `app/modules/electronic_trainer/`；
+将来的运动页 AI 入口在所属模块准备上下文，再复用共享运行时和业务服务。
+
+三个已注册模型使用相同 `AI_API_KEY`、`AI_BASE_URL`，默认地址为
+`https://cn-beijing.maas.qianwenaiapi.com/compatible-mode/v1`。
+`deepseek-v4.1-flash` 给出的 DashScope 原生 `/api/v1` 地址不用于
+OpenAI 兼容客户端。模型能力以注册表显式声明；视觉及工具调用暂不声明。
+`/api/electronic-trainer/models` 和 `/probe` 使用现有登录门禁，
+仅验证配置、提示词和结构化响应，暂不查询健康数据或持久化对话。
+V2.0 无 ORM、数据库表或迁移变更。
+
 > 个人健康管理平台 V1。本文件只描述实现层面的结构，业务口径详见 README「需求口径」与《数据库建表设计.md》。
 
 ## 1. 技术栈
@@ -87,6 +103,7 @@
 - 同值但语义不同、**禁止合并**的令牌对（合并会让两条业务线绑死）：`#6b7280` = 次要文字 / 记录态 / 健身编码；`#17b3a6` = 品牌强调 / 计划态；`rgba(23,179,166,.10)` = hover 浅底 / 计划标签底；`rgba(27,36,52,.08)` = 焦点环 / 轻投影；`rgba(107,114,128,.10)` = 中性标签底 / 健身 chip 底。要“当前同值、将来可分”，用 `var()` 别名而非删令牌。
 - 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长优先 duration_s，缺失时按 recorded 的 end_time−start_time 推导，游泳/舞蹈= duration_s；热量按记录字段汇总。
 - 训练容量：Σ 重量 × 组数 × 每组个数首段数字（reps 为字符串，如 `"10+8+6"` 按 10 计），负荷任一为空跳过。
+- 数值精度口径（2026-11-10 统一）：重量类字段 `weight_kg` / `target_weight_kg`（健身动作重量、身材体重/目标体重）统一 `numeric(10,2)`——任意数值、保留两位小数；Pydantic 不再设 `ge/le`，Excel/JSON 导入不做范围限值，前端 `step="0.01"` 且不设 `min`。仅组数保留 1~99 校验。
 
 ## 9. 导入导出
 

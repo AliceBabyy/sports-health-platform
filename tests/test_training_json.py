@@ -88,7 +88,7 @@ def test_json_import_bad_plans_skipped(db):
 
 
 def test_json_import_rejects_non_object_and_oversize_fields():
-    """非对象计划项报错；超上限的字段（动作名/备注过长、重量越界）也产出明细。"""
+    """非对象计划项报错；超上限的字段（动作名/备注过长、组数 0）也产出明细；重量不限值。"""
     raw = [
         "不是一个对象",
         {
@@ -105,5 +105,5 @@ def test_json_import_rejects_non_object_and_oversize_fields():
     assert reasons["计划"] == "计划项必须是对象"
     assert "过长" in reasons["备注"]
     assert "过长" in reasons["动作名称（第 1 个动作）"]
-    assert "超出合理范围" in reasons["重量 kg（第 1 个动作）"]
+    assert "重量 kg（第 1 个动作）" not in reasons   # 重量任意数值，不做范围限值
 

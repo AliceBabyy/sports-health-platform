@@ -110,7 +110,6 @@
           ['时长', dur],
         ];
         kv.push(
-          ['完成度', '完成 ' + (row.completed_count || 0) + ' / ' + row.item_count],
           ['容量', (row.total_volume != null ? row.total_volume : 0) + ' kg'],
           ['组数', (row.total_sets != null ? row.total_sets : 0) + ' 组'],
           ['动作数', row.item_count + ' 个'],

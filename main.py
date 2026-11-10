@@ -47,6 +47,7 @@ from app.modules.profile.router_pages import router as profile_pages
 from app.modules.profile.router_api import router as profile_api
 from app.modules.overview.router_pages import router as overview_pages
 from app.modules.overview.router_api import router as overview_api
+from app.modules.electronic_trainer.router_api import router as electronic_trainer_api
 
 _include(auth_pages)
 _include(auth_api)
@@ -64,6 +65,7 @@ _include(profile_pages)
 _include(profile_api)
 _include(overview_pages)
 _include(overview_api)
+_include(electronic_trainer_api)
 
 
 @app.get("/", include_in_schema=False)

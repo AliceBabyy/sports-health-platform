@@ -124,23 +124,23 @@ def test_import_groups_rows_by_date_and_group(db):
 
 
 def test_validate_rejects_bad_rows_keeps_good():
-    """行级校验：日期为空/格式错、动作名空、重量越界、组数 0 报错，好行不受影响。"""
+    """行级校验：日期为空/格式错、动作名空、组数 0 报错，好行不受影响；重量不再做范围限值。"""
     content = _make_workbook([
         [None, "A", None, "动作A", "腿", 60, 4, "10", None],
         ["2026-13-99", "A", None, "动作B", "腿", 60, 4, "10", None],
         ["2026-11-05", "A", None, None, "腿", 60, 4, "10", None],
         ["2026-11-05", "A", None, "动作C", "腿", 1500, 4, "10", None],
         ["2026-11-05", "A", None, "动作D", "腿", 60, 0, "10", None],
-        ["2026-11-05", "A", None, "动作E", "腿", 60, 4, "10", 60],
+        ["2026-11-05", "A", None, "动作E", "腿", 60.25, 4, "10", 60],
     ])
     parsed = excel_io.parse_workbook(content)
     valid, errors = excel_io.validate_rows(parsed)
-    assert len(valid) == 1 and valid[0]["exercise_name"] == "动作E"
+    assert len(valid) == 2 and {v["exercise_name"] for v in valid} == {"动作C", "动作E"}
+    assert valid[1]["weight_kg"] == 60.25           # 两位小数原样保留
     reasons = {e["row"]: e["reason"] for e in errors}
     assert reasons[2] == "计划日期不能为空"
     assert "日期格式" in reasons[3]
     assert reasons[4] == "动作名称不能为空"
-    assert "超出合理范围" in reasons[5]
     assert "超出合理范围" in reasons[6]
 
 

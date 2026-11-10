@@ -30,6 +30,17 @@ def test_create_and_get_plan(db):
     assert data["items"][0]["sets"] == 5 and data["items"][0]["reps"] == "8"
 
 
+def test_weight_fields_accept_any_number_two_decimals(db):
+    """重量/目标重量：任意数值、保留两位小数（不再有 0~999 限值）。"""
+    item = PlanItemIn(exercise_name="哑铃飞鸟", body_part="胸", weight_kg=12.34, sets=3, reps="12",
+                      target_weight_kg=1000.55)
+    plan = service.create_plan(db, USER, _today(), [item], status=TR_STATUS_RECORDED)
+    db.refresh(plan)
+    data = service.plan_to_dict(plan)
+    assert data["items"][0]["weight_kg"] == 12.34
+    assert data["items"][0]["target_weight_kg"] == 1000.55
+
+
 def test_create_plan_schema_status(db):
     """「＋ 新建记录」入口：PlanCreateIn.status 允许 planned/recorded，非法值被 pydantic 拒绝。"""
     from pydantic import ValidationError
@@ -96,19 +107,17 @@ def test_update_plan_can_change_date(db):
     assert len(service.get_plans_by_date(db, USER, date(2026, 11, 12))) == 1
 
 
-def test_update_recorded_allowed_keeps_checked(db):
-    """2026-11-04 起已记录可编辑：update 替换动作明细，并按 sort 保留原勾选状态（checked）。"""
+def test_update_recorded_allowed_replaces_items(db):
+    """2026-11-04 起已记录可编辑：update 替换动作明细；2026-11-10 起不再有勾选/完成度字段。"""
     plan = service.create_plan(db, USER, _today(), [ITEM])
     service.complete_plan(db, USER, plan.id)
-    plan.items[0].checked = True   # 模拟训练时勾选
-    db.commit()
     plan2 = service.update_plan(db, USER, plan.id, _today(), [ITEM_MIX, ITEM_EMPTY])
     assert plan2.id == plan.id
     data = service.plan_to_dict(plan2)
     assert data["item_count"] == 2
     assert data["items"][0]["exercise_name"] == "杠铃卧推"
-    assert data["items"][0]["checked"] is True    # 第 1 个动作勾选保留
-    assert data["items"][1]["checked"] is False
+    assert "completed_count" not in data              # 完成度字段已移除
+    assert "checked" not in data["items"][0]          # 动作明细不再带勾选状态
     assert data["status"] == TR_STATUS_RECORDED
     assert data["date"] == _today().isoformat()   # 改期不丢失（此处日期未变）
 
@@ -173,12 +182,10 @@ def test_history_includes_plans_and_records(db):
 def test_copy_plan_to_date_reuse_old_plan(db):
     """一键设为当日计划（2026-11-04）：以历史记录为模板在目标日期新建 planned 计划，原记录不动。
 
-    支持任意日期计划/记录作为模板；勾选状态不复用。
+    支持任意日期计划/记录作为模板。
     """
     src = service.create_plan(db, USER, date(2026, 10, 20), [ITEM, ITEM_MIX], remark="旧计划")
     service.complete_plan(db, USER, src.id)
-    src.items[0].checked = True
-    db.commit()
 
     new_plan = service.copy_plan_to_date(db, USER, src.id, _today())
     assert new_plan.id != src.id
@@ -186,7 +193,6 @@ def test_copy_plan_to_date_reuse_old_plan(db):
     assert new_plan.date == _today()
     assert new_plan.remark == "旧计划"                       # 备注复用
     assert [i.exercise_name for i in new_plan.items] == ["杠铃深蹲", "杠铃卧推"]
-    assert all(i.checked is False for i in new_plan.items)   # 勾选不复用
     assert new_plan.items[0].weight_kg == 70
 
     # 原记录保持 recorded 不动

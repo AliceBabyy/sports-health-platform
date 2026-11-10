@@ -35,7 +35,6 @@ def _item_dict(item: TrainingRecordItem) -> dict:
         "sets": item.sets,
         "reps": item.reps,
         "target_weight_kg": float(item.target_weight_kg) if item.target_weight_kg is not None else None,
-        "checked": item.checked,
     }
 
 
@@ -82,7 +81,6 @@ def plan_to_dict(plan: TrainingRecord | None) -> dict | None:
         "item_count": len(items),
         "total_sets": sum((i.sets or 0) for i in items),
         "total_volume": round(total_volume, 1),
-        "completed_count": sum(1 for i in items if i.checked),
         "body_parts_summary": " + ".join(body_parts) if body_parts else "",
         "items": [_item_dict(i) for i in items],
         "note": (
@@ -157,7 +155,7 @@ def get_plans_by_date(db: Session, user_id: int, date: date) -> list[TrainingRec
 # ---------- 写（id 维度 CRUD） ----------
 
 def replace_items(plan: TrainingRecord, items_payload) -> None:
-    """整体替换计划明细（保留勾选与期望重量字段按提交值；部位/重量/组数/个数可空）。"""
+    """整体替换计划明细（期望重量等字段按提交值；部位/重量/组数/个数可空）。"""
     plan.items.clear()
     for idx, payload in enumerate(items_payload):
         plan.items.append(
@@ -169,7 +167,6 @@ def replace_items(plan: TrainingRecord, items_payload) -> None:
                 sets=payload.sets,
                 reps=payload.reps or None,
                 target_weight_kg=payload.target_weight_kg,
-                checked=payload.checked,
             )
         )
 
@@ -225,7 +222,6 @@ def update_plan(
     """编辑计划/记录（TR-03，含页面内「+ 追加一行」的落库路径）。
 
     2026-11-04 起放开 recorded 锁定：训练历史中的记录数据允许编辑（改动作明细/备注/归属日期）。
-    编辑已记录时按 sort 保留原勾选状态（checked），避免完成度被清零。
     """
     plan = get_plan_or_404(db, user_id, training_id)
     plan.date = date
@@ -234,16 +230,10 @@ def update_plan(
     plan.end_time = end_time
     plan.duration_s = _derive_duration_s(start_time, end_time, duration_s)
     if plan.status == TR_STATUS_RECORDED:
-        old_checked = {i.sort: i.checked for i in plan.items}
         plan.avg_heart_rate = avg_heart_rate
         plan.max_heart_rate = max_heart_rate
         plan.calories = calories
-        replace_items(plan, items_payload)
-        for item in plan.items:
-            if item.sort in old_checked:
-                item.checked = old_checked[item.sort]
-    else:
-        replace_items(plan, items_payload)
+    replace_items(plan, items_payload)
     db.commit()
     db.refresh(plan)
     return plan
@@ -284,7 +274,7 @@ def complete_plan(db: Session, user_id: int, training_id: int) -> TrainingRecord
 def copy_plan_to_date(db: Session, user_id: int, training_id: int, target_date: date) -> TrainingRecord:
     """一键复用：以某计划/记录的动作明细与备注为模板，在目标日期新建一个 planned 计划（2026-11-04）。
 
-    用于训练历史「一键设为当日计划」：复用以前练过的内容，today 新建计划（勾选状态不复用）。
+    用于训练历史「一键设为当日计划」：复用以前练过的内容，today 新建计划。
     """
     src = get_plan_or_404(db, user_id, training_id)
     plan = TrainingRecord(user_id=user_id, date=target_date, status=TR_STATUS_PLANNED, remark=src.remark)
@@ -300,7 +290,6 @@ def copy_plan_to_date(db: Session, user_id: int, training_id: int, target_date: 
                 sets=i.sets,
                 reps=i.reps,
                 target_weight_kg=i.target_weight_kg,
-                checked=False,
             )
         )
     db.commit()

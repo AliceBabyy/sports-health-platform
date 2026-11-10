@@ -168,7 +168,7 @@
       <div class="form-item form-date"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
       <div class="form-grid">
         <div class="form-item"><label class="field-label">身高 (cm)</label><input class="input num" type="number" step="0.1" min="50" max="250" name="height"></div>
-        <div class="form-item"><label class="field-label">体重 (kg)</label><input class="input num" type="number" step="0.1" name="weight"></div>
+        <div class="form-item"><label class="field-label">体重 (kg)</label><input class="input num" type="number" step="0.01" name="weight"></div>
         <div class="form-item"><label class="field-label">体脂率 (%)</label><input class="input num" type="number" step="0.1" name="body_fat"></div>
       </div>
       <div class="modal-note">同日重复保存会覆盖当日已填的基础数据；BMI 由身高体重实时计算。</div>
@@ -188,7 +188,7 @@
     <form id="formGoal">
       <div class="form-item form-date"><label class="field-label">记录日期</label><input class="input" type="date" name="record_date" required></div>
       <div class="form-grid">
-        <div class="form-item"><label class="field-label">目标体重 (kg)</label><input class="input num" type="number" step="0.1" name="target_weight"></div>
+        <div class="form-item"><label class="field-label">目标体重 (kg)</label><input class="input num" type="number" step="0.01" name="target_weight"></div>
         <div class="form-item"><label class="field-label">目标体脂率 (%)</label><input class="input num" type="number" step="0.1" name="target_body_fat"></div>
       </div>
       <div class="modal-note">同日重复保存会覆盖当日已填的期望指标。</div>

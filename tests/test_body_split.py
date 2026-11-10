@@ -11,6 +11,15 @@ def _d(day: str) -> date:
     return date.fromisoformat(day)
 
 
+def test_weight_fields_keep_two_decimals(db):
+    """体重/目标体重：任意数值、保留两位小数。"""
+    body_service.upsert_group(db, USER, "basic", _d("2026-10-22"), {"weight": 60.25})
+    body_service.upsert_group(db, USER, "goal", _d("2026-10-22"), {"target_weight": 55.55})
+    snap = body_service.latest_snapshot(db, USER)
+    assert snap["weight"]["value"] == 60.25
+    assert snap["target_weight"]["value"] == 55.55
+
+
 def test_upsert_new_row_inherits_last_value(db):
     """新日期只填体重 → 身高/体脂率继承最近一次非空值。"""
     body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 60.0, "height": 165.0})

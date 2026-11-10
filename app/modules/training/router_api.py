@@ -110,6 +110,10 @@ async def import_plans(
         # 起止时间为训练级字段：取该组首个非空值（Excel 为 HH:MM，已与计划日期拼成 datetime）
         start_time = next((r["start_time"] for r in rows if r.get("start_time")), None)
         end_time = next((r["end_time"] for r in rows if r.get("end_time")), None)
+        # 心率 / 热量同为训练级字段：取该组首个非空值
+        avg_heart_rate = next((r["avg_heart_rate"] for r in rows if r.get("avg_heart_rate") is not None), None)
+        max_heart_rate = next((r["max_heart_rate"] for r in rows if r.get("max_heart_rate") is not None), None)
+        calories = next((r["calories"] for r in rows if r.get("calories") is not None), None)
         items = [
             PlanItemIn(
                 exercise_name=r["exercise_name"],
@@ -122,7 +126,8 @@ async def import_plans(
             for r in rows
         ]
         plan = service.create_plan(db, user.id, date, items, remark=remark, status=service.TR_STATUS_RECORDED,
-                                   start_time=start_time, end_time=end_time)
+                                   start_time=start_time, end_time=end_time,
+                                   avg_heart_rate=avg_heart_rate, max_heart_rate=max_heart_rate, calories=calories)
         plans_created += 1
         items_imported += len(items)
         record_ids.append(plan.id)
@@ -157,7 +162,9 @@ def import_plans_json(
     for plan_in in valid:
         plan = service.create_plan(db, user.id, plan_in.date, plan_in.items, remark=plan_in.remark,
                                    status=service.TR_STATUS_RECORDED,
-                                   start_time=plan_in.start_time, end_time=plan_in.end_time)
+                                   start_time=plan_in.start_time, end_time=plan_in.end_time,
+                                   avg_heart_rate=plan_in.avg_heart_rate, max_heart_rate=plan_in.max_heart_rate,
+                                   calories=plan_in.calories)
         plans_created += 1
         items_imported += len(plan_in.items)
         record_ids.append(plan.id)

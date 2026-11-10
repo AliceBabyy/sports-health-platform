@@ -174,6 +174,72 @@ def test_import_rejects_reversed_times():
     assert errors[0]["column"] == "结束时间"
 
 
+def test_import_parses_heart_rate_and_calories(db):
+    """平均心率 / 最大心率 / 热量列可留空；填了按训练组取首个非空值并落库。"""
+    content = _make_workbook([
+        ["2026-11-06", "A", None, "深蹲", "腿", 60, 4, "10", None, None, None, 132, 168, 320],
+        ["2026-11-06", "A", None, "腿举", "腿", 80, 3, "12", None, None, None, None, None, None],
+    ])
+    parsed = excel_io.parse_workbook(content)
+    valid, errors = excel_io.validate_rows(parsed)
+    assert not errors
+    assert valid[0]["avg_heart_rate"] == 132 and valid[0]["max_heart_rate"] == 168
+    assert valid[0]["calories"] == 320
+    assert valid[1]["avg_heart_rate"] is None      # 同组后续行留空
+
+    plan = service.create_plan(
+        db, USER, date(2026, 11, 6), [PlanItemIn(exercise_name="深蹲")],
+        status=TR_STATUS_RECORDED,
+        avg_heart_rate=valid[0]["avg_heart_rate"], max_heart_rate=valid[0]["max_heart_rate"],
+        calories=valid[0]["calories"],
+    )
+    assert plan.avg_heart_rate == 132 and plan.max_heart_rate == 168
+    assert float(plan.calories) == 320.0
+
+
+def test_import_rejects_out_of_range_heart_rate():
+    content = _make_workbook([
+        ["2026-11-06", "A", None, "深蹲", "腿", 60, 4, "10", None, None, None, 400, 420, None],
+    ])
+    valid, errors = excel_io.validate_rows(excel_io.parse_workbook(content))
+    assert valid == []
+    assert any(e["column"] == "平均心率 bpm" for e in errors)
+
+
+def test_import_api_groups_metrics_by_training_group(db):
+    """导入接口按 (日期, 训练组编号) 分组：心率/热量取该组首个非空值，同组后续行留空不覆盖。"""
+    from fastapi.testclient import TestClient
+
+    from app.core.deps import get_current_user
+    from app.modules.auth.models import User
+    from database import get_db
+    from main import app
+
+    user = User(id=9, username="xlsx", password_hash="unused", display_name="Xlsx")
+    db.add(user)
+    db.commit()
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            content = _make_workbook([
+                ["2026-11-07", "A", "练腿", "深蹲", "腿", 60, 4, "10", None, "19:00", "20:00", 128, 165, 300],
+                ["2026-11-07", "A", "练腿", "腿举", "腿", 80, 3, "12", None, None, None, None, None, None],
+            ])
+            resp = client.post("/api/training/import",
+                               files={"file": ("plan.xlsx", content,
+                                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["imported"] == 1 and not data["failed"]
+            plan = service.get_plan(db, user.id, data["created_ids"][0])
+            assert plan.avg_heart_rate == 128 and plan.max_heart_rate == 165
+            assert float(plan.calories) == 300.0
+            assert plan.duration_s == 3600
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_parse_skips_blank_rows_and_ignores_unknown_columns():
     """空行跳过、未知列忽略、整行空白不产生错误。"""
     content = _make_workbook([
@@ -182,7 +248,7 @@ def test_parse_skips_blank_rows_and_ignores_unknown_columns():
     ])
     wb = load_workbook(BytesIO(content))
     ws = wb[excel_io.SHEET_NAME]
-    ws["M3"] = "未知列的值"   # 表头之外的列（第 13 列），应被忽略
+    ws["P3"] = "未知列的值"   # 表头之外的列（第 16 列），应被忽略
     buf = BytesIO()
     wb.save(buf)
     parsed = excel_io.parse_workbook(buf.getvalue())

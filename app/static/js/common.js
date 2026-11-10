@@ -108,6 +108,9 @@
             ? ((row.start_time ? row.start_time.replace('T', ' ').slice(0, 16) : '—') + ' ~ ' + (row.end_time ? row.end_time.replace('T', ' ').slice(0, 16) : '—'))
             : '—'],
           ['时长', dur],
+          ['平均心率', row.avg_heart_rate != null ? row.avg_heart_rate + ' bpm' : '—'],
+          ['最大心率', row.max_heart_rate != null ? row.max_heart_rate + ' bpm' : '—'],
+          ['热量', row.calories != null ? row.calories + ' kcal' : '—'],
         ];
         kv.push(
           ['容量', (row.total_volume != null ? row.total_volume : 0) + ' kg'],

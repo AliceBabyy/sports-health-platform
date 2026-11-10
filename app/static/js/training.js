@@ -203,7 +203,6 @@
      卡内「＋ 添加训练动作」=编辑该计划并追加动作行） ---------- */
   function openPlan(plan, appendMode, recordMode) {
     state.editingPlanId = plan ? plan.id : null;
-    state.editingPlanSource = plan || null;
     state.recordMode = !!recordMode && !plan;   // 仅新建记录场景生效
     document.getElementById('modalPlanTitle').textContent = plan
       ? (plan.status === 'recorded' ? '编辑记录' : (appendMode ? '添加训练动作' : '编辑计划'))
@@ -241,6 +240,10 @@
       document.getElementById('planDurationMin').value = Math.round(plan.duration_s / 60);
       planDurationManual = true;
     }
+    // 心率与热量（计划/记录均可填、可空，2026-11-10 新增到表单）
+    document.getElementById('planAvgHr').value = (plan && plan.avg_heart_rate != null) ? plan.avg_heart_rate : '';
+    document.getElementById('planMaxHr').value = (plan && plan.max_heart_rate != null) ? plan.max_heart_rate : '';
+    document.getElementById('planCalories').value = (plan && plan.calories != null) ? plan.calories : '';
     // 默认起止日期 = 计划日期
     if (!document.getElementById('planStartDate').value) document.getElementById('planStartDate').value = dateInput.value;
     if (!document.getElementById('planEndDate').value) document.getElementById('planEndDate').value = dateInput.value;
@@ -388,11 +391,13 @@
     body.end_time = timingIso('planEndDate', 'planEndTime');
     const dmRaw = document.getElementById('planDurationMin').value;
     body.duration_s = dmRaw !== '' ? Math.round(parseFloat(dmRaw) * 60) : null;
-    if (state.editingPlanWasRecorded && state.editingPlanSource) {
-      body.avg_heart_rate = state.editingPlanSource.avg_heart_rate;
-      body.max_heart_rate = state.editingPlanSource.max_heart_rate;
-      body.calories = state.editingPlanSource.calories;
-    }
+    // 心率与热量：计划/记录均可提交，空值落 null
+    const avgHrRaw = document.getElementById('planAvgHr').value.trim();
+    const maxHrRaw = document.getElementById('planMaxHr').value.trim();
+    const calRaw = document.getElementById('planCalories').value.trim();
+    body.avg_heart_rate = avgHrRaw === '' ? null : parseInt(avgHrRaw, 10);
+    body.max_heart_rate = maxHrRaw === '' ? null : parseInt(maxHrRaw, 10);
+    body.calories = calRaw === '' ? null : parseFloat(calRaw);
     App.api(editingId ? '/api/training/' + editingId : '/api/training', {
       method: editingId ? 'PUT' : 'POST',
       body: body,
@@ -462,7 +467,7 @@
           // 列表不展示心得字段：心得只在「查看详情」/「编辑」中查看与编辑（照搬游泳/舞蹈）
           return '<tr><td class="num"><input type="checkbox" class="batch-row" value="' + p.id + '" aria-label="选择训练记录">' + p.date + '</td>' +
             '<td>' + statusTag(p) + '</td>' +
-            '<td>' + App.escapeHtml(p.body_parts_summary || '训练') + '</td>' +
+            '<td>' + App.escapeHtml(p.remark || '—') + '</td>' +
             '<td class="num">' + dur + '</td>' +
             '<td class="num">' + p.item_count + ' 个</td>' +
             '<td class="num" style="color:var(--color-text-secondary)">' + p.total_volume + ' kg</td>' +

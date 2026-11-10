@@ -193,10 +193,10 @@ def create_plan(
     plan.start_time = start_time
     plan.end_time = end_time or (datetime.now() if status == TR_STATUS_RECORDED else None)
     plan.duration_s = _derive_duration_s(start_time, plan.end_time, duration_s)
-    if status == TR_STATUS_RECORDED:
-        plan.avg_heart_rate = avg_heart_rate
-        plan.max_heart_rate = max_heart_rate
-        plan.calories = calories
+    # 心率与热量计划态/记录态均可落库（均可空，2026-11-10 起前端与导入均可填）
+    plan.avg_heart_rate = avg_heart_rate
+    plan.max_heart_rate = max_heart_rate
+    plan.calories = calories
     db.add(plan)
     db.flush()
     replace_items(plan, items_payload)
@@ -229,10 +229,10 @@ def update_plan(
     plan.start_time = start_time
     plan.end_time = end_time
     plan.duration_s = _derive_duration_s(start_time, end_time, duration_s)
-    if plan.status == TR_STATUS_RECORDED:
-        plan.avg_heart_rate = avg_heart_rate
-        plan.max_heart_rate = max_heart_rate
-        plan.calories = calories
+    # 心率与热量计划态/记录态均可编辑（均可空，2026-11-10 起前端可填）
+    plan.avg_heart_rate = avg_heart_rate
+    plan.max_heart_rate = max_heart_rate
+    plan.calories = calories
     replace_items(plan, items_payload)
     db.commit()
     db.refresh(plan)

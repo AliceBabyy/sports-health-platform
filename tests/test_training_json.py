@@ -63,6 +63,31 @@ def test_json_import_accepts_times(db):
     assert plan.duration_s == 3600
 
 
+def test_json_import_accepts_metrics(db):
+    """计划对象支持平均心率 / 最大心率 / 热量；给了就落库。"""
+    valid, errors = json_import.validate_json_plans([
+        {"date": "2026-11-10", "avg_heart_rate": 132, "max_heart_rate": 168, "calories": 320.5,
+         "items": [{"exercise_name": "杠铃深蹲"}]},
+    ])
+    assert not errors
+    plan = service.create_plan(
+        db, USER, valid[0].date, valid[0].items, status=TR_STATUS_RECORDED,
+        avg_heart_rate=valid[0].avg_heart_rate, max_heart_rate=valid[0].max_heart_rate,
+        calories=valid[0].calories,
+    )
+    assert plan.avg_heart_rate == 132 and plan.max_heart_rate == 168
+    assert float(plan.calories) == 320.5
+
+
+def test_json_import_rejects_bad_heart_rate():
+    """心率越界按字段返回明细。"""
+    valid, errors = json_import.validate_json_plans([
+        {"date": "2026-11-10", "avg_heart_rate": 0, "items": [{"exercise_name": "深蹲"}]},
+    ])
+    assert not valid
+    assert errors[0]["column"] == "平均心率" and "超出合理范围" in errors[0]["reason"]
+
+
 def test_json_import_bad_plans_skipped(db):
     """失败计划跳过：日期格式错、items 空、动作名空均产出明细，好计划照常建。"""
     raw = [

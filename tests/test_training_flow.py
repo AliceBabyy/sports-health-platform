@@ -41,6 +41,20 @@ def test_weight_fields_accept_any_number_two_decimals(db):
     assert data["items"][0]["target_weight_kg"] == 1000.55
 
 
+def test_heart_rate_and_calories_persist_in_plan_state(db):
+    """计划态同样保存心率/热量；编辑计划时可覆盖（此前仅记录态落库）。"""
+    plan = service.create_plan(db, USER, _today(), [ITEM],
+                               avg_heart_rate=120, max_heart_rate=155, calories=280)
+    assert plan.status == TR_STATUS_PLANNED
+    assert plan.avg_heart_rate == 120 and plan.max_heart_rate == 155
+    assert float(plan.calories) == 280
+
+    edited = service.update_plan(db, USER, plan.id, _today(), [ITEM],
+                                 avg_heart_rate=125, max_heart_rate=160, calories=300)
+    assert edited.avg_heart_rate == 125 and edited.max_heart_rate == 160
+    assert float(edited.calories) == 300
+
+
 def test_create_plan_schema_status(db):
     """「＋ 新建记录」入口：PlanCreateIn.status 允许 planned/recorded，非法值被 pydantic 拒绝。"""
     from pydantic import ValidationError

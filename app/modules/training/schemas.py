@@ -44,6 +44,9 @@ class JsonImportPlanIn(BaseModel):
     start_time: datetime | None = None                         # 训练开始（ISO，可空）
     end_time: datetime | None = None                           # 训练结束（ISO，可空）
     remark: str | None = Field(default=None, max_length=255)  # 备注可空
+    avg_heart_rate: int | None = Field(default=None, ge=1, le=300)   # 平均心率（可空）
+    max_heart_rate: int | None = Field(default=None, ge=1, le=300)   # 最大心率（可空）
+    calories: Decimal | None = Field(default=None, ge=0)             # 消耗 kcal（可空）
     items: list[PlanItemIn] = Field(min_length=1)             # 动作至少 1 条
 
 

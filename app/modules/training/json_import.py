@@ -3,6 +3,7 @@
 请求格式（与前端导入弹窗 JSON 面板一致）：
     {"plans": [
         {"date": "2026-11-04", "remark": "练胸",
+         "avg_heart_rate": 132, "max_heart_rate": 168, "calories": 320,
          "items": [{"exercise_name": "杠铃卧推", "body_part": "胸", "weight_kg": 40,
                     "sets": 3, "reps": "10+8+6", "target_weight_kg": 50}]},
         ...
@@ -18,6 +19,9 @@ FIELD_CN = {
     "start_time": "开始时间",
     "end_time": "结束时间",
     "remark": "备注",
+    "avg_heart_rate": "平均心率",
+    "max_heart_rate": "最大心率",
+    "calories": "热量",
     "exercise_name": "动作名称",
     "body_part": "部位",
     "weight_kg": "重量 kg",

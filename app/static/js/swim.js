@@ -336,49 +336,84 @@
     el.addEventListener('click', function () { App.closeModal(el.dataset.close); });
   });
 
-  /* ---------- 导入（Excel / JSON） ---------- */
+  /* ---------- 导入（Excel / JSON / AI，2026-11-10 增加 AI） ---------- */
   const importExcelBtn = document.getElementById('btnImportExcel');
   const importJsonBtn = document.getElementById('btnImportJson');
+  const importAiBtn = document.getElementById('btnImportAi');
   const importForm = document.getElementById('formImport');
   const importFile = document.getElementById('importFile');
   const importJsonText = document.getElementById('importJsonText');
   const importExcelPane = document.getElementById('importExcelPane');
   const importJsonPane = document.getElementById('importJsonPane');
+  const importAiPane = document.getElementById('importAiPane');
+  const aiPromptText = document.getElementById('aiPromptText');
+  const aiImages = document.getElementById('aiImages');
+  const aiThumbs = document.getElementById('aiThumbs');
   const importSubmit = document.getElementById('importSubmit');
   const importCancel = document.getElementById('importCancel');
   const importDone = document.getElementById('importDone');
   const importResult = document.getElementById('importResult');
-  let importMode = 'excel';
+  let importMode = 'excel';   // 'excel' | 'json' | 'ai'
   let importCreated = 0;
 
   function resetImport() {
     importForm.reset();
     importJsonText.value = '';
+    aiPromptText.value = '';
+    aiThumbs.innerHTML = '';
     importResult.style.display = 'none';
     importResult.innerHTML = '';
     importSubmit.disabled = false;
     importSubmit.textContent = '开始导入';
     importCancel.style.display = '';
     importDone.style.display = 'none';
+    importCreated = 0;
   }
   function openImport(mode) {
     resetImport();
     importMode = mode;
     importExcelPane.style.display = mode === 'excel' ? '' : 'none';
     importJsonPane.style.display = mode === 'json' ? '' : 'none';
+    importAiPane.style.display = mode === 'ai' ? '' : 'none';
     App.openModal('modalImport');
   }
   importExcelBtn.addEventListener('click', function () { openImport('excel'); });
   importJsonBtn.addEventListener('click', function () { openImport('json'); });
+  importAiBtn.addEventListener('click', function () { openImport('ai'); });
+
+  aiImages.addEventListener('change', function () {
+    const files = Array.from(aiImages.files || []);
+    if (files.length > 3) { App.toast('最多选择 3 张图片', true); aiImages.value = ''; aiThumbs.innerHTML = ''; return; }
+    const tooBig = files.find(function (f) { return f.size > 2 * 1024 * 1024; });
+    if (tooBig) { App.toast('单张图片不能超过 2MB：' + tooBig.name, true); aiImages.value = ''; aiThumbs.innerHTML = ''; return; }
+    aiThumbs.innerHTML = files.map(function (f) {
+      return '<div class="ai-thumb"><img src="' + URL.createObjectURL(f) + '" alt=""></div>';
+    }).join('');
+  });
+
+  function useJsonFallback(payload) {
+    importMode = 'json';
+    importJsonText.value = JSON.stringify(payload, null, 2);
+    importAiPane.style.display = 'none';
+    importJsonPane.style.display = '';
+    importResult.style.display = 'none';
+    importResult.innerHTML = '';
+    importSubmit.disabled = false;
+    importSubmit.textContent = '开始导入';
+    importCancel.style.display = '';
+    importDone.style.display = 'none';
+    App.toast('已填入识别结果，可直接修改后导入');
+  }
 
   function showImportResult(data) {
     const failed = data.failed || [];
+    const isAi = !!data.ai;
     importCreated = data.imported || 0;
     let html = '<div class="summary">';
     if (!failed.length) {
-      html += '<span class="ok">导入成功：' + importCreated + ' 条游泳记录已导入</span>';
+      html += '<span class="ok">' + (isAi ? 'AI 识别并导入：' : '导入成功：') + importCreated + ' 条游泳记录已导入</span>';
     } else {
-      html += '<span class="fail">导入完成：' + importCreated + ' 条成功，' + failed.length + ' 行失败已跳过</span>';
+      html += '<span class="fail">' + (isAi ? 'AI 识别完成：' : '导入完成：') + importCreated + ' 条成功，' + failed.length + ' 行失败已跳过</span>';
     }
     html += '</div>';
     if (failed.length) {
@@ -389,8 +424,28 @@
       });
       html += '</tbody></table></div>';
     }
+    if (isAi) {
+      html += App.aiResultHtml(data);
+      html += App.aiActionsHtml(data);
+    }
     importResult.innerHTML = html;
     importResult.style.display = 'block';
+
+    if (isAi) {
+      importCancel.style.display = 'none';
+      importDone.style.display = '';
+      importSubmit.disabled = true;
+      importSubmit.textContent = '开始导入';
+      App.bindAiActions(importResult, data, {
+        undoEndpoint: '/api/swim-records/batch-delete',
+        onFallback: useJsonFallback,
+        onUndone: function () { App.closeModal('modalImport'); setTimeout(function () { location.reload(); }, 200); },
+      });
+      if (importCreated > 0) App.toast('已导入 ' + importCreated + ' 条游泳记录');
+      else if (failed.length) App.toast('识别结果未通过校验，未写入任何记录', true);
+      else App.toast(data.message || '没有识别到可导入的记录', true);
+      return;
+    }
 
     if (!failed.length) {
       // 导入全部成功：弹庆祝；恰好 1 条 → 可顺手写心得；多条 → 只庆祝
@@ -414,6 +469,24 @@
 
   importForm.addEventListener('submit', function (e) {
     e.preventDefault();
+    if (importMode === 'ai') {
+      const text = aiPromptText.value.trim();
+      const files = Array.from(aiImages.files || []);
+      if (!text && !files.length) { App.toast('请先描述这次游泳，或选择至少一张图片', true); return; }
+      const fd = new FormData();
+      fd.append('prompt', text);
+      files.forEach(function (f) { fd.append('images', f); });
+      importSubmit.disabled = true;
+      importSubmit.textContent = 'AI 识别中…';
+      App.postMultipart('/api/swim-records/ai-import', fd)
+        .then(function (data) { showImportResult(data); })
+        .catch(function (err) {
+          App.toast(err.message, true);
+          importSubmit.disabled = false;
+          importSubmit.textContent = '开始导入';
+        });
+      return;
+    }
     if (importMode === 'json') {
       let body;
       try { body = JSON.parse(importJsonText.value); }
@@ -436,13 +509,8 @@
     fd.append('file', file);
     importSubmit.disabled = true;
     importSubmit.textContent = '导入中…';
-    fetch('/api/swim-records/import', { method: 'POST', body: fd })
-      .then(function (res) {
-        return res.json().catch(function () { return null; }).then(function (body) {
-          if (!res.ok || !body) throw new Error((body && body.detail) || '导入失败');
-          showImportResult(body);
-        });
-      })
+    App.postMultipart('/api/swim-records/import', fd)
+      .then(function (data) { showImportResult(data); })
       .catch(function (err) {
         App.toast(err.message, true);
         importSubmit.disabled = false;

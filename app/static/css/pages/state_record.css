@@ -1,0 +1,121 @@
+/* 状态记录页：月历（阶段三档圆点）+ 当日三类记录 + 全部记录分页列表 */
+
+/* ---------- 布局 ---------- */
+.state-layout { grid-template-columns: minmax(0, 1fr) 360px; }
+.state-layout > * { min-width: 0; }
+.archive-card { margin-top: 18px; }
+.archive-tools { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- 月历 ---------- */
+.calendar-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.calendar-title { font-size: 16px; font-weight: 400; }
+.calendar-sub { font-size: 12.5px; color: var(--color-text-secondary); margin-top: 4px; }
+.cal-nav { display: flex; gap: 8px; align-items: center; }
+.cal-nav-btn { width: 30px; height: 28px; padding: 0; font-size: 20px; line-height: 1; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-weekday { text-align: center; font-size: 12px; color: var(--color-text-secondary); padding: 4px 0; }
+.cal-day {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 6px 6px 7px;
+  min-height: 64px;
+  cursor: pointer;
+  background: var(--bg-card);
+  transition: all .12s;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  color: var(--color-text);
+  position: relative;
+}
+.cal-day:hover { border-color: var(--color-border-strong); }
+.cal-empty { visibility: hidden; }
+.cal-day.selected { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+.cal-day.today-cell { box-shadow: inset 0 0 0 1.5px var(--color-border-strong); }
+
+.cal-day .cd-num { font-size: 12px; font-variant-numeric: tabular-nums; margin-bottom: 3px; }
+/* 单元格不着底色：阶段文字统一深灰，前置圆点带阶段配色 */
+.cal-day .cd-phase {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cal-day .cd-phase::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ph-dot, transparent);
+  flex: none;
+}
+.cal-day.ph-menses { --ph-dot: var(--sr-menses-dot); }
+.cal-day.ph-foll { --ph-dot: var(--sr-foll-dot); }
+.cal-day.ph-luteal { --ph-dot: var(--sr-luteal-dot); }
+/* 当日有记录：右上角小绿点 */
+.cal-day .cd-dot { position: absolute; top: 8px; right: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--color-accent); }
+
+.legend { display: flex; gap: 10px 14px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--color-text-secondary); }
+.legend .legend-block { display: inline-flex; align-items: center; gap: 5px; }
+.legend .swatch { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.legend .sw-menses { background: var(--sr-menses-dot); }
+.legend .sw-foll { background: var(--sr-foll-dot); }
+.legend .sw-luteal { background: var(--sr-luteal-dot); }
+
+/* ---------- 右栏当日详情 ---------- */
+.day-detail .dd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.day-detail .dd-date { font-size: 15px; font-weight: 400; }
+.day-detail .dd-meta { font-size: 12.5px; color: var(--color-text-secondary); margin-top: 3px; }
+.dd-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.dd-block:first-of-type { margin-top: 12px; padding-top: 0; border-top: 0; }
+.dd-block .dd-title {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.dd-block .dd-title .left { display: inline-flex; align-items: center; gap: 8px; }
+.dd-stars { color: var(--color-star); letter-spacing: 2px; font-size: 13px; }
+.dd-stars .off { color: var(--color-border-strong); }
+.dd-text { font-size: 12.5px; line-height: 1.7; color: var(--color-text); }
+.dd-text.muted { color: var(--color-text-secondary); }
+.dd-empty { font-size: 12.5px; color: var(--color-text-tertiary); padding: 4px 0; }
+
+/* 右栏就地填写表单 */
+.dd-inline { display: flex; flex-direction: column; gap: 8px; }
+.dd-star-row { display: flex; align-items: center; }
+.dd-remark { resize: vertical; min-height: 38px; font-size: 13px; line-height: 1.6; padding: 7px 10px; }
+.dd-actions { display: flex; justify-content: flex-end; }
+.dd-del { color: var(--color-text-tertiary); }
+
+/* 阶段标签（右栏）：浅底 + 深阶文字 */
+.tag-phase-menses { background: var(--sr-menses-bg); color: var(--sr-menses-fg); }
+.tag-phase-foll { background: var(--sr-foll-bg); color: var(--sr-foll-fg); }
+.tag-phase-luteal { background: var(--sr-luteal-bg); color: var(--sr-luteal-fg); }
+
+/* ---------- 表格 ---------- */
+.row-actions { display: flex; gap: 6px; }
+.desc-cell { overflow: hidden; text-overflow: ellipsis; }
+.star-hint { font-size: 12px; color: var(--color-text-tertiary); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1100px) {
+  .state-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .cal-grid { gap: 4px; }
+  .cal-day { min-height: 56px; padding: 5px 4px 6px; }
+  .cal-day .cd-phase { font-size: 9.5px; }
+}
+@media (max-width: 560px) {
+  .cal-grid { gap: 3px; }
+  .cal-day { min-height: 56px; padding: 5px 3px 6px; }
+  .cal-day .cd-phase { font-size: 9px; }
+  .cal-day .cd-num { font-size: 11px; }
+  .cal-day .cd-dot { top: 6px; right: 5px; }
+}

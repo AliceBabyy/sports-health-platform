@@ -11,6 +11,7 @@
     <span class="actions-divider"></span>
     <button class="btn" id="btnImportExcel">⇧ 导入 Excel</button>
     <button class="btn" id="btnImportJson">⇧ 导入 JSON</button>
+    <button class="btn" id="btnImportAi">✦ AI 导入</button>
   </div>
 </div>
 
@@ -151,6 +152,18 @@
           <textarea class="input" id="importJsonText" rows="9" spellcheck="false" style="width:100%;font-family:ui-monospace,Consolas,monospace;font-size:12.5px" placeholder='{"records":[{"date":"2026-11-04","start_time":"2026-11-04T19:00:00","end_time":"2026-11-04T20:30:00","dance_type":"爵士","stars":5,"teacher":"王老师","style":"编舞·力量","avg_heart_rate":130,"max_heart_rate":160,"calories":350,"remark":"重点练爆发力"}]}'></textarea>
         </div>
         <div class="modal-note">格式：{&quot;records&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;start_time&quot;:&quot;ISO datetime 可选&quot;,&quot;end_time&quot;:&quot;ISO datetime 可选&quot;,&quot;dance_type&quot;:&quot;必填&quot;,&quot;stars&quot;:1~5 必填,&quot;teacher&quot;:&quot;可选&quot;,&quot;style&quot;:&quot;可选&quot;,&quot;duration_s&quot;:&quot;可选 秒&quot;,&quot;avg_heart_rate&quot;:&quot;可选&quot;,&quot;max_heart_rate&quot;:&quot;可选&quot;,&quot;calories&quot;:&quot;可选&quot;,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条。</div>
+      </div>
+      <div id="importAiPane" style="display:none">
+        <div class="form-item">
+          <label class="field-label">说说这次上课（可再补几张截图）</label>
+          <textarea class="input" id="aiPromptText" rows="4" maxlength="2000" placeholder="例如：昨晚上了 90 分钟爵士课，王老师，重点练爆发力，感觉值 4 星。"></textarea>
+        </div>
+        <div class="form-item" style="margin-top:12px">
+          <label class="field-label">图片（可空，最多 3 张，单张 ≤ 2MB）</label>
+          <input class="input file-input" type="file" id="aiImages" accept="image/jpeg,image/png,image/webp" multiple>
+          <div class="ai-thumbs" id="aiThumbs"></div>
+        </div>
+        <div class="modal-note">AI 会读取文字和图片并直接生成记录，识别结果会在下方展示，可撤销本次导入。</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>

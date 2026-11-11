@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     ai_default_model: str = "deepseek-v4.1-flash"
     ai_timeout_seconds: float = 30.0
     ai_max_retries: int = 1
+    # AI 导入（2026-11-10）：纯文字与带图分别选模型；图片限制由后端兜底
+    ai_import_model: str = "qwen3.8-flash"
+    ai_import_vision_model: str = "qwen3-vl-plus"
+    ai_import_timeout_seconds: float = 60.0
+    ai_import_max_images: int = 3
+    ai_import_max_image_bytes: int = 2 * 1024 * 1024
+    ai_import_max_prompt_chars: int = 2000
 
 
 settings = Settings()

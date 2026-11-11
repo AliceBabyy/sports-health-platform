@@ -15,13 +15,23 @@ from main import app
 def test_model_registry_and_capability(monkeypatch):
     monkeypatch.setattr("app.ai.models.registry.settings.ai_api_key", "test-key")
     assert set(MODELS) == {
-        "deepseek-v4.1-flash", "qwen3.8-flash", "qwen3.8-2.4t-a95b"
+        "deepseek-v4.1-flash", "qwen3.8-flash", "qwen3.8-2.4t-a95b", "qwen3-vl-plus"
     }
     assert get_model("qwen3.8-flash").model_name == "qwen3.8-flash"
+    assert get_model("qwen3-vl-plus", required="vision").model_name == "qwen3-vl-plus"
     with pytest.raises(ModelConfigurationError):
         get_model("unknown")
+    # 文本模型不声明视觉能力，避免没验证过就接图片
     with pytest.raises(ModelConfigurationError):
         get_model("qwen3.8-flash", required="vision")
+
+
+def test_sport_import_prompts_only_take_date_variables():
+    for prompt_id in ("sport_import_training.v1", "sport_import_swim.v1", "sport_import_dance.v1"):
+        prompt = load_prompt(prompt_id, today="2026-11-10", weekday="二")
+        assert len(prompt.invoke({"input_text": "今天练了胸"}).messages) == 2
+        with pytest.raises(ValueError):
+            load_prompt(prompt_id, today="2026-11-10")
 
 
 def test_prompt_version_and_variables():

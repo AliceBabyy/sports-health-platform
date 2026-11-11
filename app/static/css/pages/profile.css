@@ -20,8 +20,9 @@
   width: 46px;
   height: 46px;
   border-radius: 50%;
-  background: var(--color-primary);
-  color: var(--color-on-dark);
+  background: #ffffff;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -10,3 +10,8 @@ from app.modules.training.models import TrainingNote, TrainingRecord, TrainingRe
 from app.modules.swim.models import SwimNote, SwimRecord  # noqa: F401
 from app.modules.dance.models import DanceNote, DanceRecord  # noqa: F401
 from app.modules.cycle.models import CycleSetting, DailyPainLog, PeriodRecord  # noqa: F401
+from app.modules.state_record.models import (  # noqa: F401
+    AppetiteRecord,
+    InflammationRecord,
+    MyalgiaRecord,
+)

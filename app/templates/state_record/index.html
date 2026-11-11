@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}状态记录 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/state_record.css?v=20261111b">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>状态记录</h1>
+  <div class="page-desc">按天记录食欲、肌肉疼痛与炎症状况，结合生理周期阶段回看身体状态。</div>
+</div>
+
+<div class="two-col state-layout">
+  <!-- 左：月历 -->
+  <div class="card">
+    <div class="calendar-head">
+      <div>
+        <div class="calendar-title" id="calTitle">—</div>
+        <div class="calendar-sub">选中日期，查看当日全部记录项</div>
+      </div>
+      <div class="cal-nav">
+        <button class="btn btn-sm cal-nav-btn" id="btnPrevMonth" aria-label="上月" title="上月">‹</button>
+        <button class="btn btn-sm" id="btnGoToday">今天</button>
+        <button class="btn btn-sm cal-nav-btn" id="btnNextMonth" aria-label="下月" title="下月">›</button>
+      </div>
+    </div>
+    <div class="cal-grid" id="calWeekday">
+      <div class="cal-weekday">一</div><div class="cal-weekday">二</div><div class="cal-weekday">三</div>
+      <div class="cal-weekday">四</div><div class="cal-weekday">五</div><div class="cal-weekday">六</div><div class="cal-weekday">日</div>
+    </div>
+    <div class="cal-grid" id="calGrid" style="margin-top:6px"></div>
+    <div class="legend">
+      <span class="legend-block"><span class="swatch sw-menses"></span>经期</span>
+      <span class="legend-block"><span class="swatch sw-foll"></span>卵泡期 · 排卵前后</span>
+      <span class="legend-block"><span class="swatch sw-luteal"></span>黄体期</span>
+    </div>
+  </div>
+
+  <!-- 右：当日状态（三类就地填写，无弹窗） -->
+  <div class="card day-detail">
+    <div class="card-title"><span>当日状态</span></div>
+    <div id="dayDetail"></div>
+  </div>
+</div>
+
+<!-- 全部记录（整行置于最下方） -->
+<div class="card archive-card">
+  <div class="card-title">
+    <span>全部记录</span>
+    <span class="archive-tools">
+      <span class="seg" id="typeSeg">
+        <button type="button" data-type="" class="active">全部</button>
+        <button type="button" data-type="appetite">食欲</button>
+        <button type="button" data-type="myalgia">肌肉疼痛</button>
+        <button type="button" data-type="inflammation">炎症</button>
+      </span>
+      <button type="button" class="btn btn-sm btn-danger" id="btnBatchDelete" disabled>删除所选</button>
+    </span>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <colgroup>
+        <col style="width:38px"><col style="width:110px"><col style="width:110px">
+        <col style="width:110px"><col style="width:1fr"><col style="width:220px">
+      </colgroup>
+      <thead>
+        <tr>
+          <th><input type="checkbox" class="batch-all" id="selectAll" aria-label="选择本页全部"></th>
+          <th>日期</th><th>类型</th><th>星级</th><th>描述</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="recordBody"></tbody>
+    </table>
+  </div>
+  <div id="recordPagination"></div>
+</div>
+
+<!-- 新增 / 编辑记录弹窗 -->
+<div class="modal-mask" id="modalRecord">
+  <div class="modal">
+    <div class="modal-title" id="recordModalTitle">新增状态记录</div>
+    <div class="modal-desc">记录当天的食欲、肌肉疼痛或炎症状况，保存后可在列表中继续修改。</div>
+    <form id="formRecord">
+      <input type="hidden" name="id">
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">日期</label><input class="input" type="date" name="date" required></div>
+        <div class="form-item"><label class="field-label">记录类型</label>
+          <select class="select" name="type">
+            <option value="appetite">食欲</option>
+            <option value="myalgia">肌肉疼痛</option>
+            <option value="inflammation">炎症</option>
+          </select>
+        </div>
+        <div class="form-item full"><label class="field-label">星级</label>
+          <div class="note-star-row"><span id="formStars"></span><span class="star-hint">可空</span></div>
+        </div>
+        <div class="form-item full"><label class="field-label">描述</label><textarea class="input" name="remark" rows="3" maxlength="255" placeholder="如：胃口正常 / 大腿前侧酸胀 / 膝盖轻微发热"></textarea></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" data-close="modalRecord">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.INIT_CAL = {{ calendar | tojson }};
+window.INIT_DAILY = {{ daily | tojson }};
+window.TODAY_STR = '{{ today_str }}';
+</script>
+<script src="/static/js/state_record.js?v=20261111b"></script>
+{% endblock %}

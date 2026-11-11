@@ -15,18 +15,22 @@ class ModelSpec:
     capabilities: frozenset[Capability]
 
 
-# Vision and tool support are deliberately not claimed before endpoint checks.
+# Vision is claimed only for models verified against this endpoint (2026-11-10 probe:
+# qwen3-vl-plus accepted image_url blocks and returned schema-valid JSON).
+# Tool calling stays unclaimed until it proves reliable across models.
 MODELS = {
     name: ModelSpec(name, frozenset({"text", "structured_output"}))
     for name in ("deepseek-v4.1-flash", "qwen3.8-flash", "qwen3.8-2.4t-a95b")
 }
+MODELS["qwen3-vl-plus"] = ModelSpec("qwen3-vl-plus", frozenset({"text", "vision", "structured_output"}))
 
 
 class ModelConfigurationError(ValueError):
     pass
 
 
-def get_model(name: str | None = None, *, required: Capability = "text") -> ChatOpenAI:
+def get_model(name: str | None = None, *, required: Capability = "text",
+              timeout: float | None = None) -> ChatOpenAI:
     selected = name or settings.ai_default_model
     spec = MODELS.get(selected)
     if spec is None:
@@ -39,6 +43,6 @@ def get_model(name: str | None = None, *, required: Capability = "text") -> Chat
         model=selected,
         api_key=settings.ai_api_key,
         base_url=settings.ai_base_url,
-        timeout=settings.ai_timeout_seconds,
+        timeout=timeout or settings.ai_timeout_seconds,
         max_retries=settings.ai_max_retries,
     )

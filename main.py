@@ -43,6 +43,8 @@ from app.modules.dance.router_pages import router as dance_pages
 from app.modules.dance.router_api import router as dance_api
 from app.modules.cycle.router_pages import router as cycle_pages
 from app.modules.cycle.router_api import router as cycle_api
+from app.modules.state_record.router_pages import router as state_record_pages
+from app.modules.state_record.router_api import router as state_record_api
 from app.modules.profile.router_pages import router as profile_pages
 from app.modules.profile.router_api import router as profile_api
 from app.modules.overview.router_pages import router as overview_pages
@@ -61,6 +63,8 @@ _include(dance_pages)
 _include(dance_api)
 _include(cycle_pages)
 _include(cycle_api)
+_include(state_record_pages)
+_include(state_record_api)
 _include(profile_pages)
 _include(profile_api)
 _include(overview_pages)

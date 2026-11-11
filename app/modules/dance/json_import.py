@@ -52,6 +52,16 @@ def validate_json_records(raw_records: list) -> tuple[list[DanceRecordIn], list[
     return valid, errors
 
 
+def persist_valid_records(db, user_id: int, records: list[DanceRecordIn]) -> list[int]:
+    """把已校验的舞蹈记录落库（AI 导入与 JSON 导入共用）。"""
+    from app.modules.dance import service  # 局部导入，避免模块加载期循环依赖
+
+    ids: list[int] = []
+    for record_in in records:
+        ids.append(service.create_record(db, user_id, record_in).id)
+    return ids
+
+
 def _map_error(loc: tuple, err: dict) -> tuple[str, str]:
     field = loc[0] if loc else ""
     column = FIELD_CN.get(field, field)

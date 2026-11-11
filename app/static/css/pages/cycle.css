@@ -38,6 +38,8 @@
 
 .cal-day .cd-num { font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; margin-bottom: 3px; }
 .cal-day .cd-phase { font-size: 10.5px; color: var(--phase-text); line-height: 1.4; }
+/* 预测经期为推算结果，与已记录经期用字色区分 */
+.cal-day.period-predicted .cd-phase { color: var(--color-text-secondary); }
 .cal-day .cd-sport { font-size: 10px; color: var(--color-text-secondary); line-height: 1.4; }
 .cd-sport-short { display: none; }
 
@@ -112,7 +114,7 @@
 }
 @media (max-width: 560px) {
   .cal-grid { gap: 3px; }
-  .cal-day { min-height: 56px; }
+  .cal-day { min-height: 56px; padding: 5px 3px 6px; }
   .cal-day .cd-phase { font-size: 9px; }
   .cal-day .cd-sport { font-size: 9px; }
   .cd-sport-full { display: none; }

@@ -38,11 +38,14 @@
       const isToday = d.date === window.TODAY_STR;
       const isSel = d.date === state.selected;
       const phaseTxt = d.phase_label ? d.phase_label : '—';
+      // 经期按记录状态标注：已记录 → 经期；仅推算 → 预测经期
+      const phaseShort = d.period_state ? (d.period_label || phaseTxt) : (PHASE_SHORT[d.phase_key] || phaseTxt);
       const sportTxt = d.sport_label ? d.sport_label : '—';
       html += '<button type="button" class="cal-day' + (isSel ? ' selected' : '') + (isToday ? ' today-cell' : '') +
-        (d.phase_key ? ' phase-' + d.phase_key : '') + (d.sport_level ? ' sport-' + d.sport_level : '') + '" data-date="' + d.date + '" aria-label="' + d.date + ' ' + App.escapeHtml(phaseTxt) + '" aria-pressed="' + isSel + '">' +
+        (d.phase_key ? ' phase-' + d.phase_key : '') + (d.sport_level ? ' sport-' + d.sport_level : '') +
+        (d.period_state ? ' period-' + d.period_state : '') + '" data-date="' + d.date + '" aria-label="' + d.date + ' ' + App.escapeHtml(d.period_label || phaseTxt) + '" aria-pressed="' + isSel + '">' +
         '<div class="cd-num num">' + dd.getDate() + '</div>' +
-        '<div class="cd-phase">' + App.escapeHtml(PHASE_SHORT[d.phase_key] || phaseTxt) + '</div>' +
+        '<div class="cd-phase">' + App.escapeHtml(phaseShort) + '</div>' +
         '<div class="cd-sport"><span class="cd-sport-full">' + App.escapeHtml(sportTxt) +
         '</span><span class="cd-sport-short">' + App.escapeHtml(STATUS_SHORT[d.sport_level] || '—') + '</span></div>' +
         (d.is_recorded_start ? '<span class="cd-record" title="已记录月经首日"></span>' : '') + '</button>';
@@ -68,7 +71,7 @@
 
     document.getElementById('dayDetail').innerHTML =
       '<div class="dd-head"><span class="dd-date num">' + dd.getFullYear() + '.' + String(dd.getMonth() + 1).padStart(2, '0') + '.' + String(dd.getDate()).padStart(2, '0') + '</span>' +
-      (hasPhase ? '<span class="tag phase-' + day.phase_key + '">' + App.escapeHtml(day.phase_label) + '</span>' +
+      (hasPhase ? '<span class="tag phase-' + day.phase_key + '">' + App.escapeHtml(day.period_label || day.phase_label) + '</span>' +
         '<span class="tag tag-' + day.sport_level + '">' + App.escapeHtml(day.sport_label) + '</span>'
         : '<span class="tag tag-gray no-dot">未推算</span>') + '</div>' +
       '<div class="dd-meta">' + WEEKDAY[dd.getDay()] + (hasPhase ? ' · 周期第 ' + day.cycle_day + ' 天' : '') + (day.is_recorded_start ? ' · 已记录' : '') + '</div>' +

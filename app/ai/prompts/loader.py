@@ -4,7 +4,12 @@ from string import Formatter
 
 from langchain_core.prompts import ChatPromptTemplate
 
-PROMPTS = {"foundation_probe.v1": "foundation_probe_v1.txt"}
+PROMPTS = {
+    "foundation_probe.v1": "foundation_probe_v1.txt",
+    "sport_import_training.v1": "sport_import_training_v1.txt",
+    "sport_import_swim.v1": "sport_import_swim_v1.txt",
+    "sport_import_dance.v1": "sport_import_dance_v1.txt",
+}
 
 
 def load_prompt(prompt_id: str, **variables: str) -> ChatPromptTemplate:

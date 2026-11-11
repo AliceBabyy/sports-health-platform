@@ -6,15 +6,26 @@ V1 的页面/API 双轨和业务服务层保持不变。新增 `app/ai/models/`�
 `app/ai/prompts/`、`app/ai/runtime/`、`app/ai/tools/`，分别负责
 OpenAI 兼容模型选择、文件提示词版本、LangChain 调用与结构化校验、
 未来受控领域工具适配。业务编排放在 `app/modules/electronic_trainer/`；
-将来的运动页 AI 入口在所属模块准备上下文，再复用共享运行时和业务服务。
+运动页 AI 入口在所属模块准备上下文，再复用共享运行时和业务服务。
 
-三个已注册模型使用相同 `AI_API_KEY`、`AI_BASE_URL`，默认地址为
+四个已注册模型使用相同 `AI_API_KEY`、`AI_BASE_URL`，默认地址为
 `https://cn-beijing.maas.qianwenaiapi.com/compatible-mode/v1`。
 `deepseek-v4.1-flash` 给出的 DashScope 原生 `/api/v1` 地址不用于
-OpenAI 兼容客户端。模型能力以注册表显式声明；视觉及工具调用暂不声明。
+OpenAI 兼容客户端。模型能力以注册表显式声明；视觉只对 `qwen3-vl-plus` 声明
+（2026-11-10 实测），工具调用暂不声明。
 `/api/electronic-trainer/models` 和 `/probe` 使用现有登录门禁，
 仅验证配置、提示词和结构化响应，暂不查询健康数据或持久化对话。
 V2.0 无 ORM、数据库表或迁移变更。
+
+**AI 导入链路（2026-11-10）**：`POST /api/{sport}/ai-import`（multipart：
+`prompt` + 多张 `images`）→ `electronic_trainer/ai_import.py::run_import`
+（校验图片、选模型、载入提示词、调用、规范化、校验、落库）→
+`app/ai/runtime/invoke.py::invoke_ai_import`（`with_structured_output(..., method="json_schema", strict=True)`，
+输出结构由服务端解码期强制）。各运动模块的 `ai_profile.py` 提供输出模型、
+`normalize`、`validate`（复用 `json_import.validate_*`）与 `persist`
+（复用 `json_import.persist_valid_*` / `service`）。导入数据统一 `recorded`；
+不反向调用 `/import-json`，也不引入新的数据表。提示词只有 `{today}`、`{weekday}`
+两个变量，正文不写 JSON 结构。
 
 > 个人健康管理平台 V1。本文件只描述实现层面的结构，业务口径详见 README「需求口径」与《数据库建表设计.md》。
 
@@ -51,7 +62,7 @@ V2.0 无 ORM、数据库表或迁移变更。
 | 数据库 | `database.py` | engine / SessionLocal / Base / `get_db` 请求级会话依赖 |
 | 模型注册 | `models_registry.py` | 汇总 import 全部模型，供 `create_all` 建表 |
 | 核心 | `app/core/` | security（bcrypt）、deps（登录门禁）、constants（口径常量）、exceptions、pagination、templating（页面公共上下文） |
-| 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview |
+| 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview / state_record |
 | 视图 | `app/templates/` `app/static/` | Jinja2 模板与 CSS/JS/vendor/img |
 
 ## 4. 模块职责
@@ -66,6 +77,7 @@ V2.0 无 ORM、数据库表或迁移变更。
 | cycle | cycle_settings / period_records / daily_pain_logs | 周期设置；月经记录增改删；每日疼痛；按日期选锚点的七阶段推算、滚动预测 + 逐日四档状态；有真实记录时才输出运动联动建议 |
 | profile | users（复用） | 基本资料修改 + 修改密码 |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
+| state_record | appetite_record / myalgia_record / inflammation_record | 食欲/肌肉疼痛/炎症按天记录；三表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
 
 ## 5. 认证与会话
 
@@ -80,15 +92,16 @@ V2.0 无 ORM、数据库表或迁移变更。
 
 ## 7. 数据层设计
 
-- 全库 **15 张表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`。
+- 全库 **18 张表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`。
 - **中文注释元数据**：全量建表脚本在 `scripts/schema.sql` 中维护列注释；既有库由迁移脚本同步。
-- **外键**：三运动主表 `user_id` 引用 `users.id ON DELETE CASCADE`；动作与心得外键引用各自主表。其他业务表沿用原有归属策略。
+- **外键**：三运动主表与状态记录三表 `user_id` 引用 `users.id ON DELETE CASCADE`；动作与心得外键引用各自主表。其他业务表沿用原有归属策略。
 - **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段均由 service 实时计算。
-- **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`daily_pain_logs` 按 `(user_id, log_date)` 唯一。三运动同日可多条，按主表 id 定位。
+- **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`daily_pain_logs` 按 `(user_id, log_date)` 唯一；状态记录三表按 `(user_id, date)` 唯一（同类一天一行）。三运动同日可多条，按主表 id 定位。
 - **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded；统计口径只计 recorded 行。
-- **时间与时长展示口径统一**（2026-11-07）：三运动（健身/游泳/舞蹈）的表单（含计划态）均展示起止时间与时长，均可填、可空（不因计划态隐藏、不设必填）；导入三处同样带起止时间——Excel 模板新增「开始时间 / 结束时间」列（HH:MM，可空），JSON 导入支持 `start_time` / `end_time`（可空），未填时长时按起止时间推导；列表与「查看详情」弹窗对时段/时长/配速/划频等字段不做状态判断，有值即显示、无值显示「—」；总览日卡计划态时长一律按 0 计，仅 recorded 且有时长才拼时长；心得区块仍仅记录态且确有心得内容才展示。舞蹈的时间字段统一称「上课时间」。
+- **时间与时长展示口径统一**（2026-11-07）：三运动（健身/游泳/舞蹈）的表单（含计划态）均展示起止时间与时长，均可填、可空（不因计划态隐藏、不设必填）；导入三处同样带起止时间——Excel 模板新增「开始时间 / 结束时间」列（HH:MM，可空），JSON 导入支持 `start_time` / `end_time`（可空），未填时长时按起止时间推导；列表与「查看详情」弹窗对时段/时长/配速/划频等字段不做状态判断，有值即显示、无值显示「—」；**三处导入（Excel/JSON/AI）未填结束时间时保持为空、不补当前时刻**（2026-11-10 起，`create_plan(auto_end_time=False)`），手动新建仍沿用记录态默认记当前时刻的口径；总览日卡计划态时长一律按 0 计，仅 recorded 且有时长才拼时长；心得区块仍仅记录态且确有心得内容才展示。舞蹈的时间字段统一称「上课时间」。
 - **统一运动契约**：主表名为 `{sport}_records`，心得表为 `{sport}_notes`；主表必含 id/user_id/date/status/start_time/end_time/duration_s/remark/avg_heart_rate/max_heart_rate/calories/created_at/updated_at，心得必含 id、专属主表外键、rating、notes。各模块可增加字段和表，健身的 `training_records_items` 即专属表。ORM 共用 `SportRecordMixin`、`SportNoteMixin`；规则共用 `sport_ops.py`。详见《数据库建表设计.md》。
-- **统一接口**：`/api/training`、`/api/swim-records`、`/api/dance-records` 均提供列表、新建、按 id 编辑/删除、`/daily`、`/stats`、`/template`、`/import`、`/import-json`、`/batch-delete`、`/{id}/note` 读写。列表包含计划和记录，批量删除限当前用户的所选 id，心得仅记录态可写。模块专属接口可额外提供。
+- **统一接口**：`/api/training`、`/api/swim-records`、`/api/dance-records` 均提供列表、新建、按 id 编辑/删除、`/daily`、`/stats`、`/template`、`/import`、`/import-json`、`/ai-import`、`/batch-delete`、`/{id}/note` 读写。列表包含计划和记录，批量删除限当前用户的所选 id，心得仅记录态可写。模块专属接口可额外提供。
+- **状态记录（非运动模块）**：`appetite_record` / `myalgia_record` / `inflammation_record` 三表结构同构，不套统一运动契约（无计划态、起止时间、时长、心率、热量），字段仅 id/user_id/date/star(1~5 可空)/remark/created_at/updated_at。跨表列表在 service 内存合并分页；月历阶段复用 `cycle.service.calendar_month` 推算结果并归并经期/卵泡·排卵/黄体三档，男性或无周期记录时阶段置空。接口前缀 `/api/state-record`：列表（分页 + type 筛选）、`/daily`、`/calendar`、新建、按 id 编辑（body 带 type）、`DELETE /{id}?type=`、`/batch-delete`（items 自带 type）。
 - **账号状态与注销**：`users.status ∈ {启用, 停用}`，注册默认启用；登录和请求门禁拦截停用账号。`DELETE /api/profile/account` 要求当前密码，`retain` 停用并清会话，`purge` 在事务中删除用户及全部关联数据后清会话。停用账号通过注册页显式选择恢复、验证原密码后复用原 user_id。无管理员角色及管理员恢复接口。
 - **时长存秒、距离存米**，界面按分钟/米展示，派生展示值实时换算。
 
@@ -96,9 +109,11 @@ V2.0 无 ORM、数据库表或迁移变更。
 
 - 身材：4 组（basic/goal/girth/target）映射 4 表；新增记录未填字段沿用该维度最近一次非空值；趋势四档（week/month/half_year/year）窗口与锚点见常量。
 - 周期：七阶段独立枚举；锚点=最近月经首日；排卵日 = 周期长度 − 14；四档状态按阶段内日序判定（黄体中期前 2 天良好、余下日期一般；黄体后期前 2 天一般、余下日期休息；经期前 3 天休息、第 4 天一般、第 5 天起良好），疼痛 ≥2 覆盖为休息。
-- 周期颜色由 `app/static/css/tokens.css` 统一提供：月历单元格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；窄屏仍显示两字状态名；周期静态资源带版本号以避免旧样式缓存。
+- 经期标注：月历逐日的 period_state 由记录窗口判定——落在月经记录窗口内为 recorded（标「经期」；有结束日按结束日，无结束日按经期长度从首日推导）；今天及以后由周期推算得出、未被记录覆盖的经期日为 predicted（标「预测经期」），早于今天且未记录的经期日仍按推算阶段展示。
+- 周期颜色由 `app/static/css/tokens.css` 统一提供：月历单元格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；窄屏仍显示两字状态名；周期静态资源带版本号以避免旧样式缓存。四档底色 2026-11-11 统一向白混合 50% 再浅一档（`--tag-*-bg`），对应圆点/文字深阶不变。
 - 运动类型编码色同由 tokens.css 提供：`--ov-fit`（健身·灰）、`--ov-swim`（游泳·蓝）、`--ov-dance`（舞蹈·粉），日视图色条、图例圆点、汇总卡 chip 共用；chip 底色为 `--ov-fit-soft/--ov-swim-soft/--ov-dance-soft`（同基色独立透明度）。ECharts 读不到 CSS 变量，`app/static/js/overview.js` 的 `COLORS` 与 `body.js` 的图表配色一律通过 `App.cssVar('--令牌名')` 运行时读取，不再维护手工副本。
 - 记录 / 计划态标记统一取 `--state-plan`（计划·蓝绿）与 `--state-record`（记录·深灰）：总览页列表圆点、chip 圆点，以及 `App.statusTag` 输出的「计划 / 记录」标签同一口径，不得各自取色。
+- 字体与渲染：`base.css` 的 `html, body` 逐字照搬 GitHub 原栈（`-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"`）。原栈不含中文字体，中文与中文标点走浏览器默认兜底：本机默认中文即微软雅黑（实测与显式雅黑宽度仅差约 1.5%，肉眼无差），但若换到默认中文为宋体的环境会明显发灰变虚，届时须在 `sans-serif` 之前插入 `"PingFang SC", "Microsoft YaHei", "Noto Sans SC"`（通用族一出现，其后的字体即失效）。按钮/输入框显式 `font-family: inherit`；JSON 导入文本框保留等宽 `ui-monospace/monospace`（代码语义，不并入 UI 字体）。`html, body` 设置 `letter-spacing: .03em` 放宽字距（雅黑下中文偏挤显扁），局部需要更紧的文案可自行覆盖。同时不设置 `-webkit-font-smoothing: antialiased`：该值在 Windows 会关闭 ClearType 次像素抗锯齿，10~12px 小字会发虚。
 - 配色规范：颜色唯一来源是 `app/static/css/tokens.css`。CSS 与 Jinja 模板一律用 `var(--令牌)`；**SVG 不能把 `var()` 写进 `fill` / `stroke` 属性**（presentation attribute 不解析变量），必须改写 `style="fill:var(--…)"`。JS / ECharts 用 `App.cssVar(name, fallback)`。
 - 同值但语义不同、**禁止合并**的令牌对（合并会让两条业务线绑死）：`#6b7280` = 次要文字 / 记录态 / 健身编码；`#17b3a6` = 品牌强调 / 计划态；`rgba(23,179,166,.10)` = hover 浅底 / 计划标签底；`rgba(27,36,52,.08)` = 焦点环 / 轻投影；`rgba(107,114,128,.10)` = 中性标签底 / 健身 chip 底。要“当前同值、将来可分”，用 `var()` 别名而非删令牌。
 - 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长优先 duration_s，缺失时按 recorded 的 end_time−start_time 推导，游泳/舞蹈= duration_s；热量按记录字段汇总。
@@ -109,15 +124,18 @@ V2.0 无 ORM、数据库表或迁移变更。
 
 - **Excel**：body / training / swim / dance 均提供模板下载（`/template`）+ 导入（`/import`，openpyxl 解析、行级校验、错误明细回传）；body 另提供 `/export` 导出。Excel 列与校验规则集中在各模块 `excel_io.py`。
 - **JSON**：training / swim / dance 提供 `/import-json`（字段校验、批量入库），逻辑在 `json_import.py`。
-- 健身 Excel 新模板以 `(日期, 训练组编号)` 归属一条主表记录，组内各行是动作；不兼容旧模板。模板含「开始时间 / 结束时间」「平均心率 bpm / 最大心率 bpm / 热量 kcal」三列可选训练级字段，与备注同规则：同组多行取首个非空值；心率 1~300、热量 ≥0。JSON 导入的 plan 对象支持同名字段（`avg_heart_rate`/`max_heart_rate`/`calories`）。
+- **AI 导入**：三运动提供 `/ai-import`（文字 + 可选图片，最多 3 张、单张 ≤ 2MB）。结构化输出由 `json_schema` 硬约束，清洗后复用 `json_import` 的校验与 `persist_valid_*` 落库，统一 `recorded`；单条记录日期缺失时按当天处理，起止时间只给一端则整对丢弃，缺关键字段的记录跳过并在 `ai.warnings` 说明。前端一次完成 + 结果就地展示 + 可撤销（批量删除本次新建 id），校验失败可回填 JSON 面板手动修正。
+- 健身 Excel 新模板以 `(日期, 训练组编号)` 归属一条主表记录，组内各行是动作；不兼容旧模板。模板含「开始时间 / 结束时间」「平均心率 bpm / 最大心率 bpm / 热量 kcal」三列可选训练级字段，与备注同规则：同组多行取首个非空值；心率 1~300、热量 ≥0。JSON 导入的 plan 对象支持同名字段（`avg_heart_rate`/`max_heart_rate`/`calories`）。三处导入未填结束时间时 `end_time` 留空，不写当前时刻（2026-11-10）。
 
 ## 10. 前端组织
 
-- 页面模板 `app/templates`：`base.html` 提供公共布局与 `#modalDetail` 详情弹窗；`layout/sidebar.html` 为分组导航（身材 / 运动训练·计划[健身/游泳/舞蹈] / 生理周期 / 个人信息，男性账号隐藏周期入口）。
+- 页面模板 `app/templates`：`base.html` 提供公共布局与 `#modalDetail` 详情弹窗；`layout/sidebar.html` 为分组导航（身材数据 / 状态记录 / 运动训练·计划[健身/游泳/舞蹈] / 生理周期 / 个人信息，男性账号隐藏周期入口；状态记录对男女开放，不做男性重定向）。
 - `app/core/templating.py::render_page` 统一注入登录用户、导航高亮、面包屑、侧栏「今日」信息与常量；`today` 按请求取当天（`date.today()`），进程长跑跨天不会停留在启动日。
 - 静态资源 `app/static`：css（base/layout/pages/*）、js（common.js 共享弹窗与工具函数 + 各模块页面脚本）、vendor（echarts）、img。
-- 三运动页顶部都有新建计划、新增记录、Excel/JSON 导入；主体为当日、档案、全部记录、周期联动四块。全部记录首列日期、次列类型、末列操作，含查看详情、编辑、删除及批量删除；健身全部记录列出类型/备注/时长/动作/容量（备注列 2026-11-10 由「训练内容」替换，训练内容仍在详情展示）。共用双栏使用可收缩网格列，宽表在卡片内部横向滚动；健身动作表和编辑动作区单独滚动。
+- 三运动页顶部都有新建计划、新增记录、Excel/JSON/AI 导入（AI 弹窗为第三个面板：文字 + 图片 + 识别结果）；主体为当日、档案、全部记录、周期联动四块。全部记录首列日期、次列类型、末列操作，含查看详情、编辑、删除及批量删除；健身全部记录列出类型/备注/时长/动作/容量（备注列 2026-11-10 由「训练内容」替换，训练内容仍在详情展示）。共用双栏使用可收缩网格列，宽表在卡片内部横向滚动；健身动作表和编辑动作区单独滚动。
+- 状态记录页 `/state-record`：左栏月历（阶段三档圆点 + 有记录标记，翻月/选日联动），右栏「当日状态」三类块（食欲/肌肉疼痛/炎症）就地填写——每块内联星级 + 描述 + 保存，有记录时块内可删除，不再弹新增表单；整行置于最下方的「全部记录」列表（类型分段筛选 + 勾选跨表批量删除 + 分页，操作列查看详情/编辑/删除，行内「编辑」才弹出表单弹窗）。详情复用公共 `#modalDetail`；无 Excel/JSON/AI 导入入口。页级脚本 `app/static/js/state_record.js`，页级样式 `css/pages/state_record.css`。
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
+- 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
 
 ### 新增运动模块需求确认
 
@@ -151,7 +169,8 @@ sports-health-platform/
 │  │  ├─ dance/        # 舞蹈记录/计划 + 心得 + Excel/JSON 导入
 │  │  ├─ cycle/        # 生理周期七阶段 + 疼痛 + 运动等级
 │  │  ├─ profile/      # 个人资料 + 修改密码
-│  │  └─ overview/     # 跨运动总览聚合（日/周/月）+ 单日详情
+│  │  ├─ overview/     # 跨运动总览聚合（日/周/月）+ 单日详情
+│  │  └─ state_record/ # 状态记录：食欲/肌肉疼痛/炎症三表 CRUD + 月历阶段归并
 │  ├─ templates/       # Jinja2 页面
 │  └─ static/          # css / js / vendor(echarts) / img
 ├─ scripts/
@@ -163,7 +182,7 @@ sports-health-platform/
 
 ## 12. 测试与运维
 
-- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合等）。
+- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合、状态记录三表 CRUD/合并分页/跨表批量删除等）。
 - 建库/初始化：`python scripts/init_db.py`（幂等）；结构迁移按需执行 `scripts/migrate_*.py`。
 - 启动：`uvicorn main:app --host 0.0.0.0 --port 8010`（或 .env 的 PORT）。
 - 依赖：`uv sync --extra dev` 或 `pip install -r requirements.txt`。

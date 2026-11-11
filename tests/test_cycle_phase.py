@@ -11,6 +11,8 @@ from app.core.constants import (
     PHASE_LUTEAL_MID,
     PHASE_MENSTRUAL,
     PHASE_OVULATION_DAY,
+    PERIOD_STATE_PREDICTED,
+    PERIOD_STATE_RECORDED,
     SPORT_AVERAGE,
     SPORT_GOOD,
     SPORT_HIGH,
@@ -145,3 +147,32 @@ def test_update_period_can_clear_end_date(db):
     assert unchanged.end_date == date(2026, 10, 20)
     updated = service.update_period(db, 1, row.id, ANCHOR, None, update_end=True)
     assert updated.end_date is None
+
+
+def test_calendar_marks_recorded_period_and_predicted_period(db, monkeypatch):
+    """已记录经期标「经期」，日后未记录的经期标「预测经期」。"""
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 11))
+    service.create_period(db, 1, ANCHOR, None, None, None)  # 无结束日 → 10-16~10-20 视为已记录
+    october = {d["date"]: d for d in service.calendar_month(db, 1, 2026, 10)["days"]}
+    november = {d["date"]: d for d in service.calendar_month(db, 1, 2026, 11)["days"]}
+
+    assert october["2026-10-16"]["period_state"] == PERIOD_STATE_RECORDED
+    assert october["2026-10-20"]["period_state"] == PERIOD_STATE_RECORDED
+    assert october["2026-10-20"]["period_label"] == "经期"
+    assert october["2026-10-21"]["period_state"] is None  # 非经期
+
+    # 下一周期 11-13~11-17 尚无记录 → 预测经期
+    assert november["2026-11-13"]["period_state"] == PERIOD_STATE_PREDICTED
+    assert november["2026-11-13"]["period_label"] == "预测经期"
+    assert november["2026-11-17"]["period_state"] == PERIOD_STATE_PREDICTED
+    assert november["2026-11-18"]["period_state"] is None
+
+
+def test_period_state_keeps_past_unrecorded_as_phase(db, monkeypatch):
+    """记录结束日早于经期长度时，过去未覆盖的经期日不误标为「预测经期」。"""
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 11))
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 18), None, None)
+    october = {d["date"]: d for d in service.calendar_month(db, 1, 2026, 10)["days"]}
+    assert october["2026-10-18"]["period_state"] == PERIOD_STATE_RECORDED
+    assert october["2026-10-19"]["period_state"] is None
+    assert october["2026-10-19"]["is_period"] is True  # 仍按推算阶段展示为经期

@@ -11,6 +11,7 @@
     <span class="actions-divider"></span>
     <button class="btn" id="btnImportExcel">⇧ 导入 Excel</button>
     <button class="btn" id="btnImportJson">⇧ 导入 JSON</button>
+    <button class="btn" id="btnImportAi">✦ AI 导入</button>
   </div>
 </div>
 
@@ -142,6 +143,18 @@
           <textarea class="input" id="importJsonText" rows="8" style="font-family:monospace;font-size:12px" placeholder='{"records":[{"date":"2026-11-03","start_time":"19:00","end_time":"19:40","distance_m":1500,"duration_min":40,"main_stroke":"自由泳"}]}'></textarea>
         </div>
         <div class="modal-note">格式：{&quot;records&quot;:[{&quot;date&quot;:&quot;YYYY-MM-DD&quot;,&quot;start_time&quot;:&quot;19:00&quot;,&quot;end_time&quot;:&quot;19:40&quot;,&quot;distance_m&quot;:1500,&quot;duration_min&quot;:40,&quot;main_stroke&quot;:&quot;自由泳&quot;,&quot;avg_heart_rate&quot;:135,&quot;total_strokes&quot;:600,&quot;laps&quot;:30,&quot;avg_stroke_rate&quot;:24,&quot;calories&quot;:320,&quot;remark&quot;:&quot;可选&quot;}]}，最多 500 条；起止时间可留空，未填时长时按起止自动推导。</div>
+      </div>
+      <div id="importAiPane" style="display:none">
+        <div class="form-item">
+          <label class="field-label">说说这次游泳（可再补几张截图）</label>
+          <textarea class="input" id="aiPromptText" rows="4" maxlength="2000" placeholder="例如：今天下午游了 1500 米自由泳，40 分钟，平均心率 135。"></textarea>
+        </div>
+        <div class="form-item" style="margin-top:12px">
+          <label class="field-label">图片（可空，最多 3 张，单张 ≤ 2MB）</label>
+          <input class="input file-input" type="file" id="aiImages" accept="image/jpeg,image/png,image/webp" multiple>
+          <div class="ai-thumbs" id="aiThumbs"></div>
+        </div>
+        <div class="modal-note">AI 会读取文字和图片并直接生成记录，识别结果会在下方展示，可撤销本次导入。</div>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalImport" id="importCancel">取消</button>

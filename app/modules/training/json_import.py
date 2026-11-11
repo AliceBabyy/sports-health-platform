@@ -53,6 +53,30 @@ def validate_json_plans(raw_plans: list) -> tuple[list[JsonImportPlanIn], list[d
     return valid, errors
 
 
+def persist_valid_plans(db, user_id: int, plans: list[JsonImportPlanIn]) -> tuple[list[int], int]:
+    """把已校验的计划写成 recorded 训练记录，返回 (记录 id 列表, 动作总数)。
+
+    AI 导入与 JSON 导入共用这一份写入逻辑，避免两条路径的落库语义漂移。
+    结束时间未填就留空（auto_end_time=False），不补当前时刻（2026-11-10）。
+    """
+    from app.modules.training import service  # 局部导入，避免模块加载期循环依赖
+
+    ids: list[int] = []
+    items_imported = 0
+    for plan_in in plans:
+        plan = service.create_plan(
+            db, user_id, plan_in.date, plan_in.items, remark=plan_in.remark,
+            status=service.TR_STATUS_RECORDED,
+            start_time=plan_in.start_time, end_time=plan_in.end_time,
+            avg_heart_rate=plan_in.avg_heart_rate, max_heart_rate=plan_in.max_heart_rate,
+            calories=plan_in.calories,
+            auto_end_time=False,
+        )
+        ids.append(plan.id)
+        items_imported += len(plan_in.items)
+    return ids, items_imported
+
+
 def _map_error(loc: tuple, err: dict) -> tuple[str, str]:
     """pydantic 校验错误 → (中文列名, 中文原因)。loc 形如 ('items', 1, 'exercise_name')。"""
     if loc and loc[0] == "items":

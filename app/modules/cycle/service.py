@@ -23,6 +23,9 @@ from app.core.constants import (
     PHASE_MENSTRUAL,
     PHASE_OVULATION_DAY,
     PHASE_LABELS,
+    PERIOD_STATE_LABELS,
+    PERIOD_STATE_PREDICTED,
+    PERIOD_STATE_RECORDED,
     SPORT_AVERAGE,
     SPORT_GOOD,
     SPORT_HIGH,
@@ -200,9 +203,42 @@ def ovulation_date_for(anchor: date, cycle_length: int, period_length: int) -> d
     return anchor + timedelta(days=ovulation_day - 1)
 
 
+def period_windows(period_rows: list, period_length: int) -> list[tuple[date, date]]:
+    """把月经记录展开成「已记录经期」窗口。
+
+    有结束日按记录结束日；无结束日按当前经期长度从首日推导（与阶段推算窗口一致）。
+    """
+    windows = []
+    for row in period_rows:
+        start = row.start_date
+        end = row.end_date if row.end_date and row.end_date >= start else start + timedelta(days=max(period_length, 1) - 1)
+        windows.append((start, end))
+    return windows
+
+
+def period_state_for(day: date, phase_key: str | None, windows: list[tuple[date, date]], as_of: date | None = None) -> str | None:
+    """经期状态：真实记录覆盖 → recorded；当日及以后由推算得出 → predicted；非经期 → None。
+
+    as_of 为「今天」：早于今天且未被记录覆盖的经期日不算预测，仍按推算阶段展示。
+    """
+    if phase_key != PHASE_MENSTRUAL:
+        return None
+    for start, end in windows:
+        if start <= day <= end:
+            return PERIOD_STATE_RECORDED
+    if as_of is not None and day < as_of:
+        return None
+    return PERIOD_STATE_PREDICTED
+
+
 # ---------- 月历 ----------
 def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
-    """逐日 {date, phase_key, phase_label, sport_level, sport_label, is_period, pain_level}。"""
+    """逐日 {date, phase_key, phase_label, sport_level, sport_label, is_period, period_state,
+    period_label, pain_level}。
+
+    period_state 标注口径：落在真实月经记录窗口内为 recorded（经期）；
+    今天及以后由推算得出的经期为 predicted（预测经期）。
+    """
     setting = get_settings(db, user_id)
     today = today_local()
     anchor = get_anchor_date(db, user_id, today)
@@ -214,6 +250,7 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
         .all()
     )
     period_starts = {row.start_date for row in period_rows}
+    windows = period_windows(period_rows, setting.period_length)
     pain_rows = (
         db.query(DailyPainLog)
         .filter(DailyPainLog.user_id == user_id, DailyPainLog.log_date >= date(year, month, 1), DailyPainLog.log_date <= date(year, month, last_day))
@@ -240,6 +277,8 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
                     "sport_level": None,
                     "sport_label": None,
                     "is_period": False,
+                    "period_state": None,
+                    "period_label": None,
                     "pain_level": pain,
                     "pain_recorded": d in pain_map,
                     "is_recorded_start": d in period_starts,
@@ -250,6 +289,7 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
         phase = phase_for(d, effective_anchor, setting.cycle_length, setting.period_length)
         cycle_day = effective_day_number(d, effective_anchor, setting.cycle_length)
         level = sport_level_for(phase, cycle_day, setting.cycle_length, setting.period_length, pain)
+        period_state = period_state_for(d, phase, windows, today)
         days.append(
             {
                 "date": d.isoformat(),
@@ -258,6 +298,8 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
                 "sport_level": level,
                 "sport_label": SPORT_LABELS[level],
                 "is_period": phase == PHASE_MENSTRUAL,
+                "period_state": period_state,
+                "period_label": PERIOD_STATE_LABELS[period_state] if period_state else None,
                 "pain_level": pain,
                 "pain_recorded": d in pain_map,
                 "is_recorded_start": d in period_starts,

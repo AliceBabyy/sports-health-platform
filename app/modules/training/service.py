@@ -184,14 +184,19 @@ def create_plan(
     avg_heart_rate: int | None = None,
     max_heart_rate: int | None = None,
     calories=None,
+    auto_end_time: bool = True,
 ) -> TrainingRecord:
     """新建计划/记录（TR-03）：一日可多个，无需查重；status 可指定（导入数据直接落 recorded，2026-11-04）。
 
-    起止时间/时长计划态与记录态均可落库（均可空）；导入未显式给时刻时 end_time 取当前时刻。
+    起止时间/时长计划态与记录态均可落库（均可空）。
+    auto_end_time=True 时记录态未给结束时间取当前时刻（手动新建沿用）；导入三处（Excel/JSON/AI）传 False，
+    结束时间没填就保持为空，页面显示「—」（2026-11-10）。
     """
     plan = TrainingRecord(user_id=user_id, date=date, status=status, remark=remark or None)
     plan.start_time = start_time
-    plan.end_time = end_time or (datetime.now() if status == TR_STATUS_RECORDED else None)
+    plan.end_time = end_time or (
+        datetime.now() if (status == TR_STATUS_RECORDED and auto_end_time) else None
+    )
     plan.duration_s = _derive_duration_s(start_time, plan.end_time, duration_s)
     # 心率与热量计划态/记录态均可落库（均可空，2026-11-10 起前端与导入均可填）
     plan.avg_heart_rate = avg_heart_rate

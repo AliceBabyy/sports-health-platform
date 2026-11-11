@@ -159,6 +159,15 @@ PHASE_INFO = {
         "advice": "PMS高发窗口，改为瑜伽、游泳或散步，保证睡眠优先。",
     },
 }
+# 经期状态（月历标注口径）：
+# recorded=落在真实月经记录覆盖的日期内；predicted=今天及以后由推算得出、尚未记录的经期。
+PERIOD_STATE_RECORDED = "recorded"
+PERIOD_STATE_PREDICTED = "predicted"
+PERIOD_STATE_LABELS = {
+    PERIOD_STATE_RECORDED: "经期",
+    PERIOD_STATE_PREDICTED: "预测经期",
+}
+
 # ---------- 运动四档（MC-10） ----------
 SPORT_HIGH = "high"
 SPORT_GOOD = "good"

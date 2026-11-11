@@ -14,6 +14,7 @@ WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周�
 # short：折叠态（仅图标/两字）显示文本。
 NAV_GROUPS = [
     {"key": "body", "url": "/body", "label": "身材数据", "short": "身材", "children": []},
+    {"key": "state_record", "url": "/state-record", "label": "状态记录", "short": "状态", "children": []},
     {
         "key": "overview",
         "url": "/overview",

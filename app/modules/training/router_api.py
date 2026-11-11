@@ -2,7 +2,7 @@
 from datetime import date
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -11,8 +11,10 @@ from app.core.exceptions import AppError
 from app.core.constants import today_local
 from app.core.sport_schemas import BatchDeleteIn
 from app.modules.auth.models import User
-from app.modules.training import excel_io, json_import, service
+from app.modules.electronic_trainer.ai_import import run_import
+from app.modules.training import ai_profile, excel_io, json_import, service
 from app.modules.training.schemas import PlanCreateIn, PlanItemIn, PlanSaveIn, TrainingNoteIn
+from config import settings
 from database import get_db
 
 router = APIRouter(prefix="/api/training", tags=["training"])
@@ -125,9 +127,11 @@ async def import_plans(
             )
             for r in rows
         ]
+        # auto_end_time=False：Excel 未填结束时间就留空，不补当前时刻（2026-11-10）
         plan = service.create_plan(db, user.id, date, items, remark=remark, status=service.TR_STATUS_RECORDED,
                                    start_time=start_time, end_time=end_time,
-                                   avg_heart_rate=avg_heart_rate, max_heart_rate=max_heart_rate, calories=calories)
+                                   avg_heart_rate=avg_heart_rate, max_heart_rate=max_heart_rate, calories=calories,
+                                   auto_end_time=False)
         plans_created += 1
         items_imported += len(items)
         record_ids.append(plan.id)
@@ -156,20 +160,23 @@ def import_plans_json(
     valid, errors = json_import.validate_json_plans(raw_plans)
     if not valid:
         return {"ok": True, "imported": 0, "created_ids": [], "items_imported": 0, "failed": errors}
-    plans_created = 0
-    items_imported = 0
-    record_ids: list[int] = []
-    for plan_in in valid:
-        plan = service.create_plan(db, user.id, plan_in.date, plan_in.items, remark=plan_in.remark,
-                                   status=service.TR_STATUS_RECORDED,
-                                   start_time=plan_in.start_time, end_time=plan_in.end_time,
-                                   avg_heart_rate=plan_in.avg_heart_rate, max_heart_rate=plan_in.max_heart_rate,
-                                   calories=plan_in.calories)
-        plans_created += 1
-        items_imported += len(plan_in.items)
-        record_ids.append(plan.id)
-    return {"ok": True, "imported": plans_created, "created_ids": record_ids,
+    record_ids, items_imported = json_import.persist_valid_plans(db, user.id, valid)
+    return {"ok": True, "imported": len(record_ids), "created_ids": record_ids,
             "items_imported": items_imported, "failed": errors}
+
+
+@router.post("/ai-import")
+def ai_import_plans(
+    prompt: str = Form(default="", max_length=settings.ai_import_max_prompt_chars),
+    images: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """AI 导入：文字 + 可选图片 → 结构化识别 → 复用 JSON 导入的校验与落库（统一 recorded）。"""
+    result = run_import(profile=ai_profile.PROFILE, text=prompt, images=images, db=db, user=user)
+    result.setdefault("items_imported", 0)
+    result["training_ids"] = result["created_ids"]
+    return result
 
 
 @router.post("/{record_id}/copy-to-today")

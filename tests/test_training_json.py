@@ -112,6 +112,17 @@ def test_json_import_bad_plans_skipped(db):
     assert len(service.get_plans_by_date(db, USER, date(2026, 11, 9))) == 1
 
 
+def test_json_import_persist_keeps_empty_end_time(db):
+    """落库函数不再补当前时刻：没给结束时间就留空，时长也为空（2026-11-10）。"""
+    valid, errors = json_import.validate_json_plans([
+        {"date": "2026-11-09", "items": [{"exercise_name": "杠铃深蹲"}]},
+    ])
+    assert not errors
+    ids, _ = json_import.persist_valid_plans(db, USER, valid)
+    plan = service.get_plan(db, USER, ids[0])
+    assert plan.end_time is None and plan.start_time is None and plan.duration_s is None
+
+
 def test_json_import_rejects_non_object_and_oversize_fields():
     """非对象计划项报错；超上限的字段（动作名/备注过长、组数 0）也产出明细；重量不限值。"""
     raw = [

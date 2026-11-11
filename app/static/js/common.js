@@ -67,6 +67,77 @@
       return data;
     },
 
+    /* multipart 上传（AI 导入等）：不带 Content-Type，交给浏览器生成 boundary */
+    postMultipart: async function (path, formData) {
+      const res = await fetch(path, { method: 'POST', body: formData });
+      if (res.status === 401) { location.href = '/login'; throw new Error('未登录'); }
+      let data = null;
+      try { data = await res.json(); } catch (e) { /* 非 JSON 响应 */ }
+      if (!res.ok) {
+        const msg = (data && data.error) ? data.error : ('请求失败（' + res.status + '）');
+        const err = new Error(msg); err.status = res.status; throw err;
+      }
+      return data;
+    },
+
+    /* AI 导入结果附加信息：warnings / 识别内容 / 模型耗时 */
+    aiResultHtml: function (data) {
+      const ai = data.ai || {};
+      let html = '';
+      if (ai.warnings && ai.warnings.length) {
+        html += '<div class="ai-warnings"><div class="ai-block-title">识别提示</div><ul>';
+        ai.warnings.forEach(function (w) { html += '<li>' + App.escapeHtml(w) + '</li>'; });
+        html += '</ul></div>';
+      }
+      if (data.payload) {
+        html += '<details class="ai-payload"><summary>查看 AI 识别结果（可用于手动修正）</summary><pre>' +
+          App.escapeHtml(JSON.stringify(data.payload, null, 2)) + '</pre></details>';
+      }
+      if (ai.model) {
+        html += '<div class="ai-meta">模型 ' + App.escapeHtml(ai.model) + ' · ' + (ai.elapsed_ms || 0) + ' ms</div>';
+      }
+      return html;
+    },
+
+    /* AI 导入结果下方的操作按钮（撤销 / 改用手动 JSON） */
+    aiActionsHtml: function (data) {
+      const ids = data.created_ids || [];
+      const failed = (data.failed || []).length > 0;
+      if (!ids.length && !failed) return '';
+      let html = '<div class="ai-actions">';
+      if (failed) html += '<button type="button" class="btn btn-sm" data-ai-action="fallback">改用手动 JSON 导入</button>';
+      if (ids.length) html += '<button type="button" class="btn btn-sm btn-danger" data-ai-action="undo">撤销本次导入</button>';
+      return html + '</div>';
+    },
+
+    /* 绑定 AI 结果区按钮：撤销 = 批量删除本次新建记录；回退 = 把识别结果填进 JSON 面板 */
+    bindAiActions: function (box, data, opts) {
+      if (!box) return;
+      const undo = box.querySelector('[data-ai-action="undo"]');
+      const fallback = box.querySelector('[data-ai-action="fallback"]');
+      if (undo) {
+        undo.addEventListener('click', function () {
+          App.confirmDialog({
+            title: '撤销本次导入',
+            message: '将删除本次 AI 导入新建的 ' + (data.created_ids || []).length + ' 条记录，删除后不可恢复。',
+            confirmText: '撤销',
+          }).then(function (ok) {
+            if (!ok) return null;
+            return App.api(opts.undoEndpoint, { method: 'POST', body: { ids: data.created_ids } });
+          }).then(function (res) {
+            if (!res) return;
+            App.toast('已撤销本次导入');
+            if (opts.onUndone) opts.onUndone();
+          }).catch(function (err) { App.toast(err.message, true); });
+        });
+      }
+      if (fallback) {
+        fallback.addEventListener('click', function () {
+          if (opts.onFallback) opts.onFallback(data.payload || {});
+        });
+      }
+    },
+
     toast: function (msg, isError = false) {
       const wrap = document.getElementById('toastWrap') || (() => {
         const w = document.createElement('div'); w.id = 'toastWrap'; w.className = 'toast-wrap';
@@ -364,6 +435,82 @@
     if (mask.querySelector('.modal form, .modal textarea, .modal input, .modal select')) return;
     mask.classList.remove('open');
   });
+
+  /* ---------- 弹窗内多行文本框：高度随内容自动增长，到达上限后在框内滚动 ---------- */
+  (function autoGrowTextareas() {
+    const baseCache = new WeakMap();
+
+    /* 基线高度 = 按 rows 撑起的初始高度；量不到（隐藏或尚未布局）时按行高估算 */
+    function baseline(el) {
+      let base = baseCache.get(el);
+      if (base != null) return base;
+      base = el.offsetHeight;
+      if (!base) {
+        const cs = getComputedStyle(el);
+        const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 13) * 1.2;
+        const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+        const rows = parseInt(el.getAttribute('rows') || '2', 10) || 2;
+        base = Math.round(lh * rows + pad);
+      }
+      baseCache.set(el, base);
+      return base;
+    }
+
+    /* 增高上限取 CSS 的 max-height（base.css：min(300px, 42vh)；个别字段可用更具体的规则收窄） */
+    function limitOf(el) {
+      const maxH = parseFloat(getComputedStyle(el).maxHeight);
+      return maxH > 0 ? maxH : Math.round(window.innerHeight * 0.5);
+    }
+
+    function fit(el) {
+      if (!el || el.tagName !== 'TEXTAREA' || typeof el.closest !== 'function') return;
+      if (!el.closest('.modal-mask')) return;          // 只作用于弹窗内的填写框
+      const min = baseline(el);
+      const max = Math.max(min, limitOf(el));
+      el.style.height = 'auto';                        // 先归零再量，删字后也能缩回
+      const target = Math.min(Math.max(el.scrollHeight, min), max);
+      el.style.height = target + 'px';
+    }
+
+    function fitAll(root) {
+      if (!root) return;
+      if (root.tagName === 'TEXTAREA') { fit(root); return; }
+      if (typeof root.querySelectorAll !== 'function') return;
+      root.querySelectorAll('textarea').forEach(fit);
+    }
+
+    /* 输入时即时跟随；中文输入法组字过程中不抖，组字结束后补一次 */
+    document.addEventListener('input', function (e) {
+      if (!e.target || e.target.tagName !== 'TEXTAREA' || e.isComposing) return;
+      fit(e.target);
+    });
+    document.addEventListener('compositionend', function (e) {
+      if (e.target && e.target.tagName === 'TEXTAREA') fit(e.target);
+    });
+
+    /* 弹窗打开、弹窗内动态插入条目（如总览单日详情）时补一次测量 */
+    function sync(root) {
+      if (root) fitAll(root);
+    }
+
+    new MutationObserver(function (list) {
+      list.forEach(function (mu) {
+        if (mu.type === 'attributes') {
+          const m = mu.target;
+          if (m.classList && m.classList.contains('modal-mask') && m.classList.contains('open')) sync(m);
+          return;
+        }
+        mu.addedNodes.forEach(function (n) {
+          if (n.nodeType !== 1) return;
+          if (n.tagName === 'TEXTAREA' || (n.querySelector && n.querySelector('textarea'))) sync(n);
+        });
+      });
+    }).observe(document.body, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true });
+
+    window.addEventListener('resize', function () { sync(document); });
+    window.addEventListener('load', function () { sync(document); });
+    sync(document);   // 首屏已有内容（如详情弹窗预填）先量一次
+  })();
 
   /* ---------- 侧边栏收起/展开（顶栏按钮 + 窄屏自动收起 + localStorage 记忆） ---------- */
   (function sidebar() {

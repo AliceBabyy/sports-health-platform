@@ -1,7 +1,7 @@
 """游泳 API 路由（/api/swim-records，SW-01/02；2026-11 支持计划态 + 单日查询 + 批量导入）。"""
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -10,10 +10,12 @@ from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.core.sport_ops import batch_delete
 from app.core.sport_schemas import BatchDeleteIn
+from app.modules.electronic_trainer.ai_import import run_import
 from app.modules.swim.models import SwimRecord
 from app.modules.auth.models import User
-from app.modules.swim import excel_io, json_import, service
+from app.modules.swim import ai_profile, excel_io, json_import, service
 from app.modules.swim.schemas import SwimNoteIn, SwimRecordIn
+from config import settings
 from database import get_db
 
 router = APIRouter(prefix="/api/swim-records", tags=["swim"])
@@ -101,6 +103,17 @@ def import_swim_json(
         return {"ok": True, "imported": 0, "created_ids": [], "failed": errors}
     created_ids = service.bulk_create_records(db, user.id, valid)
     return {"ok": True, "imported": len(created_ids), "created_ids": created_ids, "failed": errors}
+
+
+@router.post("/ai-import")
+def ai_import_swim(
+    prompt: str = Form(default="", max_length=settings.ai_import_max_prompt_chars),
+    images: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """AI 导入：文字 + 可选图片 → 结构化识别 → 复用 JSON 导入的校验与落库（统一 recorded）。"""
+    return run_import(profile=ai_profile.PROFILE, text=prompt, images=images, db=db, user=user)
 
 
 @router.post("")

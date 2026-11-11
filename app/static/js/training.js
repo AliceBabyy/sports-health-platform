@@ -534,26 +534,33 @@
     el.addEventListener('click', function () { App.closeModal(el.dataset.close); });
   });
 
-  /* ---------- Excel / JSON 导入（2026-11-04 新增：两个独立入口按钮） ---------- */
+  /* ---------- Excel / JSON / AI 导入（2026-11-04 两个入口；2026-11-10 增加 AI 导入） ---------- */
   const importExcelBtn = document.getElementById('btnImportExcel');
   const importJsonBtn = document.getElementById('btnImportJson');
+  const importAiBtn = document.getElementById('btnImportAi');
   const importForm = document.getElementById('formImport');
   const importFile = document.getElementById('importFile');
   const importJsonText = document.getElementById('importJsonText');
   const importExcelPane = document.getElementById('importExcelPane');
   const importJsonPane = document.getElementById('importJsonPane');
+  const importAiPane = document.getElementById('importAiPane');
+  const aiPromptText = document.getElementById('aiPromptText');
+  const aiImages = document.getElementById('aiImages');
+  const aiThumbs = document.getElementById('aiThumbs');
   const importSubmit = document.getElementById('importSubmit');
   const importCancel = document.getElementById('importCancel');
   const importDone = document.getElementById('importDone');
   const importResult = document.getElementById('importResult');
-  let importMode = 'excel';   // 'excel' | 'json'
+  let importMode = 'excel';   // 'excel' | 'json' | 'ai'
   let importCreated = 0;   // 本次导入新建的计划数（决定关闭时是否刷新）
 
-  // 打开导入弹窗：重置状态，按入口按钮切换面板（Excel 文件 / JSON 文本）
+  // 打开导入弹窗：重置状态，按入口按钮切换面板（Excel 文件 / JSON 文本 / AI）
   function openImport(mode) {
     importMode = mode;
     importForm.reset();
     importJsonText.value = '';
+    aiPromptText.value = '';
+    aiThumbs.innerHTML = '';
     importResult.style.display = 'none';
     importResult.innerHTML = '';
     importSubmit.disabled = false;
@@ -563,14 +570,60 @@
     importCreated = 0;
     importExcelPane.style.display = mode === 'excel' ? '' : 'none';
     importJsonPane.style.display = mode === 'json' ? '' : 'none';
+    importAiPane.style.display = mode === 'ai' ? '' : 'none';
     App.openModal('modalImport');
   }
   importExcelBtn.addEventListener('click', function () { openImport('excel'); });
   importJsonBtn.addEventListener('click', function () { openImport('json'); });
+  importAiBtn.addEventListener('click', function () { openImport('ai'); });
 
-  // 导入：Excel 走 multipart 上传（App.api 仅支持 JSON，此处原生 fetch）；JSON 走 App.api
+  // AI 图片选择：前端先拦张数与体积，缩略图只做预览
+  aiImages.addEventListener('change', function () {
+    const files = Array.from(aiImages.files || []);
+    if (files.length > 3) { App.toast('最多选择 3 张图片', true); aiImages.value = ''; aiThumbs.innerHTML = ''; return; }
+    const tooBig = files.find(function (f) { return f.size > 2 * 1024 * 1024; });
+    if (tooBig) { App.toast('单张图片不能超过 2MB：' + tooBig.name, true); aiImages.value = ''; aiThumbs.innerHTML = ''; return; }
+    aiThumbs.innerHTML = files.map(function (f) {
+      return '<div class="ai-thumb"><img src="' + URL.createObjectURL(f) + '" alt=""></div>';
+    }).join('');
+  });
+
+  // 失败时改用 JSON 面板：把识别结果原样填进去，用户可手改后重新导入
+  function useJsonFallback(payload) {
+    importMode = 'json';
+    importJsonText.value = JSON.stringify(payload, null, 2);
+    importAiPane.style.display = 'none';
+    importJsonPane.style.display = '';
+    importResult.style.display = 'none';
+    importResult.innerHTML = '';
+    importSubmit.disabled = false;
+    importSubmit.textContent = '开始导入';
+    importCancel.style.display = '';
+    importDone.style.display = 'none';
+    App.toast('已填入识别结果，可直接修改后导入');
+  }
+
+  // 导入：Excel 与 AI 走 multipart 上传；JSON 走 App.api
   importForm.addEventListener('submit', function (e) {
     e.preventDefault();
+    if (importMode === 'ai') {
+      const text = aiPromptText.value.trim();
+      const files = Array.from(aiImages.files || []);
+      if (!text && !files.length) { App.toast('请先描述这次训练，或选择至少一张图片', true); return; }
+      const fd = new FormData();
+      fd.append('prompt', text);
+      files.forEach(function (f) { fd.append('images', f); });
+      importSubmit.disabled = true;
+      importSubmit.textContent = 'AI 识别中…';
+      App.postMultipart('/api/training/ai-import', fd)
+        .then(function (data) { showImportResult(data); })
+        .catch(function (err) {
+          App.toast(err.message, true);
+          importSubmit.disabled = false;
+          importSubmit.textContent = '开始导入';
+        });
+      return;
+    }
     if (importMode === 'json') {
       let body;
       try { body = JSON.parse(importJsonText.value); }
@@ -593,14 +646,7 @@
     fd.append('file', file);
     importSubmit.disabled = true;
     importSubmit.textContent = '导入中…';
-    fetch('/api/training/import', { method: 'POST', body: fd })
-      .then(function (res) {
-        return res.json().catch(function () { return null; }).then(function (body) {
-          if (res.status === 401) { location.href = '/login'; throw new Error('未登录'); }
-          if (!res.ok) throw new Error((body && body.error) ? body.error : ('请求失败（' + res.status + '）'));
-          return body;
-        });
-      })
+    App.postMultipart('/api/training/import', fd)
       .then(function (data) { showImportResult(data); })
       .catch(function (err) {
         App.toast(err.message, true);
@@ -609,17 +655,19 @@
       });
   });
 
-  // 导入结果：全部成功 → 关闭并刷新；存在失败 → 弹窗内展示明细，由「完成」按钮关闭并刷新
+  // 导入结果：Excel/JSON 全部成功 → 关闭并刷新；AI 成功 → 就地展示结果（可撤销）；
+  // 存在失败 → 弹窗内展示明细，由「完成」按钮关闭并刷新
   function showImportResult(data) {
     const failed = data.failed || [];
+    const isAi = !!data.ai;
     importCreated = data.imported || 0;
     const items = data.items_imported || 0;
     const ok = importCreated > 0;
     let html = '<div class="summary">';
     if (!failed.length) {
-      html += '<span class="ok">导入成功：' + importCreated + ' 条训练记录已导入（共 ' + items + ' 个动作）</span>';
+      html += '<span class="ok">' + (isAi ? 'AI 识别并导入：' : '导入成功：') + importCreated + ' 条训练记录已导入（共 ' + items + ' 个动作）</span>';
     } else {
-      html += '<span class="fail">导入完成：' + importCreated + ' 条记录成功，' + failed.length + ' 行失败已跳过</span>';
+      html += '<span class="fail">' + (isAi ? 'AI 识别完成：' : '导入完成：') + importCreated + ' 条记录成功，' + failed.length + ' 行失败已跳过</span>';
     }
     html += '</div>';
     if (failed.length) {
@@ -630,12 +678,32 @@
       });
       html += '</tbody></table></div>';
     }
+    if (isAi) {
+      html += App.aiResultHtml(data);
+      html += App.aiActionsHtml(data);
+    }
     importResult.innerHTML = html;
     importResult.style.display = 'block';
 
+    if (isAi) {
+      importCancel.style.display = 'none';
+      importDone.style.display = '';
+      importSubmit.disabled = true;
+      importSubmit.textContent = '开始导入';
+      App.bindAiActions(importResult, data, {
+        undoEndpoint: '/api/training/batch-delete',
+        onFallback: useJsonFallback,
+        onUndone: function () { App.closeModal('modalImport'); setTimeout(function () { location.reload(); }, 200); },
+      });
+      if (ok) App.toast('已导入 ' + importCreated + ' 条训练记录');
+      else if (failed.length) App.toast('识别结果未通过校验，未写入任何记录', true);
+      else App.toast(data.message || '没有识别到可导入的记录', true);
+      return;
+    }
+
     if (!failed.length) {
       // 导入全部成功：弹庆祝；恰好 1 条 → 可顺手写心得；多条 → 只庆祝
-      const pids = data.training_ids || [];
+      const pids = data.training_ids || data.created_ids || [];
       App.toast('已导入 ' + importCreated + ' 条训练记录');
       App.closeModal('modalImport');
       App.celebrate({

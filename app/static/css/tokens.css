@@ -54,11 +54,12 @@
   --ov-swim-soft: rgba(61, 143, 209, 0.12);
   --ov-dance-soft: rgba(232, 85, 140, 0.12);
 
-  /* 运动四档：日历底色与状态标签共用浅色系。 */
-  --tag-high-bg: #e2f4f3;  --tag-high-dot: #248d89;  --tag-high-fg: #176b68;
-  --tag-good-bg: #e9f5e7;  --tag-good-dot: #599b59;  --tag-good-fg: #447846;
-  --tag-average-bg: #fff5d9;  --tag-average-dot: #b18a30;  --tag-average-fg: #80651f;
-  --tag-rest-bg: #fae9ef;  --tag-rest-dot: #bd6986;  --tag-rest-fg: #92506a;
+  /* 运动四档：日历底色与状态标签共用浅色系。
+     2026-11-11 底色整体再浅一档（向白混合 50%）：圆点/文字仍用原深阶保证小字对比。 */
+  --tag-high-bg: #f1faf9;  --tag-high-dot: #248d89;  --tag-high-fg: #176b68;
+  --tag-good-bg: #f4faf3;  --tag-good-dot: #599b59;  --tag-good-fg: #447846;
+  --tag-average-bg: #fffaec;  --tag-average-dot: #b18a30;  --tag-average-fg: #80651f;
+  --tag-rest-bg: #fdf4f7;  --tag-rest-dot: #bd6986;  --tag-rest-fg: #92506a;
 
   /* 中性工具标签（部位/泳姿/未推算、以及「记录」态，与 --state-record 同基色） */
   --tag-gray-bg: rgba(107, 114, 128, 0.10);
@@ -69,6 +70,16 @@
 
   /* 星级金（训练/舞蹈/游泳心得星级共用） */
   --color-star: #f59e0b;
+
+  /* 状态记录 · 周期阶段三档（经期 / 卵泡期·排卵 / 黄体期）：日历格不着底色，仅圆点带色；
+     浅底与深阶文字供右栏阶段标签使用。 */
+  --sr-menses-dot: #e06a63;  --sr-menses-fg: #b84a44;  --sr-menses-bg: #fdeeee;
+  --sr-foll-dot:   #599b59;  --sr-foll-fg:   #447846;  --sr-foll-bg:   #f1f7f0;
+  --sr-luteal-dot: #b18a30;  --sr-luteal-fg: #80651f;  --sr-luteal-bg: #fbf5e6;
+
+  /* 状态记录 · 类型 chip：食欲橙 / 肌肉疼痛灰（复用 tag-gray）/ 炎症红 */
+  --tag-appetite-bg: rgba(199, 126, 8, 0.10);  --tag-appetite-fg: #8a5a08;  --tag-appetite-dot: var(--state-warning);
+  --tag-inflam-bg:   rgba(192, 57, 43, 0.10);  --tag-inflam-fg:   #a03327;  --tag-inflam-dot:   var(--state-danger);
 
   /* 图表：ECharts 读不到 CSS 变量，由 common.js 的 App.cssVar 运行时读取 */
   --color-chart-axis: #d7dce3;              /* 坐标轴线 */

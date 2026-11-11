@@ -6,10 +6,13 @@ html, body {
   padding: 0;
   background: var(--bg-page);
   color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  /* GitHub 原栈（逐字照搬）：-apple-system → BlinkMacSystemFont → Segoe UI → Noto Sans →
+     Helvetica/Arial → sans-serif → emoji。注意：原栈不含中文字体，中文会落到浏览器默认字体（Windows 上可能是宋体）。 */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   font-size: 14px;
   line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
+  /* 字距放宽 .03em：中文在雅黑下偏挤显扁，统一放宽一档（局部若需更紧可自行覆盖） */
+  letter-spacing: .03em;
 }
 
 /* 数字读数等宽 */
@@ -87,6 +90,14 @@ label.field-label {
   box-shadow: inset 0 0 0 0.5px var(--color-primary), 0 0 0 3px var(--color-focus-ring);
 }
 
+/* 弹窗内多行文本框：高度随内容行数增长（base 高度由 rows 决定），超过上限后在框内滚动；
+   具体高度由 common.js 的 autoGrowTextareas 计算，单字段可用更具体的 max-height 覆盖上限 */
+.modal textarea {
+  resize: none;
+  overflow-y: auto;
+  max-height: min(300px, 42vh);
+}
+
 /* ---------- 标签（配色严格按设计稿） ---------- */
 .tag {
   display: inline-flex;
@@ -114,6 +125,10 @@ label.field-label {
 .tag-good { background: var(--tag-good-bg); color: var(--tag-good-fg); --tag-dot: var(--tag-good-dot); }
 .tag-average { background: var(--tag-average-bg); color: var(--tag-average-fg); --tag-dot: var(--tag-average-dot); }
 .tag-rest { background: var(--tag-rest-bg); color: var(--tag-rest-fg); --tag-dot: var(--tag-rest-dot); }
+
+/* 状态记录类型标签：食欲橙 / 炎症红（肌肉疼痛复用 tag-gray） */
+.tag-appetite { background: var(--tag-appetite-bg); color: var(--tag-appetite-fg); --tag-dot: var(--tag-appetite-dot); }
+.tag-inflam { background: var(--tag-inflam-bg); color: var(--tag-inflam-fg); --tag-dot: var(--tag-inflam-dot); }
 
 /* 阶段标签映射（设计稿：透明底 + 阶段色小方块 + 深灰文字） */
 .phase-menstrual { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-menses); }
@@ -284,6 +299,54 @@ table.tbl tbody tr:hover { background: var(--bg-section); }
 }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.error { background: var(--state-danger); }
+
+/* ---------- AI 导入（2026-11-10：文字 + 可选图片 → 结构化识别） ---------- */
+.ai-thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.ai-thumb {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+  background: var(--bg-section);
+}
+.ai-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ai-thumb .ai-thumb-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--color-on-dark);
+  background: rgba(0, 0, 0, .55);
+}
+.ai-warnings,
+.ai-payload { margin-top: 12px; font-size: 12.5px; color: var(--color-text-secondary); }
+.ai-block-title { margin-bottom: 4px; color: var(--color-text); }
+.ai-warnings ul { margin: 0; padding-left: 18px; }
+.ai-warnings li { line-height: 1.7; }
+.ai-payload summary { cursor: pointer; color: var(--color-text-secondary); }
+.ai-payload pre {
+  margin-top: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-section);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ai-meta { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+.ai-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.btn-sm { padding: 4px 10px; font-size: 12.5px; }
 
 /* ---------- 响应式微调 ---------- */
 @media (max-width: 640px) {

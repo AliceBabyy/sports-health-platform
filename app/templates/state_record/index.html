@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block title %}状态记录 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/state_record.css?v=20261111b">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/state_record.css?v=20261111f">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>状态记录</h1>
   <div class="page-desc">按天记录食欲、肌肉疼痛与炎症状况，结合生理周期阶段回看身体状态。</div>
 </div>
 
-<div class="two-col state-layout">
-  <!-- 左：月历 -->
-  <div class="card">
+<div class="three-row-stack state-layout">
+  <!-- 月历 -->
+  <div class="card cal-card">
     <div class="calendar-head">
       <div>
         <div class="calendar-title" id="calTitle">—</div>
@@ -33,15 +33,14 @@
     </div>
   </div>
 
-  <!-- 右：当日状态（三类就地填写，无弹窗） -->
+  <!-- 当日状态（三类就地填写，无弹窗） -->
   <div class="card day-detail">
     <div class="card-title"><span>当日状态</span></div>
     <div id="dayDetail"></div>
   </div>
-</div>
 
-<!-- 全部记录（整行置于最下方） -->
-<div class="card archive-card">
+  <!-- 全部记录（置于最下方） -->
+  <div class="card archive-card">
   <div class="card-title">
     <span>全部记录</span>
     <span class="archive-tools">
@@ -70,6 +69,7 @@
     </table>
   </div>
   <div id="recordPagination"></div>
+  </div>
 </div>
 
 <!-- 新增 / 编辑记录弹窗 -->
@@ -107,5 +107,5 @@ window.INIT_CAL = {{ calendar | tojson }};
 window.INIT_DAILY = {{ daily | tojson }};
 window.TODAY_STR = '{{ today_str }}';
 </script>
-<script src="/static/js/state_record.js?v=20261111b"></script>
+<script src="/static/js/state_record.js?v=20261111f"></script>
 {% endblock %}

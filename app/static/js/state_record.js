@@ -44,6 +44,13 @@
     return '<span class="dd-stars">' + html + '</span>';
   }
 
+  /* 内联描述框：高度随内容自适应，不出现滚动条（删字后缩回） */
+  function fitRemark(el) {
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+
   /* ---------- 月历 ---------- */
   function renderCalendar() {
     const cal = state.cal;
@@ -113,7 +120,9 @@
       const box = document.querySelector('[data-star-box="' + type + '"]');
       box.innerHTML = App.starWidgetHtml(rec ? (rec.star || 0) : 0);
       state.starGetters[type] = App.bindStars(box, rec ? (rec.star || 0) : 0);
-      document.querySelector('[data-remark="' + type + '"]').value = rec ? (rec.remark || '') : '';
+      const remarkEl = document.querySelector('[data-remark="' + type + '"]');
+      remarkEl.value = rec ? (rec.remark || '') : '';
+      fitRemark(remarkEl);
     });
   }
 
@@ -263,12 +272,22 @@
     openForm(JSON.parse(btn.dataset.row));
   });
 
-  /* 右栏内联表单：保存 / 删除 */
+  /* 内联表单：保存 / 删除 */
   document.getElementById('dayDetail').addEventListener('click', function (e) {
     const saveBtn = e.target.closest('[data-save]');
     if (saveBtn) { saveInline(saveBtn.dataset.save); return; }
     const delBtn = e.target.closest('[data-del]');
     if (delBtn) delInline(delBtn.dataset.del);
+  });
+
+  /* 描述框输入时随内容自适应增高；中文输入法组字结束后补一次 */
+  document.getElementById('dayDetail').addEventListener('input', function (e) {
+    const el = e.target.closest('.dd-remark');
+    if (el && !e.isComposing) fitRemark(el);
+  });
+  document.getElementById('dayDetail').addEventListener('compositionend', function (e) {
+    const el = e.target.closest('.dd-remark');
+    if (el) fitRemark(el);
   });
 
   /* ---------- 详情弹窗（复用 base.html 通用 #modalDetail） ---------- */

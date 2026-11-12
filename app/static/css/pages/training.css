@@ -39,7 +39,7 @@
 .plan-actions { display: flex; gap: 6px; align-items: center; }
 .plan-actions .btn { padding: 2px 10px; font-size: 12px; }
 
-/* 训练概览（纳入当日训练卡片底部，2026-11-03） / 周期联动 */
+/* 训练概览（纳入当日训练卡片底部，2026-11-03） */
 .day-ov { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 14px; }
 .day-ov-title { font-size: 13px; margin-bottom: 10px; }
 .day-ov-title .sub { font-size: 12px; color: var(--color-text-secondary); }

@@ -81,6 +81,25 @@ def test_update_record(db):
     assert missing is None
 
 
+def test_star_zero_is_lowest_score_and_persists(db):
+    row = service.create_record(db, U1, _payload("2026-11-10", "appetite", 0, "几乎没胃口"))
+    assert row["star"] == 0  # 0 为明确最低分，不得被当成未评
+
+    day = service.get_by_date(db, U1, date(2026, 11, 10))
+    assert day["appetite"]["star"] == 0
+
+    updated = service.update_record(db, U1, row["id"], _payload("2026-11-10", "appetite", 0, "仍很差"))
+    assert updated["star"] == 0
+
+
+def test_star_out_of_range_rejected():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        _payload("2026-11-10", "appetite", 6)
+    with pytest.raises(ValidationError):
+        _payload("2026-11-10", "appetite", -1)
+
+
 def test_delete_record(db):
     row = service.create_record(db, U1, _payload("2026-11-10", "appetite", 3))
     assert service.delete_record(db, U1, "appetite", row["id"]) is True

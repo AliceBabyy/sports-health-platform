@@ -86,7 +86,16 @@
 
 /* 就地填写表单 */
 .dd-inline { display: flex; flex-direction: column; gap: 8px; }
-.dd-star-row { display: flex; align-items: center; }
+.dd-star-row { display: flex; align-items: center; gap: 8px; }
+/* 0 分按钮：与五星同行，激活态用星级色描边 */
+.star-zero {
+  width: 26px; height: 24px; padding: 0; font-size: 12px; line-height: 1;
+  border: 1px solid var(--color-border-strong); border-radius: 6px;
+  background: var(--bg-card); color: var(--color-text-secondary); cursor: pointer;
+}
+.star-zero.active { border-color: var(--color-star); color: var(--color-star); font-weight: 600; }
+.star-value { font-size: 12px; color: var(--color-text-tertiary); }
+.star-zero-tag { margin-left: 6px; font-size: 11.5px; color: var(--color-text-tertiary); }
 .dd-remark { resize: none; overflow-y: hidden; min-height: 38px; font-size: 13px; line-height: 1.6; padding: 7px 10px; }
 .dd-actions { display: flex; justify-content: flex-end; }
 .dd-del { color: var(--color-text-tertiary); }

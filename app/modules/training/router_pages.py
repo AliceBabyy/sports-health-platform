@@ -11,7 +11,6 @@ from app.core.constants import today_local
 from app.core.deps import get_current_user
 from app.core.templating import WEEKDAY_CN, render_page
 from app.modules.auth.models import User
-from app.modules.cycle.service import build_cycle_link
 from app.modules.training import service as training_service
 from database import get_db
 
@@ -28,7 +27,6 @@ def training_page(
     today = today_local()
     selected = day or today
     selected_plans = training_service.get_plans_by_date(db, user.id, selected)
-    cycle_link = build_cycle_link(user)
     return render_page(
         request,
         "training/index.html",
@@ -42,7 +40,6 @@ def training_page(
             "prev_date": (selected - timedelta(days=1)).isoformat(),
             "next_date": (selected + timedelta(days=1)).isoformat(),
             "today_plans": [training_service.plan_to_dict(p) for p in selected_plans],
-            "cycle_link": cycle_link,
             "stats": training_service.stats(db, user.id),
         },
     )

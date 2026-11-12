@@ -25,8 +25,8 @@
     filterType: '',
     checked: {},   // key = id:type → {id, type}
     editingId: null,
-    starGetter: null,
-    starGetters: {}, // 右栏内联表单：type → 星级 getter
+    formStar: null,  // 弹窗表单当前星级：null=未评，0=最低分，1~5
+    starCur: {},     // 内联表单：type → null | 0 | 1~5
   };
 
   function monthStr(year, month) { return year + '-' + String(month).padStart(2, '0'); }
@@ -34,14 +34,15 @@
   function addMonths(s, n) { const d = dateOf(s + '-01'); d.setMonth(d.getMonth() + n); return monthStr(d.getFullYear(), d.getMonth() + 1); }
   function esc(s) { return App.escapeHtml(s == null ? '' : s); }
 
-  /* ---------- 星级展示（静态，可空显示 —） ---------- */
+  /* ---------- 星级展示（静态；null=未评显示 —，0=最低分标注 0 分） ---------- */
   function starHtml(star) {
     if (star == null) return '<span class="dd-empty">—</span>';
     let html = '';
     for (let i = 1; i <= 5; i++) {
       html += '<span class="' + (i <= star ? 'on' : 'off') + '">' + (i <= star ? '★' : '☆') + '</span>';
     }
-    return '<span class="dd-stars">' + html + '</span>';
+    const zeroTag = star === 0 ? '<span class="star-zero-tag">0 分</span>' : '';
+    return '<span class="dd-stars">' + html + '</span>' + zeroTag;
   }
 
   /* 内联描述框：高度随内容自适应，不出现滚动条（删字后缩回） */
@@ -113,26 +114,44 @@
 
     document.getElementById('dayDetail').innerHTML = html;
 
-    // 回填当日已有记录，并绑定各块星级
-    state.starGetters = {};
+    // 回填当日已有记录；星级三态：null=未评，0=最低分，1~5
+    state.starCur = {};
     ['appetite', 'myalgia', 'inflammation'].forEach(function (type) {
       const rec = state.daily[type];
+      const cur = rec ? rec.star : null;
+      state.starCur[type] = cur;
       const box = document.querySelector('[data-star-box="' + type + '"]');
-      box.innerHTML = App.starWidgetHtml(rec ? (rec.star || 0) : 0);
-      state.starGetters[type] = App.bindStars(box, rec ? (rec.star || 0) : 0);
+      box.innerHTML = App.starWidgetHtml(cur || 0) +
+        '<button type="button" class="star-zero" data-zero="' + type + '" title="记为最低分">0</button>' +
+        '<span class="star-value" data-star-value="' + type + '"></span>';
+      paintInline(type);
       const remarkEl = document.querySelector('[data-remark="' + type + '"]');
       remarkEl.value = rec ? (rec.remark || '') : '';
       fitRemark(remarkEl);
     });
   }
 
-  /* 右栏就地保存：有记录走 PUT，无记录走 POST */
+  /* 内联块星级绘制：星高亮 / 0 按钮激活 / 分值标签 */
+  function paintInline(type) {
+    const cur = state.starCur[type];
+    const box = document.querySelector('[data-star-box="' + type + '"]');
+    if (!box) return;
+    box.querySelectorAll('.sw-star').forEach(function (s) {
+      s.classList.toggle('on', cur != null && parseInt(s.dataset.v, 10) <= cur);
+    });
+    const zeroBtn = box.querySelector('[data-zero]');
+    if (zeroBtn) zeroBtn.classList.toggle('active', cur === 0);
+    const val = box.querySelector('[data-star-value]');
+    if (val) val.textContent = cur === 0 ? '0 分' : '';
+  }
+
+  /* 就地保存：有记录走 PUT，无记录走 POST；star 为 null=未评、0=最低分 */
   function saveInline(type) {
     const rec = state.daily[type];
-    const star = state.starGetters[type]();
+    const star = state.starCur[type];
     const remark = (document.querySelector('[data-remark="' + type + '"]').value || '').trim() || null;
-    if (!star && !remark) { App.toast('请先选择星级或填写描述', true); return; }
-    const payload = { date: state.selected, type: type, star: star || null, remark: remark };
+    if (star == null && !remark) { App.toast('请先选择星级或填写描述', true); return; }
+    const payload = { date: state.selected, type: type, star: star, remark: remark };
     const req = rec
       ? App.api('/api/state-record/' + rec.id, { method: 'PUT', body: payload })
       : App.api('/api/state-record', { method: 'POST', body: payload });
@@ -272,8 +291,21 @@
     openForm(JSON.parse(btn.dataset.row));
   });
 
-  /* 内联表单：保存 / 删除 */
+  /* 内联表单：星级 / 0 分 / 保存 / 删除 */
   document.getElementById('dayDetail').addEventListener('click', function (e) {
+    const starEl = e.target.closest('.sw-star');
+    if (starEl) {
+      const type = starEl.closest('.dd-block').dataset.type;
+      state.starCur[type] = parseInt(starEl.dataset.v, 10);
+      paintInline(type);
+      return;
+    }
+    const zeroBtn = e.target.closest('[data-zero]');
+    if (zeroBtn) {
+      state.starCur[zeroBtn.dataset.zero] = 0;
+      paintInline(zeroBtn.dataset.zero);
+      return;
+    }
     const saveBtn = e.target.closest('[data-save]');
     if (saveBtn) { saveInline(saveBtn.dataset.save); return; }
     const delBtn = e.target.closest('[data-del]');
@@ -299,10 +331,23 @@
       '<div class="dl-grid">' +
       '<div class="dl-item"><span class="dl-label">日期</span><span class="dl-value num">' + esc(r.date) + '</span></div>' +
       '<div class="dl-item"><span class="dl-label">类型</span><span class="dl-value">' + esc(r.type_label) + '</span></div>' +
-      '<div class="dl-item"><span class="dl-label">星级</span><span class="dl-value">' + (r.star != null ? '★'.repeat(r.star) + '☆'.repeat(5 - r.star) : '—') + '</span></div>' +
+      '<div class="dl-item"><span class="dl-label">星级</span><span class="dl-value">' + (r.star == null ? '—' : (r.star === 0 ? '☆☆☆☆☆ 0 分' : '★'.repeat(r.star) + '☆'.repeat(5 - r.star))) + '</span></div>' +
       '</div>' +
       '<div class="dl-remark">' + esc(r.remark || '—') + '</div>';
     App.openModal('modalDetail');
+  }
+
+  /* 弹窗表单星级绘制：null=未评，0=最低分，1~5 */
+  function paintFormStars() {
+    const cur = state.formStar;
+    const box = document.getElementById('formStars');
+    box.querySelectorAll('.sw-star').forEach(function (s) {
+      s.classList.toggle('on', cur != null && parseInt(s.dataset.v, 10) <= cur);
+    });
+    const zeroBtn = box.querySelector('[data-form-zero]');
+    if (zeroBtn) zeroBtn.classList.toggle('active', cur === 0);
+    const val = box.querySelector('#formStarValue');
+    if (val) val.textContent = cur === 0 ? '0 分' : '';
   }
 
   /* ---------- 新增 / 编辑弹窗 ---------- */
@@ -317,16 +362,25 @@
     form.elements.type.disabled = !!row;
     form.elements.remark.value = row ? (row.remark || '') : '';
     document.getElementById('recordModalTitle').textContent = row ? '编辑状态记录' : '新增状态记录';
+    state.formStar = row ? row.star : null;
     const box = document.getElementById('formStars');
-    box.innerHTML = App.starWidgetHtml(row ? (row.star || 0) : 0);
-    state.starGetter = App.bindStars(box, row ? (row.star || 0) : 0);
+    box.innerHTML = App.starWidgetHtml(state.formStar || 0) +
+      '<button type="button" class="star-zero" data-form-zero title="记为最低分">0</button>' +
+      '<span class="star-value" id="formStarValue"></span>';
+    paintFormStars();
     App.openModal('modalRecord');
   }
+
+  document.getElementById('formStars').addEventListener('click', function (e) {
+    const s = e.target.closest('.sw-star');
+    if (s) { state.formStar = parseInt(s.dataset.v, 10); paintFormStars(); return; }
+    if (e.target.closest('[data-form-zero]')) { state.formStar = 0; paintFormStars(); }
+  });
 
   document.getElementById('formRecord').addEventListener('submit', function (e) {
     e.preventDefault();
     const form = e.target;
-    const star = state.starGetter && state.starGetter() > 0 ? state.starGetter() : null;
+    const star = state.formStar;  // null=未评，0=最低分，1~5
     const payload = {
       date: form.elements.date.value,
       type: form.elements.type.value,

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # 2026-11 状态记录迁移（幂等，可重复执行）：
 # 新建 appetite_record / myalgia_record / inflammation_record 三张按天记录表。
-# 统一字段：id / user_id（FK 级联）/ date（同类一天一行）/ star（1~5 可空）/ remark（可空）/
+# 统一字段：id / user_id（FK 级联）/ date（同类一天一行）/ star（0~5 可空；0=最低分，null=未评）/ remark（可空）/
 #           created_at / updated_at；不套运动记录契约（无计划态、起止时间、心率、热量等）。
 import os
 import sys
@@ -40,7 +40,7 @@ def _create_table(cur, table: str, unique: str, idx: str, comment: str) -> None:
     cur.execute(f'COMMENT ON COLUMN "{table}".id IS %s', ("主键",))
     cur.execute(f'COMMENT ON COLUMN "{table}".user_id IS %s', ("用户 FK，删除账号时级联删除",))
     cur.execute(f'COMMENT ON COLUMN "{table}".date IS %s', ("记录日期（同类一天一行）",))
-    cur.execute(f'COMMENT ON COLUMN "{table}".star IS %s', ("星级 1~5，可空",))
+    cur.execute(f'COMMENT ON COLUMN "{table}".star IS %s', ("星级 0~5，可空；0=最低分，null=未评",))
     cur.execute(f'COMMENT ON COLUMN "{table}".remark IS %s', ("描述",))
     cur.execute(f'COMMENT ON COLUMN "{table}".created_at IS %s', ("创建时间",))
     cur.execute(f'COMMENT ON COLUMN "{table}".updated_at IS %s', ("更新时间（ORM onupdate 自动刷新）",))

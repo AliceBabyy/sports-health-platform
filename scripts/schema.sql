@@ -338,7 +338,7 @@ COMMENT ON TABLE appetite_record IS '食欲状态记录（按天，每类每天�
 COMMENT ON COLUMN appetite_record.id IS '主键';
 COMMENT ON COLUMN appetite_record.user_id IS '用户 FK，删除账号时级联删除';
 COMMENT ON COLUMN appetite_record.date IS '记录日期（同类一天一行）';
-COMMENT ON COLUMN appetite_record.star IS '星级 1~5，可空';
+COMMENT ON COLUMN appetite_record.star IS '星级 0~5，可空；0=最低分，null=未评';
 COMMENT ON COLUMN appetite_record.remark IS '描述';
 COMMENT ON COLUMN appetite_record.created_at IS '创建时间';
 COMMENT ON COLUMN appetite_record.updated_at IS '更新时间（ORM onupdate 自动刷新）';
@@ -347,7 +347,7 @@ COMMENT ON TABLE myalgia_record IS '肌肉疼痛状态记录（按天，每类�
 COMMENT ON COLUMN myalgia_record.id IS '主键';
 COMMENT ON COLUMN myalgia_record.user_id IS '用户 FK，删除账号时级联删除';
 COMMENT ON COLUMN myalgia_record.date IS '记录日期（同类一天一行）';
-COMMENT ON COLUMN myalgia_record.star IS '星级 1~5，可空';
+COMMENT ON COLUMN myalgia_record.star IS '星级 0~5，可空；0=最低分，null=未评';
 COMMENT ON COLUMN myalgia_record.remark IS '描述';
 COMMENT ON COLUMN myalgia_record.created_at IS '创建时间';
 COMMENT ON COLUMN myalgia_record.updated_at IS '更新时间（ORM onupdate 自动刷新）';
@@ -356,7 +356,7 @@ COMMENT ON TABLE inflammation_record IS '炎症状态记录（按天，每类每
 COMMENT ON COLUMN inflammation_record.id IS '主键';
 COMMENT ON COLUMN inflammation_record.user_id IS '用户 FK，删除账号时级联删除';
 COMMENT ON COLUMN inflammation_record.date IS '记录日期（同类一天一行）';
-COMMENT ON COLUMN inflammation_record.star IS '星级 1~5，可空';
+COMMENT ON COLUMN inflammation_record.star IS '星级 0~5，可空；0=最低分，null=未评';
 COMMENT ON COLUMN inflammation_record.remark IS '描述';
 COMMENT ON COLUMN inflammation_record.created_at IS '创建时间';
 COMMENT ON COLUMN inflammation_record.updated_at IS '更新时间（ORM onupdate 自动刷新）';

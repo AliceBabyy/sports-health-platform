@@ -11,7 +11,6 @@ from app.core.constants import today_local
 from app.core.deps import get_current_user
 from app.core.templating import WEEKDAY_CN, render_page
 from app.modules.auth.models import User
-from app.modules.cycle.service import build_cycle_link
 from app.modules.dance import service
 from database import get_db
 
@@ -33,7 +32,6 @@ def dance_page(
         {
             "active": "dance",
             "stats": stats,
-            "cycle_link": build_cycle_link(user, "dance"),
             "selected_date": selected.isoformat(),
             "selected_date_str": selected.strftime("%m月%d日"),
             "selected_weekday": WEEKDAY_CN[selected.weekday()],

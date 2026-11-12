@@ -15,7 +15,6 @@
   </div>
 </div>
 
-<div class="two-col">
 <div class="three-row-stack">
 <div class="card swim-page daily-card">
   <div class="day-head">
@@ -65,20 +64,6 @@
   <div id="swimPagination"></div>
 </div>
 </div><!-- /.three-row-stack -->
-
-<div>
-  {% if cycle_link %}
-  <div class="card cycle-card">
-    <div class="card-title">周期联动 <span class="tag tag-{{ cycle_link.sport_level }}">{{ cycle_link.sport_label }}</span></div>
-    <div style="color:var(--color-text-secondary);font-size:12px;margin-top:2px">今日为{{ cycle_link.phase_label }} · 结合今日生理周期给到的强度建议</div>
-    <div class="cc-advice">{{ cycle_link.advice or '暂无周期数据，按常规强度安排。' }}</div>
-    <div class="cycle-chips">
-      {% for c in cycle_link.chips %}<span class="cycle-chip">{{ c }}</span>{% endfor %}
-    </div>
-  </div>
-  {% endif %}
-</div>
-</div><!-- /.two-col -->
 
 <!-- 新增/编辑游泳记录/计划弹窗（入口即定状态：新增记录 / 新建计划；无弹窗内切换） -->
 <div class="modal-mask" id="modalSwim">

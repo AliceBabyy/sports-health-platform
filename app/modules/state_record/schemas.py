@@ -8,11 +8,11 @@ from app.modules.state_record.models import STATE_TYPES
 
 
 class StateRecordIn(BaseModel):
-    """新增 / 编辑入参：type 定位落在哪张表；star 可空（null 表示未评星）。"""
+    """新增 / 编辑入参：type 定位落在哪张表；star 取值 0~5，可空（null 表示未评星，0 为明确最低分）。"""
 
     date: date
     type: Literal[tuple(STATE_TYPES)]  # type: ignore[valid-type]
-    star: int | None = Field(default=None, ge=1, le=5)
+    star: int | None = Field(default=None, ge=0, le=5)
     remark: str | None = Field(default=None, max_length=255)
 
 

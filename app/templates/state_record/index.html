@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}状态记录 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/state_record.css?v=20261111f">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/state_record.css?v=20261111g">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>状态记录</h1>
@@ -107,5 +107,5 @@ window.INIT_CAL = {{ calendar | tojson }};
 window.INIT_DAILY = {{ daily | tojson }};
 window.TODAY_STR = '{{ today_str }}';
 </script>
-<script src="/static/js/state_record.js?v=20261111f"></script>
+<script src="/static/js/state_record.js?v=20261111g"></script>
 {% endblock %}

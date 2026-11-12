@@ -1,7 +1,7 @@
 """状态记录三表：食欲 / 肌肉疼痛 / 炎症（按天记录，每类每天一行）。
 
 本模块不是运动模块，不套用 SportRecordMixin（无计划态、起止时间、心率、热量等字段）；
-统一字段：id / user_id / date / star（1~5，可空）/ remark（可空）/ created_at / updated_at。
+统一字段：id / user_id / date / star（0~5，可空；0=明确最低分，null=未评）/ remark（可空）/ created_at / updated_at。
 """
 from datetime import date, datetime
 
@@ -32,7 +32,7 @@ class _StateRecordMixin:
         comment="用户 FK，删除账号时级联删除",
     )
     date: Mapped[date] = mapped_column(Date, nullable=False, comment="记录日期（同类一天一行）")
-    star: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, comment="星级 1~5，可空")
+    star: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, comment="星级 0~5，可空；0=最低分，null=未评")
     remark: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="描述")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(

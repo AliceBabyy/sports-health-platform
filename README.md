@@ -2,6 +2,13 @@
 
 ## V2.0 AI 基础骨架
 
+V2 路线以项目根 `AIplan.md` 为准。已完成模型骨架、三运动的一次性 AI 导入，
+以及 **V2.2 基础问答**：独立模块 `app/modules/agent/`，页面 `/agent`、API
+`/api/agent`，基于 LangGraph `StateGraph` + `AsyncPostgresSaver` checkpointer，
+支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久化、登录用户隔离；本版不读取
+运动业务数据。后续依次建设真实数据只读工具与查询意图判断（V2.3）、Skill 管理
+（V2.4）、LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6），这些尚未实现。
+
 AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 `deepseek-v4.1-flash`、`qwen3.8-flash`、`qwen3.8-2.4t-a95b`、`qwen3-vl-plus`。
 四个模型共用 `AI_API_KEY` 和 `AI_BASE_URL`，默认模型由
@@ -13,7 +20,8 @@ AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 `app/ai/runtime/` 管调用和结构化校验，`app/ai/tools/` 预留领域工具适配。
 受登录保护的 `GET /api/electronic-trainer/models` 返回已注册模型；
 `POST /api/electronic-trainer/probe` 接收 `{"model": "...", "text": "..."}`
-并验证结构化输出。该接口仅用于 V2.0 连接验证，不读取运动数据，也不写库。
+并验证结构化输出。这两个旧命名接口仅用于 V2.0 连接验证，
+不读取运动数据，也不写库；不作为未来 Agent 主功能的路由约定。
 视觉能力只对 `qwen3-vl-plus` 声明（2026-11-10 实测通过），工具调用仍不声明。
 
 **AI 导入（2026-11-10）**：健身、游泳、舞蹈三页顶部均有「✦ AI 导入」入口。
@@ -27,7 +35,16 @@ AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 结果就地展示，可「撤销本次导入」（批量删除本次新建记录），校验失败时可一键回填到
 JSON 面板手动修正。
 
-安装依赖：`uv sync --extra dev`。本版未新增页面或数据表。
+**V2.2 基础问答（2026-11-12）**：侧栏末项「AI助手」进入 `/agent`。会话元数据存
+`agent_conversations` 表（用户归属、标题、uuid `thread_id`、模型、`last_message_at`）；
+消息不建消息表，由 checkpointer 在独立 `langgraph` schema 的框架表（checkpoints /
+checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用启动 lifespan
+建池并 `setup()`，按 `thread_id` 自动重放。回复走 SSE 流式（`start/delta/done/error`），
+前端 `fetch` + `ReadableStream` 解析；`trim_messages` 用 approximate 字符预算裁剪上下文；
+会话硬删除、历史永久保留、首条消息前 12 字自动标题、会话级模型下拉。checkpointer 用
+psycopg3 异步，ORM 仍用 psycopg2；Windows 下启动前切换 `WindowsSelectorEventLoopPolicy`。
+
+安装依赖：`uv sync --extra dev`。
 
 SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **8010**（避开 8000）。
 
@@ -107,8 +124,11 @@ SECRET_KEY=<随机生成，勿提交仓库>
 
 ### 4. 启动
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8010
+.\.venv\Scripts\python.exe main.py
 ```
+
+> Windows 下 psycopg3 异步要求 SelectorEventLoop，直接用 `python -m uvicorn main:app`
+> 会在导入前用 ProactorEventLoop 建 loop 导致启动失败；`main.py` 已内置显式 selector loop。
 
 浏览器打开 http://127.0.0.1:8010，使用 **admin / admin123** 登录；或点击登录页下方
 「注册新账号」自助注册（用户名/密码 + 昵称/性别/年龄；身高稍后在「身材数据」中记录）。
@@ -141,7 +161,8 @@ sports-health-platform/
 │  │  ├─ overview/         # 运动训练/计划总览：日/周/月聚合 + 单日详情（2026-11 新增）
 │  │  ├─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 + 运动等级
 │  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症三表按天记录 + 月历阶段归并 + 跨表批量删除
-│  │  └─ profile/          # 个人信息：基本资料（昵称/性别/年龄）+ 修改密码（复用 users 表）
+│  │  ├─ profile/          # 个人信息：基本资料（昵称/性别/年龄）+ 修改密码（复用 users 表）
+│  │  └─ agent/            # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE（页面 /agent）
 │  ├─ templates/           # Jinja2（base/侧栏/七模块页面 + auth/register + profile）
 │  ├─ static/              # css / js / vendor(echarts) / img
 ├─ scripts/
@@ -169,13 +190,13 @@ sports-health-platform/
 - 新运动模块的统一必填项：计划态和记录态均需日期；其他必填业务字段及默认展示以 `ARCHITECTURE.md` 的需求确认清单为准，现有三模块规则不直接套用于新模块。
 - 三运动页共用可收缩双栏；表格宽于卡片时只在表格区域横向滚动，健身动作表和编辑弹窗的动作字段同样如此。
 - 弹窗填写框（2026-11-10 统一）：所有弹窗内的多行文本框随内容行数自动增高，初始高度由 `rows` 决定，长到 `min(300px, 42vh)` 后在框内滚动；删空内容会缩回初始高度。实现见 `app/static/js/common.js` 的 `autoGrowTextareas` 与 `app/static/css/base.css` 的 `.modal textarea`。
-- 七阶段：经期 N≤period_length；排卵日 N=cycle_length-14；排卵后 1~2 天排卵后期、3~6 黄体前期、7~10 黄体中期、11 起黄体后期；其余排卵期前期（默认 28/5）
-- 运动四档：排卵期前期/排卵日/后期为精力旺盛；黄体前期及黄体中期前 2 天为状态良好；黄体中期余下日期及黄体后期前 2 天为状态一般；黄体后期余下日期及经期前 3 天为适合休息；经期第 4 天状态一般、第 5 天起状态良好。疼痛 ≥2 优先覆盖为适合休息
-- 训练状态机：planned → recorded 由「完成训练」一键完成；起止时间统一 `start_time/end_time`，计划态与记录态均可填、可空，未手填时长时由起止时间推导；历史记录可编辑和删除；**三处导入（Excel/JSON/AI）未填结束时间时保持为空、不补当前时刻**（2026-11-10），页面显示「—」
-- 时间与时长展示口径（2026-11-07 统一）：三运动表单计划态同样展示起止时段与时长（可空）；Excel 模板与 JSON 导入同样带开始/结束时间（可空，未填时长按起止推导）；列表与详情不按状态隐藏，有值显示、无值 `—`；总览日卡计划态时长按 0 计；舞蹈时间字段统一显示为「上课时间」
-- 周期锚点：逐日取当日之前最近一次真实月经首日；无记录时以今天为默认锚点，锚点前不推算；下次月经按周期长度滚动预测到今天之后
-- 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录并填写结束日；四档疼痛独立记录，保存后同步刷新运动等级；未有真实记录时不向运动模块提供周期建议
-- 经期标注（2026-11-11）：月历中落在月经记录窗口内的日期标「经期」（有结束日按结束日，无结束日按经期长度从首日推导）；今天及以后由推算得出来、尚未记录的经期日标「预测经期」，两者不再共用同一标签
+- 七阶段（2026-11-12 分段推算）：月经记录只存起止日期——经期长度 = 结束日 − 开始日 + 1（未填结束日为 null），周期长度 = 下一条记录开始日 − 本条开始日（无下一条为 null），两个值均实时派生、不落库；阶段以「段」为唯一计算单元，段内排卵日 = 段长 − 14（黄体固定 14 天），卵泡期随段长伸缩；排卵后 1~2 天排卵后期、3~6 天黄体前期、7~10 天黄体中期、11~14 天黄体后期
+- 运动四档：排卵期前期/排卵日/排卵后期为精力旺盛；黄体前期及黄体中期前 2 天为状态良好；黄体中期余下日期及黄体后期前 2 天为状态一般；黄体后期余下日期及经期前 3 天为适合休息；经期第 4 天状态一般、第 5 天起状态良好。疼痛 ≥2 优先覆盖为适合休息
+- 段长规则：相邻首日间隔 < max(22, 参考周期 + 15) 拒绝保存并提示疑似同一次月经；22~45 天为真实段；46~90 天判为漏记，按参考周期等分成 k 段补推（k 取使每段最接近参考周期且落在技术下限~45，余数摊到前面几段）；>90 天不补推，两段之间留白并提示漏记超过 3 个月
+- 预测边界：只推最新记录后的当前段与一个预测段，再往后留白；最新段逾期 7 天内仍标「预测经期」，超过 7 天转「未推算 + 建议补录」；0 条记录完全不推，1 条记录按参考值铺当前段 + 预测段
+- 周期参考值：`cycle_settings` 单行，只用于当前段、预测段、补推段和未填结束日的记录；参考周期 22~45（默认 28）、参考经期 2~8（默认 5），且需满足 经期 + 15 ≤ 参考周期；页面「周期参数」按钮单独修改，记录变动不再改写它
+- 经期三态：recorded 经期（真实记录窗口）、inferred 推算经期（漏记补推段）、predicted 预测经期（未来段），月历以边框样式区分，详情注明「本段无记录，阶段按参考周期推算」
+- 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录（表单只收起止日期）；四档疼痛独立记录，保存后同步刷新运动等级；侧栏「今日」小卡保留，今天无段显示「未推算」；三运动页周期联动已移除
 - 字体与渲染（2026-11-11）：全局字体逐字照搬 GitHub 原栈（`-apple-system → Segoe UI → Noto Sans → Helvetica/Arial → sans-serif → emoji`），中文走系统默认兜底（本机实测即微软雅黑，与显式雅黑差约 1.5%）；全局 `letter-spacing: .03em` 放宽字距（中文在雅黑下偏挤显扁）；同时不使用 `-webkit-font-smoothing: antialiased`，避免 Windows 关闭 ClearType 导致小字发虚
 - 周期配色：日历格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；阶段保留文字标签，图例与详情使用同一状态配色；窄屏月历保留两字状态名（旺盛/良好/一般/休息）；四档底色（2026-11-11）统一向白混合 50% 再浅一档，圆点与文字深阶保持不变
 - 心得（三表均 1:1 挂记录、仅记录态可填）：共有 `rating/notes`，健身另有 `best_movement/next_steps`，游泳另有 `stroke_insight`，舞蹈另有 `video_effect`；页面字段称呼维持现状

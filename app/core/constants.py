@@ -87,8 +87,26 @@ SWIM_STROKE_LABELS = {
 # ---------- 生理周期（MC） ----------
 DEFAULT_CYCLE_LENGTH = 28
 DEFAULT_PERIOD_LENGTH = 5
-# 排卵日 = 周期长度 - 该偏移（需求 7.2：N = 周期长度 - 14）
+# 排卵日 = 段长 - 该偏移（黄体期固定 14 天，锚定下一次月经首日）
 OVULATION_OFFSET = 14
+# cycle_settings 仅作参考值：用于当前段、预测段与补推段，不参与真实段推算
+REFERENCE_CYCLE_MIN = 22
+REFERENCE_CYCLE_MAX = 45
+REFERENCE_PERIOD_MIN = 2
+REFERENCE_PERIOD_MAX = 8
+# 段长约束：段长 = 相邻两次月经首日间隔（真实段）。
+# 下限另受「经期天数 + OVULATION_OFFSET + 1」约束，保证排卵日不落进经期。
+MIN_SEGMENT_DAYS = 22
+MAX_SEGMENT_DAYS = 45
+# 超过 3 个月（90 天）没有记录则不补推
+GAP_INFER_MAX_DAYS = 90
+# 预测起点逾期宽限：超过该天数转「未推算」，提示补录
+PREDICT_GRACE_DAYS = 7
+# 段来源：真实记录 / 漏记补推 / 最新记录后的当前段 / 下一个预测段
+SEGMENT_RECORDED = "recorded"
+SEGMENT_INFERRED = "inferred"
+SEGMENT_CURRENT = "current"
+SEGMENT_PREDICTED = "predicted"
 # 排卵后区间：前/后期、黄体前/中/后期天数区间（排卵后第 N 天）
 OVULATION_POST_PRE = 1  # 排卵期后期：排卵后 1~2 天
 OVULATION_POST_POST = 2
@@ -121,50 +139,52 @@ PHASE_LABELS = {
     PHASE_LUTEAL_MID: "黄体期中期",
     PHASE_LUTEAL_LATE: "黄体期后期",
 }
-# 阶段说明总表（MC-13）：周期区间 / 激素特征 / 运动建议。
+# 阶段说明总表（MC-13）：段内相对区间 / 激素特征 / 运动建议。段长随记录变化，不写死绝对天数。
 PHASE_INFO = {
     PHASE_MENSTRUAL: {
-        "range": "第1~5天",
+        "range": "经期第1天起",
         "hormone": "雌激素、孕激素双低，前列腺素升高",
         "advice": "体温偏低，铁流失增加。以下肢拉伸、呼吸训练替代下肢大重量。",
     },
     PHASE_FOLLICULAR_PRE: {
-        "range": "第6~13天",
+        "range": "经期结束后 ~ 排卵前",
         "hormone": "雌激素快速上升，FSH促进卵泡成熟",
         "advice": "力量耐受度上升，适合把深蹲、硬拉等大重量安排在这周。",
     },
     PHASE_OVULATION_DAY: {
-        "range": "第14天",
+        "range": "排卵日（下一经期前14天）",
         "hormone": "LH峰值，雌激素达到顶点，基础体温将回升",
         "advice": "周期中运动表现峰值，可安排PR冲刺或高强度间歇。",
     },
     PHASE_FOLLICULAR_POST: {
-        "range": "第15~16天",
+        "range": "排卵后1~2天",
         "hormone": "LH峰值附近，雌激素维持高位",
         "advice": "爆发力最佳但韧带松弛度升高，注意落地缓冲与膝踝稳定。",
     },
     PHASE_LUTEAL_EARLY: {
-        "range": "第17~20天",
+        "range": "排卵后3~6天",
         "hormone": "孕激素上升，基础体温升高0.3-0.5℃",
         "advice": "心率与体温偏高，同等强度下RPE更高，适当降5-10%负荷。",
     },
     PHASE_LUTEAL_MID: {
-        "range": "第21~24天",
+        "range": "排卵后7~10天",
         "hormone": "孕激素达峰，血清素下降",
         "advice": "易出现水肿与食欲波动，训练以中等强度稳态有氧为主。",
     },
     PHASE_LUTEAL_LATE: {
-        "range": "第25~28天",
+        "range": "排卵后11~14天",
         "hormone": "雌孕激素同步回落，前列腺素开始升高",
         "advice": "PMS高发窗口，改为瑜伽、游泳或散步，保证睡眠优先。",
     },
 }
 # 经期状态（月历标注口径）：
-# recorded=落在真实月经记录覆盖的日期内；predicted=今天及以后由推算得出、尚未记录的经期。
+# recorded=真实记录窗口内；inferred=过去漏记段按参考值补推出的经期；predicted=未来预测段经期。
 PERIOD_STATE_RECORDED = "recorded"
+PERIOD_STATE_INFERRED = "inferred"
 PERIOD_STATE_PREDICTED = "predicted"
 PERIOD_STATE_LABELS = {
     PERIOD_STATE_RECORDED: "经期",
+    PERIOD_STATE_INFERRED: "推算经期",
     PERIOD_STATE_PREDICTED: "预测经期",
 }
 

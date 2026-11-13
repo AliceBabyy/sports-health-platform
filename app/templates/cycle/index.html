@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block title %}生理周期 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css?v=20261111b">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css?v=20261112a">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>生理周期</h1>
   <div class="page-head-actions">
+    <button class="btn" id="btnCycleSettings">周期参数</button>
     <button class="btn btn-primary" id="btnRecordPeriod">＋ 记录月经</button>
   </div>
 </div>
@@ -34,6 +35,11 @@
         <span class="legend-block"><span class="swatch sw-average"></span>状态一般</span>
         <span class="legend-block"><span class="swatch sw-rest"></span>适合休息</span>
       </div>
+      <div class="legend legend-period">
+        <span class="legend-block"><span class="swatch sw-period-recorded"></span>经期</span>
+        <span class="legend-block"><span class="swatch sw-period-inferred"></span>推算经期</span>
+        <span class="legend-block"><span class="swatch sw-period-predicted"></span>预测经期</span>
+      </div>
     </div>
 
     <div class="card">
@@ -55,10 +61,7 @@
       <div class="form-grid">
         <div class="form-item"><label class="field-label">月经开始日期</label><input class="input" type="date" name="start_date" required></div>
         <div class="form-item"><label class="field-label">结束日期（可选）</label><input class="input" type="date" name="end_date"></div>
-        <div class="form-item"><label class="field-label">经期长度 (天)</label><input class="input num" type="number" name="period_length" min="1" max="20" required></div>
-        <div class="form-item"><label class="field-label">周期长度 (天)</label><input class="input num" type="number" name="cycle_length" min="10" max="60" required></div>
       </div>
-      <div class="next-period-tip" id="nextPeriodTip">下次月经预计：—</div>
       <div class="modal-actions">
         <button type="button" class="btn" data-close="modalPeriod">取消</button>
         <button type="submit" class="btn btn-primary">保存记录</button>
@@ -79,11 +82,26 @@
     </form>
   </div>
 </div>
+
+<!-- 周期参数（参考值） -->
+<div class="modal-mask" id="modalSettings">
+  <div class="modal">
+    <div class="modal-title">周期参数</div>
+    <form id="formSettings">
+      <div class="form-grid">
+        <div class="form-item"><label class="field-label">参考周期 (天)</label><input class="input num" type="number" name="cycle_length" min="22" max="45" required></div>
+        <div class="form-item"><label class="field-label">参考经期 (天)</label><input class="input num" type="number" name="period_length" min="2" max="8" required></div>
+      </div>
+      <div class="settings-note">历史周期按记录自动计算；此值只用于推算当前周期与下一次。</div>
+      <div class="modal-actions"><button type="button" class="btn" data-close="modalSettings">取消</button><button type="submit" class="btn btn-primary">保存</button></div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>window.INIT_CAL = {{ calendar | tojson }};
 window.INIT_SETTINGS = {{ settings | tojson }};
 window.PHASE_INFO = {{ phase_info | tojson }};
 window.TODAY_STR = '{{ today.isoformat() }}';</script>
-<script src="/static/js/cycle.js?v=20261111b"></script>
+<script src="/static/js/cycle.js?v=20261112a"></script>
 {% endblock %}

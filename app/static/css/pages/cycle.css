@@ -38,7 +38,12 @@
 
 .cal-day .cd-num { font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; margin-bottom: 3px; }
 .cal-day .cd-phase { font-size: 10.5px; color: var(--phase-text); line-height: 1.4; }
-/* 预测经期为推算结果，与已记录经期用字色区分 */
+/* 经期三态：边框样式 + 文字色区分「已记录 / 过去补推 / 未来预测」 */
+.cal-day.period-recorded { border-color: var(--phase-menses); }
+.cal-day.period-inferred { border-style: dashed; }
+.cal-day.period-predicted { border-style: dotted; }
+.cal-day.period-recorded .cd-phase { color: var(--phase-menses); }
+.cal-day.period-inferred .cd-phase,
 .cal-day.period-predicted .cd-phase { color: var(--color-text-secondary); }
 .cal-day .cd-sport { font-size: 10px; color: var(--color-text-secondary); line-height: 1.4; }
 .cd-sport-short { display: none; }
@@ -59,6 +64,10 @@
 .legend .sw-good { background: var(--tag-good-bg); box-shadow: inset 0 0 0 1px var(--tag-good-dot); }
 .legend .sw-average { background: var(--tag-average-bg); box-shadow: inset 0 0 0 1px var(--tag-average-dot); }
 .legend .sw-rest { background: var(--tag-rest-bg); box-shadow: inset 0 0 0 1px var(--tag-rest-dot); }
+.legend-period { margin-top: 6px; }
+.legend .sw-period-recorded { background: var(--bg-card); border: 1px solid var(--phase-menses); }
+.legend .sw-period-inferred { background: var(--bg-card); border: 1px dashed var(--color-border-strong); }
+.legend .sw-period-predicted { background: var(--bg-card); border: 1px dotted var(--color-border-strong); }
 
 /* 右侧详情 */
 .day-detail .dd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -94,6 +103,7 @@
 .period-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--color-border); font-size: 13px; }
 .period-row:first-child { border-top: 0; }
 .period-end { color: var(--color-text-secondary); margin-left: 12px; }
+.period-meta { font-size: 11.5px; color: var(--color-text-secondary); margin-top: 3px; }
 .period-actions { display: flex; gap: 6px; flex: none; }
 .period-empty { color: var(--color-text-secondary); font-size: 13px; padding: 8px 0; }
 
@@ -126,4 +136,4 @@
 }
 
 .modal { width: 520px; }
-.next-period-tip { font-size: 13px; font-weight: 400; color: var(--tag-mint-fg); margin-top: 12px; }
+.settings-note { font-size: 12px; color: var(--color-text-secondary); margin-top: 10px; line-height: 1.6; }

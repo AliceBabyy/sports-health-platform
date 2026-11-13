@@ -1,4 +1,4 @@
-/* 生理周期页：月历（MC-01）、七阶段/运动等级展示、疼痛记录（MC-03）、记录月经（MC-02） */
+/* 生理周期页：分段推算月历、三态经期、七阶段/运动等级、疼痛记录、记录月经、周期参数 */
 (function () {
   const App = window.App;
   const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -29,7 +29,17 @@
     const firstDay = dateOf(cal.year + '-' + String(cal.month).padStart(2, '0') + '-01');
     const offset = (firstDay.getDay() + 6) % 7; // 周一开头
     document.getElementById('calTitle').textContent = cal.year + ' 年 ' + cal.month + ' 月';
-    document.getElementById('calSub').textContent = ov.has_records ? '预计下次月经 ' + ov.next_period : '尚无月经记录';
+
+    let sub = '尚未记录月经';
+    if (ov.has_records) {
+      if (!ov.next_period) {
+        sub = '—';
+      } else {
+        sub = '预计下次月经 ' + ov.next_period;
+        if (ov.overdue_days) sub += '（已逾期 ' + ov.overdue_days + ' 天，建议补录）';
+      }
+    }
+    document.getElementById('calSub').textContent = sub;
 
     let html = '';
     for (let i = 0; i < offset; i++) html += '<div class="cal-day cal-empty" aria-hidden="true"></div>';
@@ -38,7 +48,7 @@
       const isToday = d.date === window.TODAY_STR;
       const isSel = d.date === state.selected;
       const phaseTxt = d.phase_label ? d.phase_label : '—';
-      // 经期按记录状态标注：已记录 → 经期；仅推算 → 预测经期
+      // 三态经期优先：经期 / 推算经期 / 预测经期；其余显示阶段简称
       const phaseShort = d.period_state ? (d.period_label || phaseTxt) : (PHASE_SHORT[d.phase_key] || phaseTxt);
       const sportTxt = d.sport_label ? d.sport_label : '—';
       html += '<button type="button" class="cal-day' + (isSel ? ' selected' : '') + (isToday ? ' today-cell' : '') +
@@ -60,32 +70,38 @@
     const dd = dateOf(day.date);
     const info = window.PHASE_INFO[day.phase_key] || {};
     const ov = state.cal.overview;
-    const progressNum = ov.cycle_day_today, progressTotal = ov.cycle_length;
-    const pct = Math.round(progressNum / progressTotal * 100);
-
     const hasPhase = !!day.phase_key;
+
     const painHtml = PAIN_BUTTONS.map(function (b) {
       const active = day.pain_recorded && b.level === day.pain_level;
       return '<button type="button" class="pain-btn ' + (active ? 'active' : '') + '" aria-pressed="' + active + '" data-level="' + b.level + '">' + b.label + '</button>';
     }).join('');
 
+    let sourceNote = '';
+    if (day.phase_source === 'derived') {
+      sourceNote = '<div class="dd-block"><div class="dd-text muted">本段无记录，阶段按参考周期推算。</div></div>';
+    } else if (day.phase_source === 'predicted') {
+      sourceNote = '<div class="dd-block"><div class="dd-text muted">预测阶段，尚无记录。</div></div>';
+    }
+
     document.getElementById('dayDetail').innerHTML =
       '<div class="dd-head"><span class="dd-date num">' + dd.getFullYear() + '.' + String(dd.getMonth() + 1).padStart(2, '0') + '.' + String(dd.getDate()).padStart(2, '0') + '</span>' +
       (hasPhase ? '<span class="tag phase-' + day.phase_key + '">' + App.escapeHtml(day.period_label || day.phase_label) + '</span>' +
-        '<span class="tag tag-' + day.sport_level + '">' + App.escapeHtml(day.sport_label) + '</span>'
+        (day.sport_level ? '<span class="tag tag-' + day.sport_level + '">' + App.escapeHtml(day.sport_label) + '</span>' : '')
         : '<span class="tag tag-gray no-dot">未推算</span>') + '</div>' +
-      '<div class="dd-meta">' + WEEKDAY[dd.getDay()] + (hasPhase ? ' · 周期第 ' + day.cycle_day + ' 天' : '') + (day.is_recorded_start ? ' · 已记录' : '') + '</div>' +
+      '<div class="dd-meta">' + WEEKDAY[dd.getDay()] + (day.cycle_day ? ' · 周期第 ' + day.cycle_day + ' 天' : '') + (day.is_recorded_start ? ' · 已记录' : '') + '</div>' +
       (hasPhase
         ? '<div class="dd-block"><div class="dd-title">激素水平</div><div class="dd-text">' + App.escapeHtml(info.hormone || '—') + '</div></div>' +
           '<div class="dd-block"><div class="dd-title">运动建议</div><div class="dd-text">' + App.escapeHtml(info.advice || '—') + '</div></div>'
         : '<div class="dd-block"><div class="dd-text muted">该日期暂无周期推算</div></div>') +
+      sourceNote +
       '<div class="dd-block"><div class="dd-title">疼痛程度' + (day.pain_recorded ? '' : ' · 未记录') + '</div><div class="pain-group">' + painHtml + '</div></div>' +
       '<div class="dd-block"><div class="dd-title">周期概览</div>' +
       '<div class="ov-grid">' +
-      '<div class="ov-item"><div class="k">周期长度</div><div class="v num">' + ov.cycle_length + ' 天</div></div>' +
-      '<div class="ov-item"><div class="k">经期长度</div><div class="v num">' + ov.period_length + ' 天</div></div>' +
-      '<div class="ov-item"><div class="k">排卵日</div><div class="v num">' + ov.ovulation_date + '</div></div>' +
-      '<div class="ov-item"><div class="k">预计下次月经</div><div class="v num">' + ov.next_period + '</div></div>' +
+      '<div class="ov-item"><div class="k">参考周期</div><div class="v num">' + ov.reference_cycle_length + ' 天</div></div>' +
+      '<div class="ov-item"><div class="k">参考经期</div><div class="v num">' + ov.reference_period_length + ' 天</div></div>' +
+      '<div class="ov-item"><div class="k">排卵日</div><div class="v num">' + (ov.ovulation_date || '—') + '</div></div>' +
+      '<div class="ov-item"><div class="k">预计下次月经</div><div class="v num">' + (ov.next_period || '—') + '</div></div>' +
       '</div>';
   }
 
@@ -131,29 +147,13 @@
       }).catch(err => { b.disabled = false; App.toast(err.message, true); });
   });
 
-  /* 记录月经弹窗 */
+  /* 记录月经弹窗：只收起止日期，长度由记录自动派生 */
   document.getElementById('btnRecordPeriod').addEventListener('click', function () {
     const form = document.getElementById('formPeriod');
     form.reset();
     form.elements.start_date.value = window.TODAY_STR;
-    form.elements.period_length.value = state.cal.overview.period_length;
-    form.elements.cycle_length.value = state.cal.overview.cycle_length;
-    updateTip();
     App.openModal('modalPeriod');
   });
-  function updateTip() {
-    const form = document.getElementById('formPeriod');
-    const start = form.elements.start_date.value;
-    const cycle = parseInt(form.elements.cycle_length.value, 10) || 28;
-    if (start) {
-      const d = dateOf(start);
-      d.setDate(d.getDate() + cycle);
-      document.getElementById('nextPeriodTip').textContent = '下次月经预计 ' + d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    } else {
-      document.getElementById('nextPeriodTip').textContent = '下次月经预计：—';
-    }
-  }
-  document.getElementById('formPeriod').addEventListener('input', updateTip);
   document.getElementById('formPeriod').addEventListener('submit', function (e) {
     e.preventDefault();
     const form = e.target;
@@ -162,12 +162,33 @@
       body: {
         start_date: form.elements.start_date.value,
         end_date: form.elements.end_date.value || null,
-        cycle_length: parseInt(form.elements.cycle_length.value, 10),
-        period_length: parseInt(form.elements.period_length.value, 10),
       }
     }).then(function () {
       App.closeModal('modalPeriod');
       App.toast('已记录，阶段将自动重算');
+      refreshData();
+    }).catch(err => App.toast(err.message, true));
+  });
+
+  /* 周期参数：只写参考值，不改历史推算 */
+  document.getElementById('btnCycleSettings').addEventListener('click', function () {
+    const form = document.getElementById('formSettings');
+    form.elements.cycle_length.value = state.cal.overview.reference_cycle_length;
+    form.elements.period_length.value = state.cal.overview.reference_period_length;
+    App.openModal('modalSettings');
+  });
+  document.getElementById('formSettings').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const form = e.target;
+    App.api('/api/cycle/settings', {
+      method: 'PUT',
+      body: {
+        cycle_length: parseInt(form.elements.cycle_length.value, 10),
+        period_length: parseInt(form.elements.period_length.value, 10),
+      }
+    }).then(function () {
+      App.closeModal('modalSettings');
+      App.toast('周期参数已更新');
       refreshData();
     }).catch(err => App.toast(err.message, true));
   });
@@ -177,11 +198,15 @@
     loadPeriods();
   }
   function loadPeriods() {
+    const ov = state.cal.overview;
     App.api('/api/cycle/periods').then(function (data) {
       state.periods = data.list;
       document.getElementById('periodList').innerHTML = data.list.length ? data.list.map(function (r) {
+        const periodDays = r.period_length || ov.reference_period_length;
+        const cycleDays = r.cycle_length || ov.reference_cycle_length;
         return '<div class="period-row"><div><strong class="num">' + r.start_date + '</strong>' +
-          '<span class="period-end">' + (r.end_date ? '至 ' + r.end_date : '结束日未填') + '</span></div>' +
+          '<span class="period-end">' + (r.end_date ? '至 ' + r.end_date : '结束日未填') + '</span>' +
+          '<div class="period-meta">经期 ' + periodDays + ' 天 · 周期 ' + cycleDays + ' 天</div></div>' +
           '<div class="period-actions"><button class="btn btn-sm" data-edit="' + r.id + '">编辑</button>' +
           '<button class="btn btn-sm btn-danger" data-delete="' + r.id + '">删除</button></div></div>';
       }).join('') : '<div class="period-empty">暂无记录</div>';

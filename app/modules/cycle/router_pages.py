@@ -32,8 +32,8 @@ def cycle_page(
             "active": "cycle",
             "calendar": calendar_data,
             "settings": {
-                "cycle_length": calendar_data["overview"]["cycle_length"],
-                "period_length": calendar_data["overview"]["period_length"],
+                "cycle_length": calendar_data["overview"]["reference_cycle_length"],
+                "period_length": calendar_data["overview"]["reference_period_length"],
             },
             "phase_info": PHASE_INFO,
         },

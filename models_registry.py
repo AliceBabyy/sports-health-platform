@@ -15,3 +15,4 @@ from app.modules.state_record.models import (  # noqa: F401
     InflammationRecord,
     MyalgiaRecord,
 )
+from app.modules.agent.models import AgentConversation  # noqa: F401

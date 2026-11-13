@@ -57,10 +57,8 @@ def create_period(
 ):
     if db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user.id, PeriodRecord.start_date == payload.start_date).first():
         raise AppError(409, "该日期已有月经记录")
-    setting = service.get_settings(db, user.id)
-    if (payload.period_length or setting.period_length) >= (payload.cycle_length or setting.cycle_length):
-        raise AppError(422, "经期长度须小于周期长度")
-    row = service.create_period(db, user.id, payload.start_date, payload.end_date, payload.cycle_length, payload.period_length)
+    service.validate_period_bounds(db, user.id, payload.start_date, payload.end_date)
+    row = service.create_period(db, user.id, payload.start_date, payload.end_date)
     return {"id": row.id, "start_date": row.start_date.isoformat(), "end_date": row.end_date.isoformat() if row.end_date else None}
 
 
@@ -80,7 +78,9 @@ def update_period(
         raise AppError(422, "结束日期不能早于开始日期")
     if start_date != existing.start_date and db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user.id, PeriodRecord.start_date == start_date, PeriodRecord.id != record_id).first():
         raise AppError(409, "该日期已有月经记录")
-    row = service.update_period(db, user.id, record_id, payload.start_date, payload.end_date, "end_date" in payload.model_fields_set)
+    update_end = "end_date" in payload.model_fields_set
+    service.validate_period_bounds(db, user.id, start_date, end_date, exclude_id=record_id)
+    row = service.update_period(db, user.id, record_id, payload.start_date, payload.end_date, update_end)
     if row is None:
         raise AppError(404, "记录不存在")
     return {"id": row.id, "start_date": row.start_date.isoformat(), "end_date": row.end_date.isoformat() if row.end_date else None}

@@ -1,9 +1,12 @@
-"""生理周期单测：七阶段、逐日四档状态、疼痛优先级、预测与取模。"""
+"""生理周期单测：记录派生长度、分段推算、三态经期、预测边界、段长校验。"""
 from datetime import date, timedelta
 
 import pytest
 
 from app.core.constants import (
+    PERIOD_STATE_INFERRED,
+    PERIOD_STATE_PREDICTED,
+    PERIOD_STATE_RECORDED,
     PHASE_FOLLICULAR_POST,
     PHASE_FOLLICULAR_PRE,
     PHASE_LUTEAL_EARLY,
@@ -11,168 +14,211 @@ from app.core.constants import (
     PHASE_LUTEAL_MID,
     PHASE_MENSTRUAL,
     PHASE_OVULATION_DAY,
-    PERIOD_STATE_PREDICTED,
-    PERIOD_STATE_RECORDED,
     SPORT_AVERAGE,
     SPORT_GOOD,
     SPORT_HIGH,
     SPORT_REST,
 )
+from app.core.exceptions import AppError
 from app.modules.cycle import service
 
-ANCHOR = date(2026, 10, 16)  # 月经首日
-CL, PL = 28, 5               # 周期 28 / 经期 5
+TODAY = date(2026, 11, 12)
+ANCHOR = date(2026, 10, 16)
 
 
-def test_phase_boundaries():
-    # 月经期 1~5
-    assert service.phase_for(ANCHOR, ANCHOR, CL, PL) == PHASE_MENSTRUAL
-    assert service.phase_for(ANCHOR + timedelta(days=4), ANCHOR, CL, PL) == PHASE_MENSTRUAL
-    # 排卵期前期 6~13（排卵日=14）
-    assert service.phase_for(ANCHOR + timedelta(days=5), ANCHOR, CL, PL) == PHASE_FOLLICULAR_PRE
-    assert service.phase_for(ANCHOR + timedelta(days=12), ANCHOR, CL, PL) == PHASE_FOLLICULAR_PRE
-    # 排卵日 N=14 → 10-29
-    assert service.phase_for(ANCHOR + timedelta(days=13), ANCHOR, CL, PL) == PHASE_OVULATION_DAY
-    # 排卵期后期 15~16
-    assert service.phase_for(ANCHOR + timedelta(days=14), ANCHOR, CL, PL) == PHASE_FOLLICULAR_POST
-    assert service.phase_for(ANCHOR + timedelta(days=15), ANCHOR, CL, PL) == PHASE_FOLLICULAR_POST
-    # 黄体期前期 17~20
-    assert service.phase_for(ANCHOR + timedelta(days=16), ANCHOR, CL, PL) == PHASE_LUTEAL_EARLY
-    assert service.phase_for(ANCHOR + timedelta(days=19), ANCHOR, CL, PL) == PHASE_LUTEAL_EARLY
-    # 黄体期中期 21~24
-    assert service.phase_for(ANCHOR + timedelta(days=20), ANCHOR, CL, PL) == PHASE_LUTEAL_MID
-    assert service.phase_for(ANCHOR + timedelta(days=23), ANCHOR, CL, PL) == PHASE_LUTEAL_MID
-    # 黄体期后期 25~28
-    assert service.phase_for(ANCHOR + timedelta(days=24), ANCHOR, CL, PL) == PHASE_LUTEAL_LATE
-    assert service.phase_for(ANCHOR + timedelta(days=27), ANCHOR, CL, PL) == PHASE_LUTEAL_LATE
+@pytest.fixture(autouse=True)
+def _freeze_today(monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: TODAY)
 
 
-def test_phase_cycle_wrap():
-    # 下一周期第 1 天（第 29 天）→ 月经期；负数日期回卷到黄体后期
-    assert service.phase_for(ANCHOR + timedelta(days=28), ANCHOR, CL, PL) == PHASE_MENSTRUAL
-    assert service.phase_for(ANCHOR - timedelta(days=1), ANCHOR, CL, PL) == PHASE_LUTEAL_LATE
+def _cal(db, year, month):
+    return {d["date"]: d for d in service.calendar_month(db, 1, year, month)["days"]}
 
 
-def test_effective_day_number():
-    assert service.effective_day_number(ANCHOR, ANCHOR, CL) == 1
-    assert service.effective_day_number(ANCHOR + timedelta(days=13), ANCHOR, CL) == 14
-    assert service.effective_day_number(ANCHOR + timedelta(days=27), ANCHOR, CL) == 28
-    assert service.effective_day_number(ANCHOR + timedelta(days=28), ANCHOR, CL) == 1
+# ---------- 记录派生 ----------
+def test_list_periods_derives_lengths(db):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))       # 5 天
+    service.create_period(db, 1, date(2026, 11, 13), date(2026, 11, 17))
+    rows = service.list_periods(db, 1)
+
+    assert rows[0]["start_date"] == "2026-11-13"
+    assert rows[0]["period_length"] == 5
+    assert rows[0]["cycle_length"] is None        # 没有下一条
+    assert rows[1]["period_length"] == 5
+    assert rows[1]["cycle_length"] == 28          # 10-16 → 11-13
 
 
+def test_list_periods_null_period_length_without_end(db):
+    service.create_period(db, 1, ANCHOR, None)
+    assert service.list_periods(db, 1)[0]["period_length"] is None
+
+
+def test_create_period_does_not_touch_reference_settings(db):
+    service.update_settings(db, 1, 30, 6)
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    setting = service.get_settings(db, 1)
+    assert (setting.cycle_length, setting.period_length) == (30, 6)
+
+
+# ---------- 段内阶段（自适应） ----------
+def test_phase_boundaries_28_day_segment(db):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    october = _cal(db, 2026, 10)
+    november = _cal(db, 2026, 11)
+
+    assert october["2026-10-16"]["phase_key"] == PHASE_MENSTRUAL
+    assert october["2026-10-20"]["phase_key"] == PHASE_MENSTRUAL
+    assert october["2026-10-21"]["phase_key"] == PHASE_FOLLICULAR_PRE
+    assert october["2026-10-28"]["phase_key"] == PHASE_FOLLICULAR_PRE   # 排卵前一天
+    assert october["2026-10-29"]["phase_key"] == PHASE_OVULATION_DAY    # 28-14=14
+    assert october["2026-10-30"]["phase_key"] == PHASE_FOLLICULAR_POST
+    assert october["2026-10-31"]["phase_key"] == PHASE_FOLLICULAR_POST
+    assert november["2026-11-01"]["phase_key"] == PHASE_LUTEAL_EARLY
+    assert november["2026-11-04"]["phase_key"] == PHASE_LUTEAL_EARLY
+    assert november["2026-11-05"]["phase_key"] == PHASE_LUTEAL_MID
+    assert november["2026-11-08"]["phase_key"] == PHASE_LUTEAL_MID
+    assert november["2026-11-09"]["phase_key"] == PHASE_LUTEAL_LATE
+    assert november["2026-11-12"]["phase_key"] == PHASE_LUTEAL_LATE
+
+
+def test_phase_boundaries_shift_with_segment_length(db):
+    """段长 30：排卵日随段长推到第 16 天，卵泡期自动拉长。"""
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    service.create_period(db, 1, date(2026, 11, 15), None)  # 10-16 → 11-15 = 30 天
+    october = _cal(db, 2026, 10)
+    november = _cal(db, 2026, 11)
+
+    assert october["2026-10-30"]["phase_key"] == PHASE_FOLLICULAR_PRE
+    assert october["2026-10-31"]["phase_key"] == PHASE_OVULATION_DAY
+    assert november["2026-11-01"]["phase_key"] == PHASE_FOLLICULAR_POST
+    assert november["2026-11-02"]["phase_key"] == PHASE_FOLLICULAR_POST
+    assert november["2026-11-03"]["phase_key"] == PHASE_LUTEAL_EARLY
+    assert november["2026-11-06"]["phase_key"] == PHASE_LUTEAL_EARLY
+
+
+# ---------- 四档 ----------
 @pytest.mark.parametrize(
-    ("cycle_day", "expected"),
+    ("day", "expected"),
     [
-        (1, SPORT_REST), (3, SPORT_REST), (4, SPORT_AVERAGE), (5, SPORT_GOOD),
-        (6, SPORT_HIGH), (14, SPORT_HIGH), (16, SPORT_HIGH),
-        (17, SPORT_GOOD), (20, SPORT_GOOD), (21, SPORT_GOOD), (22, SPORT_GOOD),
-        (23, SPORT_AVERAGE), (24, SPORT_AVERAGE), (25, SPORT_AVERAGE),
-        (26, SPORT_AVERAGE), (27, SPORT_REST), (28, SPORT_REST),
+        (date(2026, 10, 16), SPORT_REST),
+        (date(2026, 10, 19), SPORT_AVERAGE),
+        (date(2026, 10, 20), SPORT_GOOD),
+        (date(2026, 10, 21), SPORT_HIGH),
+        (date(2026, 10, 29), SPORT_HIGH),
+        (date(2026, 10, 30), SPORT_HIGH),
+        (date(2026, 11, 4), SPORT_GOOD),
+        (date(2026, 11, 6), SPORT_GOOD),
+        (date(2026, 11, 8), SPORT_AVERAGE),
+        (date(2026, 11, 10), SPORT_AVERAGE),
+        (date(2026, 11, 11), SPORT_REST),
     ],
 )
-def test_sport_level_daily_boundaries(cycle_day, expected):
-    phase = service.phase_for(ANCHOR + timedelta(days=cycle_day - 1), ANCHOR, CL, PL)
-    assert service.sport_level_for(phase, cycle_day, CL, PL, 0) == expected
+def test_sport_level_daily(db, day, expected):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    cal = _cal(db, day.year, day.month)
+    assert cal[day.isoformat()]["sport_level"] == expected
 
 
-def test_sport_level_pain_priority():
-    assert service.sport_level_for(PHASE_OVULATION_DAY, 14, CL, PL, 2) == SPORT_REST
-    assert service.sport_level_for(PHASE_MENSTRUAL, 5, CL, PL, 3) == SPORT_REST
-    assert service.sport_level_for(PHASE_LUTEAL_MID, 22, CL, PL, 1) == SPORT_GOOD
+def test_sport_level_pain_priority(db):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    service.set_pain(db, 1, date(2026, 10, 29), 3)
+    assert _cal(db, 2026, 10)["2026-10-29"]["sport_level"] == SPORT_REST
 
 
-def test_sport_level_variable_cycle_length():
-    # 30 天周期排卵日=16；黄体中期第 2/3 天、黄体后期第 2/3 天仍按相对日序切换。
-    assert service.sport_level_for(PHASE_LUTEAL_MID, 24, 30, 5, 0) == SPORT_GOOD
-    assert service.sport_level_for(PHASE_LUTEAL_MID, 25, 30, 5, 0) == SPORT_AVERAGE
-    assert service.sport_level_for(PHASE_LUTEAL_LATE, 28, 30, 5, 0) == SPORT_AVERAGE
-    assert service.sport_level_for(PHASE_LUTEAL_LATE, 29, 30, 5, 0) == SPORT_REST
+# ---------- 三态经期 ----------
+def test_recorded_and_no_history_prediction(db):
+    """历史月只呈现记录支撑的经期，不出现预测出来的经期。"""
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    service.create_period(db, 1, date(2026, 11, 13), date(2026, 11, 17))
+
+    october = _cal(db, 2026, 10)
+    assert october["2026-10-16"]["period_state"] == PERIOD_STATE_RECORDED
+    assert october["2026-10-20"]["period_state"] == PERIOD_STATE_RECORDED
+    assert october["2026-10-21"]["period_state"] is None
+    assert all(d["period_state"] != PERIOD_STATE_PREDICTED for d in october.values())
+
+    november = _cal(db, 2026, 11)
+    assert november["2026-11-13"]["period_state"] == PERIOD_STATE_RECORDED
+    assert november["2026-11-17"]["period_state"] == PERIOD_STATE_RECORDED
+    assert november["2026-11-18"]["period_state"] is None
+    assert all(d["period_state"] != PERIOD_STATE_PREDICTED for d in november.values())
 
 
-def test_next_period_prediction(db, monkeypatch):
-    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
-    service.create_period(db, 1, ANCHOR, None, None, None)
-    assert service.next_period_date(db, 1) == ANCHOR + timedelta(days=CL)
-
-
-def test_calendar_month_phase_and_pain(db, monkeypatch):
-    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
-    service.create_period(db, 1, ANCHOR, None, None, None)
-    service.set_pain(db, 1, ANCHOR + timedelta(days=13), 3)  # 排卵日疼痛3 → 休息
-    cal = service.calendar_month(db, 1, 2026, 10)
-    by_date = {d["date"]: d for d in cal["days"]}
-    assert by_date["2026-10-29"]["phase_key"] == PHASE_OVULATION_DAY
-    assert by_date["2026-10-29"]["sport_level"] == SPORT_REST  # 疼痛≥2 最高优先
-    assert by_date["2026-10-29"]["pain_level"] == 3
-    assert by_date["2026-10-16"]["is_period"] is True
-    assert cal["overview"]["next_period"] == (ANCHOR + timedelta(days=CL)).isoformat()
-
-
-def test_calendar_exposes_four_daily_levels(db, monkeypatch):
-    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
-    service.create_period(db, 1, ANCHOR, None, None, None)
-    october = {day["cycle_day"]: day for day in service.calendar_month(db, 1, 2026, 10)["days"] if day["cycle_day"]}
-    november = {day["cycle_day"]: day for day in service.calendar_month(db, 1, 2026, 11)["days"] if day["cycle_day"]}
-    assert [october[n]["sport_level"] for n in (3, 4, 5, 6)] == [SPORT_REST, SPORT_AVERAGE, SPORT_GOOD, SPORT_HIGH]
-    assert [november[n]["sport_level"] for n in (22, 23, 26, 27)] == [SPORT_GOOD, SPORT_AVERAGE, SPORT_AVERAGE, SPORT_REST]
-
-
-def test_calendar_uses_historical_record_for_each_day(db, monkeypatch):
-    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
-    service.create_period(db, 1, date(2026, 9, 18), None, None, None)
-    service.create_period(db, 1, ANCHOR, None, None, None)
-    days = {day["date"]: day for day in service.calendar_month(db, 1, 2026, 10)["days"]}
-    assert days["2026-10-01"]["phase_key"] is not None
-    assert days["2026-10-16"]["cycle_day"] == 1
-    assert days["2026-10-16"]["is_recorded_start"] is True
-
-
-def test_future_record_does_not_change_today_or_next_prediction(db, monkeypatch):
-    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 4))
-    service.create_period(db, 1, ANCHOR, None, None, None)
-    service.create_period(db, 1, date(2026, 12, 1), None, None, None)
-    assert service.get_anchor_date(db, 1) == ANCHOR
+def test_predicted_only_extends_one_segment(db):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    december = _cal(db, 2026, 12)
+    assert december["2026-12-10"]["phase_key"] == PHASE_LUTEAL_LATE   # 预测段最后一天
+    assert december["2026-12-11"]["phase_key"] is None                # 再往后留白
+    # 再下一段不再推算
+    assert all(d["phase_key"] is None for d in _cal(db, 2027, 1).values())
     assert service.next_period_date(db, 1) == date(2026, 11, 13)
+    november = _cal(db, 2026, 11)
+    assert november["2026-11-13"]["period_state"] == PERIOD_STATE_PREDICTED
+    assert november["2026-11-17"]["period_state"] == PERIOD_STATE_PREDICTED
 
 
-def test_next_prediction_rolls_forward(db, monkeypatch):
-    monkeypatch.setattr(service, "today_local", lambda: date(2027, 1, 1))
-    service.create_period(db, 1, ANCHOR, None, None, None)
-    assert service.next_period_date(db, 1) == date(2027, 1, 8)
+def test_overdue_beyond_grace_drops_prediction(db, monkeypatch):
+    monkeypatch.setattr(service, "today_local", lambda: date(2026, 12, 30))
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    cal = service.calendar_month(db, 1, 2026, 12)
+    assert cal["overview"]["overdue_days"] == 47
+    assert all(d["phase_key"] is None for d in cal["days"])
+
+
+def test_inferred_period_state_for_missed_records(db):
+    """10-16 与 12-16 间隔 61 天 → 判漏记，按参考周期等分两段补推。"""
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    service.create_period(db, 1, date(2026, 12, 16), date(2026, 12, 20))
+    november = _cal(db, 2026, 11)
+    assert november["2026-11-16"]["period_state"] == PERIOD_STATE_INFERRED
+    assert november["2026-11-20"]["period_state"] == PERIOD_STATE_INFERRED
+    assert november["2026-11-15"]["period_state"] is None
+    assert november["2026-11-16"]["period_label"] == "推算经期"
+
+
+def test_gap_over_three_months_leaves_blank(db):
+    service.create_period(db, 1, date(2026, 6, 1), date(2026, 6, 5))
+    service.create_period(db, 1, date(2026, 10, 16), date(2026, 10, 20))
+    july = _cal(db, 2026, 7)
+    assert all(d["phase_key"] is None for d in july.values())
+
+
+# ---------- 0 / 1 条记录 ----------
+def test_no_records_no_phase(db):
+    cal = service.calendar_month(db, 1, 2026, 11)
+    assert cal["overview"]["has_records"] is False
+    assert cal["overview"]["next_period"] is None
+    assert all(d["phase_key"] is None for d in cal["days"])
+
+
+def test_single_record_uses_reference_for_current_and_next(db):
+    service.update_settings(db, 1, 30, 5)
+    service.create_period(db, 1, ANCHOR, None)
+    november = _cal(db, 2026, 11)
+    assert november["2026-11-12"]["phase_key"] is not None
+    assert november["2026-11-15"]["phase_key"] == PHASE_MENSTRUAL   # 预测段按参考经期
+    assert service.next_period_date(db, 1) == ANCHOR + timedelta(days=30)
+
+
+# ---------- 段长校验 ----------
+def test_validate_rejects_too_short_gap(db):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    with pytest.raises(AppError) as exc:
+        service.validate_period_bounds(db, 1, ANCHOR + timedelta(days=21), None)
+    assert "疑似同一次月经" in str(exc.value)
+
+
+def test_validate_rejects_too_long_period(db):
+    with pytest.raises(AppError):
+        service.validate_period_bounds(db, 1, ANCHOR, ANCHOR + timedelta(days=8))  # 9 天 > 8
+    with pytest.raises(AppError):
+        service.validate_period_bounds(db, 1, ANCHOR, TODAY + timedelta(days=1))
+    service.validate_period_bounds(db, 1, ANCHOR, ANCHOR + timedelta(days=4))     # 5 天合法
 
 
 def test_update_period_can_clear_end_date(db):
-    row = service.create_period(db, 1, ANCHOR, date(2026, 10, 20), None, None)
+    row = service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
     unchanged = service.update_period(db, 1, row.id, None, None)
     assert unchanged.end_date == date(2026, 10, 20)
     updated = service.update_period(db, 1, row.id, ANCHOR, None, update_end=True)
     assert updated.end_date is None
-
-
-def test_calendar_marks_recorded_period_and_predicted_period(db, monkeypatch):
-    """已记录经期标「经期」，日后未记录的经期标「预测经期」。"""
-    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 11))
-    service.create_period(db, 1, ANCHOR, None, None, None)  # 无结束日 → 10-16~10-20 视为已记录
-    october = {d["date"]: d for d in service.calendar_month(db, 1, 2026, 10)["days"]}
-    november = {d["date"]: d for d in service.calendar_month(db, 1, 2026, 11)["days"]}
-
-    assert october["2026-10-16"]["period_state"] == PERIOD_STATE_RECORDED
-    assert october["2026-10-20"]["period_state"] == PERIOD_STATE_RECORDED
-    assert october["2026-10-20"]["period_label"] == "经期"
-    assert october["2026-10-21"]["period_state"] is None  # 非经期
-
-    # 下一周期 11-13~11-17 尚无记录 → 预测经期
-    assert november["2026-11-13"]["period_state"] == PERIOD_STATE_PREDICTED
-    assert november["2026-11-13"]["period_label"] == "预测经期"
-    assert november["2026-11-17"]["period_state"] == PERIOD_STATE_PREDICTED
-    assert november["2026-11-18"]["period_state"] is None
-
-
-def test_period_state_keeps_past_unrecorded_as_phase(db, monkeypatch):
-    """记录结束日早于经期长度时，过去未覆盖的经期日不误标为「预测经期」。"""
-    monkeypatch.setattr(service, "today_local", lambda: date(2026, 11, 11))
-    service.create_period(db, 1, ANCHOR, date(2026, 10, 18), None, None)
-    october = {d["date"]: d for d in service.calendar_month(db, 1, 2026, 10)["days"]}
-    assert october["2026-10-18"]["period_state"] == PERIOD_STATE_RECORDED
-    assert october["2026-10-19"]["period_state"] is None
-    assert october["2026-10-19"]["is_period"] is True  # 仍按推算阶段展示为经期

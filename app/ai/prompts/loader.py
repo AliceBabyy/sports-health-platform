@@ -9,10 +9,11 @@ PROMPTS = {
     "sport_import_training.v1": "sport_import_training_v1.txt",
     "sport_import_swim.v1": "sport_import_swim_v1.txt",
     "sport_import_dance.v1": "sport_import_dance_v1.txt",
+    "agent_chat.v1": "agent_chat_v1.txt",
 }
 
 
-def load_prompt(prompt_id: str, **variables: str) -> ChatPromptTemplate:
+def _load_source(prompt_id: str, **variables: str) -> str:
     filename = PROMPTS.get(prompt_id)
     if filename is None:
         raise ValueError("未知提示词版本")
@@ -20,7 +21,17 @@ def load_prompt(prompt_id: str, **variables: str) -> ChatPromptTemplate:
     expected = {name for _, name, _, _ in Formatter().parse(source) if name}
     if expected != set(variables):
         raise ValueError("提示词变量不匹配")
+    return source.format(**variables)
+
+
+def load_prompt(prompt_id: str, **variables: str) -> ChatPromptTemplate:
+    source = _load_source(prompt_id, **variables)
     return ChatPromptTemplate.from_messages([
         ("system", source),
         ("human", "{input_text}"),
-    ]).partial(**variables)
+    ])
+
+
+def load_system_prompt(prompt_id: str, **variables: str) -> str:
+    """Return rendered system text only (for LangGraph nodes)."""
+    return _load_source(prompt_id, **variables)

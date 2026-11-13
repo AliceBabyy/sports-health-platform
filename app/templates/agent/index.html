@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}AI 助手 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261112a">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>AI 助手</h1>
+</div>
+
+<div class="agent-workbench">
+  <!-- 会话列表 -->
+  <section class="card agent-sessions">
+    <button class="btn btn-primary btn-block" id="btnNewChat" type="button">新建会话</button>
+    <div class="session-list" id="sessionList"></div>
+  </section>
+
+  <!-- 对话区 -->
+  <section class="card agent-chat">
+    <div class="chat-head">
+      <div class="chat-title" id="chatTitle">新会话</div>
+      <select class="select chat-model" id="chatModel" aria-label="选择模型">
+        <option value="">默认模型</option>
+        {% for m in model_options %}
+        <option value="{{ m }}">{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="message-scroll" id="messageScroll">
+      <div class="message-list" id="messageList"></div>
+    </div>
+
+    <div class="chat-input">
+      <textarea class="input" id="chatInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
+      <button class="btn btn-primary" id="btnSend" type="button">发送</button>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.INIT_CONVERSATIONS = {{ conversations | tojson }};
+window.MODEL_OPTIONS = {{ model_options | tojson }};
+window.DEFAULT_MODEL = {{ default_model | tojson }};
+</script>
+<script src="/static/js/agent.js?v=20261112a"></script>
+{% endblock %}

@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     ai_import_max_images: int = 3
     ai_import_max_image_bytes: int = 2 * 1024 * 1024
     ai_import_max_prompt_chars: int = 2000
+    # AI Agent（V2.2 基础问答）：流式 SSE、上下文 token 预算、checkpointer 独立 schema
+    agent_stream_enabled: bool = True
+    agent_context_token_budget: int = 12000
+    agent_checkpointer_schema: str = "langgraph"
+    agent_max_input_chars: int = 2000
+    agent_pool_min_size: int = 1
+    agent_pool_max_size: int = 10
 
 
 settings = Settings()

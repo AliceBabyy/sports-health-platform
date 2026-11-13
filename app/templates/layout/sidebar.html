@@ -33,7 +33,7 @@
     <div class="today-card">
       <div class="d1">今天</div>
       <div class="d2 num">{{ today_str }}</div>
-      <div class="d3">{{ weekday_cn }}{% if cycle_today %} · 周期第{{ cycle_today.cycle_day }}天{% endif %}</div>
+      <div class="d3">{{ weekday_cn }}{% if cycle_today and cycle_today.cycle_day %} · 周期第{{ cycle_today.cycle_day }}天{% endif %}</div>
       {% if cycle_today and cycle_today.sport_level %}
       <span class="tag tag-{{ cycle_today.sport_level }}">{{ cycle_today.sport_label }}</span>
       {% endif %}

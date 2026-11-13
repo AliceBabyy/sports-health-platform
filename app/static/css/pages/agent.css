@@ -21,6 +21,19 @@
   min-height: 0;
 }
 
+/* 对话主体：消息区 + 输入框；空会话时整体垂直居中，有消息后输入框沉底 */
+.chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chat-body.is-empty { justify-content: center; padding-bottom: 40px; }
+.chat-body.is-empty .message-scroll { flex: none; overflow: visible; }
+.chat-body.is-empty .chat-welcome { margin: 0 0 14px; }
+.chat-body.is-empty .message-list { padding: 0; }
+.chat-body.is-empty .chat-composer-wrap { padding-top: 0; }
+
 /* ---------- 会话列表 ---------- */
 .agent-sessions {
   flex: none;
@@ -123,13 +136,6 @@
   flex: 1;
 }
 .chat-title:empty { display: none; }
-.chat-model {
-  flex: none;
-  width: auto;
-  min-width: 150px;
-  padding: 6px 8px;
-  font-size: 12.5px;
-}
 
 /* ---------- 消息区 ---------- */
 .message-scroll {
@@ -354,11 +360,15 @@
   gap: 10px;
   padding: 12px 14px 10px;
   background: var(--bg-card);
-  box-shadow: inset 0 0 0 0.667px var(--color-border-strong);
-  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 0 0 0.667px var(--color-border-strong),
+    0 1px 2px var(--color-shadow-soft),
+    0 6px 16px rgba(27, 36, 52, 0.07);
+  border-radius: 16px;
 }
 .chat-input textarea {
   width: 100%;
+  min-height: 59px;
   max-height: 140px;
   padding: 0;
   line-height: 1.5;
@@ -374,8 +384,15 @@
 .composer-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
+}
+.chat-model {
+  flex: none;
+  width: auto;
+  min-width: 140px;
+  padding: 6px 8px;
+  font-size: 12.5px;
 }
 .send-btn {
   flex: none;

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}AI 助手 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261113b">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261113e">{% endblock %}
 {% block content %}
 <div class="agent-workbench" id="agentWorkbench">
   <!-- 会话列表 -->
@@ -24,30 +24,32 @@
         </svg>
       </button>
       <div class="chat-title" id="chatTitle"></div>
-      <select class="select chat-model" id="chatModel" aria-label="选择模型">
-        <option value="">默认模型</option>
-        {% for m in model_options %}
-        <option value="{{ m }}">{{ m }}</option>
-        {% endfor %}
-      </select>
     </div>
 
-    <div class="message-scroll" id="messageScroll">
-      <div class="chat-welcome" id="chatWelcome">
-        <h2 class="welcome-title" id="welcomeTitle"></h2>
+    <div class="chat-body" id="chatBody">
+      <div class="message-scroll" id="messageScroll">
+        <div class="chat-welcome" id="chatWelcome">
+          <h2 class="welcome-title" id="welcomeTitle"></h2>
+        </div>
+        <div class="message-list" id="messageList"></div>
       </div>
-      <div class="message-list" id="messageList"></div>
-    </div>
 
-    <div class="chat-composer-wrap">
-      <div class="chat-input">
-        <textarea class="input" id="chatInput" rows="1" placeholder="输入你的问题，Enter 发送，Shift+Enter 换行"></textarea>
-        <div class="composer-row">
-          <button class="send-btn" id="btnSend" type="button" title="发送" aria-label="发送">
-            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-              <path d="M8 12V4M3.5 8.5 8 4l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-            </svg>
-          </button>
+      <div class="chat-composer-wrap">
+        <div class="chat-input">
+          <textarea class="input" id="chatInput" rows="1" placeholder="输入你的问题"></textarea>
+          <div class="composer-row">
+            <select class="select chat-model" id="chatModel" aria-label="选择模型">
+              <option value="">默认模型</option>
+              {% for m in model_options %}
+              <option value="{{ m }}">{{ m }}</option>
+              {% endfor %}
+            </select>
+            <button class="send-btn" id="btnSend" type="button" title="发送" aria-label="发送">
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                <path d="M8 12V4M3.5 8.5 8 4l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -60,5 +62,5 @@ window.INIT_CONVERSATIONS = {{ conversations | tojson }};
 window.MODEL_OPTIONS = {{ model_options | tojson }};
 window.DEFAULT_MODEL = {{ default_model | tojson }};
 </script>
-<script src="/static/js/agent.js?v=20261113b"></script>
+<script src="/static/js/agent.js?v=20261113e"></script>
 {% endblock %}

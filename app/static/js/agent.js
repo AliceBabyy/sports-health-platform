@@ -14,6 +14,7 @@
     btnNewChat: document.getElementById("btnNewChat"),
     btnToggleSessions: document.getElementById("btnToggleSessions"),
     chatTitle: document.getElementById("chatTitle"),
+    chatBody: document.getElementById("chatBody"),
     chatModel: document.getElementById("chatModel"),
     messageScroll: document.getElementById("messageScroll"),
     messageList: document.getElementById("messageList"),
@@ -35,6 +36,7 @@
 
   function syncWelcome(show) {
     els.chatWelcome.style.display = show ? "" : "none";
+    els.chatBody.classList.toggle("is-empty", show);
   }
 
   function current() {
@@ -557,8 +559,9 @@
   /* ---------- 输入框自动增高 ---------- */
   function autoGrow() {
     const el = els.chatInput;
+    const minH = parseFloat(getComputedStyle(el).minHeight) || 0;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 140) + "px";
+    el.style.height = Math.min(Math.max(el.scrollHeight, minH), 140) + "px";
   }
 
   /* ---------- 会话侧栏收起 / 展开 ---------- */
@@ -575,6 +578,7 @@
     els.welcomeTitle.textContent = greeting() + "，我能帮什么忙吗？";
     loadMessages(c);
     applySidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
+    autoGrow();
 
     els.btnNewChat.addEventListener("click", newChat);
     els.btnToggleSessions.addEventListener("click", () => {

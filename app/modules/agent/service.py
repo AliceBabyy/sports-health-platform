@@ -100,10 +100,14 @@ async def get_messages(db: Session, user_id: int, conversation_id: int, runtime:
     row = get_conversation(db, user_id, conversation_id)
     config = {"configurable": {"thread_id": str(row.thread_id)}}
     state = await runtime["graph"].aget_state(config)
-    messages = [
-        {"role": "assistant" if m.type == "ai" else "user", "content": m.content}
-        for m in state.values.get("messages", [])
-    ]
+    messages = []
+    for m in state.values.get("messages", []):
+        # 只保留真实问答：用户消息 + 最终 AI 回答；
+        # 跳过 ToolMessage 与带 tool_calls 的工具中转 AIMessage。
+        if m.type == "human":
+            messages.append({"role": "user", "content": m.content})
+        elif m.type == "ai" and not getattr(m, "tool_calls", None):
+            messages.append({"role": "assistant", "content": m.content})
     return {"conversation_id": row.id, "messages": messages}
 
 
@@ -143,18 +147,50 @@ async def acquire_reply_slot(db: Session, user_id: int, conversation_id: int, pa
     return row, thread_id
 
 
+def _normalize_tool_content(content):
+    """工具结果可能是 dict 或 JSON 字符串，统一成可序列化对象。"""
+    if isinstance(content, str):
+        try:
+            return json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            return {"text": content}
+    return content
+
+
 async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload):
-    config = {"configurable": {"thread_id": thread_id, "model_name": row.model_name}}
+    # user_id 服务端注入，工具经 config 读取；recursion_limit 限制工具循环轮数
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "model_name": row.model_name,
+            "user_id": row.user_id,
+        },
+        "recursion_limit": 10,
+    }
 
     yield _sse("start", {"conversation_id": row.id, "thread_id": thread_id})
     try:
-        async for chunk, _meta in runtime["graph"].astream(
+        async for mode, data in runtime["graph"].astream(
             {"messages": [HumanMessage(content=payload.content)]},
             config=config,
-            stream_mode="messages",
+            stream_mode=["messages", "updates"],
         ):
-            if chunk.content:
-                yield _sse("delta", {"content": chunk.content})
+            if mode == "messages":
+                message_chunk, metadata = data
+                # 只取 agent 节点的正文 token；tools 节点的消息不混入正文
+                if metadata.get("langgraph_node") == "agent" and message_chunk.content:
+                    yield _sse("delta", {"content": message_chunk.content})
+            elif mode == "updates":
+                for node, update in data.items():
+                    for msg in update.get("messages", []):
+                        if node == "agent" and getattr(msg, "tool_calls", None):
+                            for tc in msg.tool_calls:
+                                yield _sse("tool_start", {"tool": tc["name"], "args": tc["args"]})
+                        elif node == "tools":
+                            yield _sse("tool_result", {
+                                "tool": getattr(msg, "name", None),
+                                "data": _normalize_tool_content(msg.content),
+                            })
 
         now = datetime.now()
         row.last_message_at = now

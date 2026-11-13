@@ -32,11 +32,21 @@ agent 命名（页面 `/agent`、API `/api/agent`、表、模板、静态资源�
 LangGraph `StateGraph(MessagesState)` 线性图（START→agent→END）+ `AsyncPostgresSaver`
 checkpointer：会话元数据存 `agent_conversations`，**消息不建消息表**，由 checkpointer
 在独立 `langgraph` schema 的 4 张框架表承载，按 `thread_id` 自动加载/重放/持久化。
-agent 节点动态选模型、渲染当天 system prompt、`trim_messages` 按 approximate 字符预算
-裁剪后 `ainvoke`。输出 SSE 流式（`start/delta/done/error`），前端 `fetch` +
-`ReadableStream` 手动解析。checkpointer 用 psycopg3 异步，ORM 仍用 psycopg2；lifespan
-统一管理连接池/建表/图的装配与关闭，Windows 下启动前切换 `WindowsSelectorEventLoopPolicy`。
-本版不读取运动业务数据，不引入 Redis、pgvector。
+agent 节点动态选模型、渲染当天 system prompt、`trim_messages` 按 `token_counter=len`
+（消息条数，上限 20）裁剪后 `ainvoke`。输出 SSE 流式（`start/delta/done/error`），
+前端 `fetch` + `ReadableStream` 手动解析。checkpointer 用 psycopg3 异步，ORM 仍用
+psycopg2；lifespan 统一管理连接池/建表/图的装配与关闭，Windows 下启动前切换
+`WindowsSelectorEventLoopPolicy`。本版不读取运动业务数据，不引入 Redis、pgvector。
+
+**V2.3 数据问答（2026-11-13）**：图升级为工具循环——`START → agent ⇄ tools → END`。
+`agent` 节点用 `bind_tools` 后的模型，条件边判断最后一条消息是否带 `tool_calls`：有则进
+`ToolNode`（`tools` 节点）执行、结果作为 `ToolMessage` 回到 agent 再判断，无则 END；
+`recursion_limit=10` 限制循环轮数。`MessagesState` 不扩展，工具消息随 checkpointer 持久化。
+只读工具集中在 `app/modules/agent/tools/`（`queries.py` 受控查询 + `definitions.py` @tool
+包装）：`get_workout_summary`、`get_recent_swims`、`get_body_measurements`，复用 overview/
+swim/body 的现有口径，不重写统计。`user_id` 经 `RunnableConfig` 注入（模型不可填、不可伪造），
+工具内部用独立短 session；护栏 366 天 / 20 条由代码强制，工具只读、不接受模型 SQL。
+SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`。本版无结构变更。
 
 > 本文件描述当前实现层面的结构，业务口径详见 README「需求口径」与《数据库建表设计.md》。
 
@@ -89,7 +99,7 @@ agent 节点动态选模型、渲染当天 system prompt、`trim_messages` 按 a
 | profile | users（复用） | 基本资料修改 + 修改密码 |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
 | state_record | appetite_record / myalgia_record / inflammation_record | 食欲/肌肉疼痛/炎症按天记录；三表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
-| agent | agent_conversations（消息在 langgraph 框架表） | LangGraph 多会话/多轮问答；checkpointer 持久化；SSE 流式；会话 CRUD/归属隔离；模型下拉；硬删除 |
+| agent | agent_conversations（消息在 langgraph 框架表） | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；三个只读工具；checkpointer 持久化；SSE 流式（含 tool_start/tool_result）；会话 CRUD/归属隔离；模型下拉；硬删除 |
 
 ## 5. 认证与会话
 
@@ -149,7 +159,7 @@ agent 节点动态选模型、渲染当天 system prompt、`trim_messages` 按 a
 - 状态记录页 `/state-record`：三卡片自上而下纵向堆叠（`three-row-stack`，内容随卡片宽度自适应铺满），依次为月历（阶段三档圆点 + 有记录标记，翻月/选日联动）、「当日状态」三类块（食欲/肌肉疼痛/炎症）就地填写——每块内联星级（五星 + 「0」最低分按钮，未评存空）+ 描述 + 保存，有记录时块内可删除，不再弹新增表单、「全部记录」列表（类型分段筛选 + 勾选跨表批量删除 + 分页，操作列查看详情/编辑/删除，行内「编辑」才弹出表单弹窗）。详情复用公共 `#modalDetail`；无 Excel/JSON/AI 导入入口。页级脚本 `app/static/js/state_record.js`，页级样式 `css/pages/state_record.css`。
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 - 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
-- AI 助手页 `/agent`：工作台左右两栏（会话列表 + 对话区），撑满视口剩余高度。左栏「新建会话」+ 会话项（选中浅灰底、标题蓝绿，hover 出 ✎/✕ 重命名/删除，重命名为行内输入）；右栏顶部会话标题 + 模型下拉，消息区 AI 消息带圆形「AI」标识与描边气泡、用户消息靠右浅灰气泡，底部 textarea（Enter 发送、Shift+Enter 换行、自动增高）+ 发送。流式用 `fetch` POST + `ReadableStream` 手动解析 SSE（EventSource 不支持 POST），处理 start/delta/done/error，发送期间禁用发送/新建，失败回滚乐观气泡并把文本回填输入框可重试。页级脚本 `js/agent.js`、样式 `css/pages/agent.css`，复用 .card/.btn/.input/.select 与 var 令牌，不复制公共逻辑。
+- AI 助手页 `/agent`：工作台左右两栏（会话列表 + 对话区），撑满视口剩余高度。左栏「新建会话」+ 会话项（选中浅灰底、标题蓝绿，hover 出 ✎/✕ 重命名/删除，重命名为行内输入）；右栏顶部会话标题 + 模型下拉，消息区 AI 消息带圆形「AI」标识与描边气泡、用户消息靠右浅灰气泡，底部 textarea（Enter 发送、Shift+Enter 换行、自动增高）+ 发送。流式用 `fetch` POST + `ReadableStream` 手动解析 SSE（EventSource 不支持 POST），处理 start/delta/tool_start/tool_result/done/error，发送期间禁用发送/新建，失败回滚乐观气泡并把文本回填输入框可重试。V2.3 起 AI 气泡内分「工具状态 + 正文 + 明细折叠」：工具调用时显示带脉冲圆点的“正在查询…“，完成后变“已查询“；正文为汇总 + 关键依据，工具返回的记录以 `<details>` 折叠块按需展开、默认收起。页级脚本 `js/agent.js`、样式 `css/pages/agent.css`，复用 .card/.btn/.input/.select 与 var 令牌，不复制公共逻辑。
 
 ### 现有视觉系统与新页面复用
 

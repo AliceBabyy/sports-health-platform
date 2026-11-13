@@ -1,46 +1,66 @@
-"""LangGraph 图：单 agent 节点，消息由 checkpointer 承载。
+"""LangGraph 图：工具循环（V2.3）。
 
-图本身无状态、可复用：系统提示词按当天加载、模型按 config 动态选择；
-PostgresSaver 负责线程状态的加载、重放与持久化。节点不捕获模型异常，
-失败由 service 层捕获并以 SSE error 事件返回，保持消息通道干净。
+结构：START → agent ⇄ tools → END。
+- agent 节点：bind_tools 后的模型，自主决定是否调用只读工具；
+- tools 节点：ToolNode 执行工具，结果作为 ToolMessage 回到 agent；
+- 条件边：agent 最后一条消息带 tool_calls 则继续工具循环，否则结束。
+身份（user_id）由服务端经 config 注入，工具从 config 读取，模型不可填。
 """
 from datetime import date
 
-from langchain_core.messages import SystemMessage, trim_messages
-from langchain_core.runnables import RunnableConfig
-from langgraph.graph import END, START, MessagesState, StateGraph
+from langchain_core.messages import SystemMessage, convert_to_openai_messages
+from langchain_core.messages.utils import trim_messages
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import MessagesState
+from langgraph.prebuilt import ToolNode
 
 from app.ai.models.registry import get_model
 from app.ai.prompts.loader import load_system_prompt
-from config import settings
+from app.modules.agent.tools import ALL_TOOLS
 
-WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
+MAX_HISTORY_MESSAGES = 20
 
 
-async def agent_node(state: MessagesState, config: RunnableConfig) -> dict:
-    model = get_model(config["configurable"].get("model_name"), required="text")
+def _should_continue(state: MessagesState) -> str:
+    last_message = state["messages"][-1]
+    if getattr(last_message, "tool_calls", None):
+        return "tools"
+    return END
+
+
+async def agent_node(state: MessagesState, config) -> dict:
+    model_name = config["configurable"].get("model_name")
+    model = get_model(model_name, required="tools").bind_tools(ALL_TOOLS)
+
     today = date.today()
     system_text = load_system_prompt(
-        "agent_chat.v1",
+        "agent_chat.v2",
         today=today.isoformat(),
-        weekday=WEEKDAYS[today.weekday()],
+        weekday=today.strftime("%A"),
     )
+
     trimmed = trim_messages(
-        state["messages"],
-        max_tokens=settings.agent_context_token_budget,
+        convert_to_openai_messages(state["messages"]),
+        max_tokens=MAX_HISTORY_MESSAGES,
         strategy="last",
-        # 第三方兼容模型未实现 get_num_tokens_from_messages，用内置近似计数（约 4 字符 ≈ 1 token）
-        token_counter="approximate",
-        include_system=False,
+        token_counter=len,
         start_on="human",
+        include_system=True,
     )
     response = await model.ainvoke([SystemMessage(content=system_text), *trimmed])
     return {"messages": [response]}
 
 
-def build_graph(checkpointer) -> StateGraph:
+def build_graph(checkpointer):
     graph = StateGraph(MessagesState)
     graph.add_node("agent", agent_node)
+    graph.add_node("tools", ToolNode(ALL_TOOLS))
+
     graph.add_edge(START, "agent")
-    graph.add_edge("agent", END)
+    graph.add_conditional_edges(
+        "agent",
+        _should_continue,
+        {"tools": "tools", END: END},
+    )
+    graph.add_edge("tools", "agent")
     return graph.compile(checkpointer=checkpointer)

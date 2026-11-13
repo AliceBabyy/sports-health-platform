@@ -17,12 +17,13 @@ class ModelSpec:
 
 # Vision is claimed only for models verified against this endpoint (2026-11-10 probe:
 # qwen3-vl-plus accepted image_url blocks and returned schema-valid JSON).
-# Tool calling stays unclaimed until it proves reliable across models.
+# Tool calling verified end-to-end on 2026-11-13: all four models returned tool_calls
+# with correct args and answered after a ToolMessage (see temp spike, not kept in repo).
 MODELS = {
-    name: ModelSpec(name, frozenset({"text", "structured_output"}))
+    name: ModelSpec(name, frozenset({"text", "structured_output", "tools"}))
     for name in ("deepseek-v4.1-flash", "qwen3.8-flash", "qwen3.8-2.4t-a95b")
 }
-MODELS["qwen3-vl-plus"] = ModelSpec("qwen3-vl-plus", frozenset({"text", "vision", "structured_output"}))
+MODELS["qwen3-vl-plus"] = ModelSpec("qwen3-vl-plus", frozenset({"text", "vision", "structured_output", "tools"}))
 
 
 class ModelConfigurationError(ValueError):

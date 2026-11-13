@@ -27,8 +27,8 @@ NAV_GROUPS = [
         ],
     },
     {"key": "cycle", "url": "/cycle", "label": "生理周期", "short": "周期", "children": []},
-    {"key": "profile", "url": "/profile", "label": "个人信息", "short": "我的", "children": []},
     {"key": "agent", "url": "/agent", "label": "AI助手", "short": "AI", "children": []},
+    {"key": "profile", "url": "/profile", "label": "个人信息", "short": "我的", "children": []},
 ]
 
 PAGE_TITLE = {g["key"]: g["label"] for g in NAV_GROUPS}

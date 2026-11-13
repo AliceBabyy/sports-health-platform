@@ -2,11 +2,12 @@
 
 ## V2.0 AI 基础骨架
 
-V2 路线以项目根 `AIplan.md` 为准。已完成模型骨架、三运动的一次性 AI 导入，
-以及 **V2.2 基础问答**：独立模块 `app/modules/agent/`，页面 `/agent`、API
-`/api/agent`，基于 LangGraph `StateGraph` + `AsyncPostgresSaver` checkpointer，
-支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久化、登录用户隔离；本版不读取
-运动业务数据。后续依次建设真实数据只读工具与查询意图判断（V2.3）、Skill 管理
+V2 路线以项目根 `AIplan.md` 为准。已完成模型骨架、三运动的一次性 AI 导入、
+**V2.2 基础问答**与 **V2.3 数据问答**。Agent 独立模块 `app/modules/agent/`，页面
+`/agent`、API `/api/agent`，基于 LangGraph `StateGraph` + `AsyncPostgresSaver`
+checkpointer，支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久化、登录用户隔离。
+V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用三个**只读工具**查询现有
+业务表后基于事实回答，不新建表、不写数据。后续依次建设 Skill 管理与多角色智能体
 （V2.4）、LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6），这些尚未实现。
 
 AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
@@ -22,7 +23,8 @@ AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 `POST /api/electronic-trainer/probe` 接收 `{"model": "...", "text": "..."}`
 并验证结构化输出。这两个旧命名接口仅用于 V2.0 连接验证，
 不读取运动数据，也不写库；不作为未来 Agent 主功能的路由约定。
-视觉能力只对 `qwen3-vl-plus` 声明（2026-11-10 实测通过），工具调用仍不声明。
+视觉能力只对 `qwen3-vl-plus` 声明（2026-11-10 实测通过）；四个模型的工具调用
+（function calling）已于 2026-11-13 实测通过，capabilities 均含 `tools`。
 
 **AI 导入（2026-11-10）**：健身、游泳、舞蹈三页顶部均有「✦ AI 导入」入口。
 用户填一段文字、可选多张图片（最多 3 张、单张 ≤ 2MB），后端用
@@ -40,9 +42,20 @@ JSON 面板手动修正。
 消息不建消息表，由 checkpointer 在独立 `langgraph` schema 的框架表（checkpoints /
 checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用启动 lifespan
 建池并 `setup()`，按 `thread_id` 自动重放。回复走 SSE 流式（`start/delta/done/error`），
-前端 `fetch` + `ReadableStream` 解析；`trim_messages` 用 approximate 字符预算裁剪上下文；
-会话硬删除、历史永久保留、首条消息前 12 字自动标题、会话级模型下拉。checkpointer 用
-psycopg3 异步，ORM 仍用 psycopg2；Windows 下启动前切换 `WindowsSelectorEventLoopPolicy`。
+前端 `fetch` + `ReadableStream` 解析；`trim_messages` 用 `token_counter=len` 按消息条数
+（上限 20）裁剪上下文；会话硬删除、历史永久保留、首条消息前 12 字自动标题、会话级模型
+下拉。checkpointer 用 psycopg3 异步，ORM 仍用 psycopg2；Windows 下启动前切换
+`WindowsSelectorEventLoopPolicy`。
+
+**V2.3 数据问答（2026-11-13）**：图从线性单节点升级为工具循环——`START → agent ⇄ tools
+→ END`，`agent` 用 `bind_tools` 后的模型，条件边按 `tool_calls` 决定进 `ToolNode` 还是
+结束，`recursion_limit=10` 防无限循环。工具集中在 `app/modules/agent/tools/`：
+`get_workout_summary`（时间范围内运动汇总，复用 overview 口径）、`get_recent_swims`
+（最近 N 次游泳，复用 swim 配速/划频）、`get_body_measurements`（身材实测趋势，复用 body
+跨表口径，未测量日期不补值）。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具
+内部用独立短 session；护栏为最大跨度 366 天、最近 N 上限 20；工具全部只读、不接受模型 SQL。
+SSE 新增 `tool_start/tool_result`（`stream_mode=["messages","updates"]`），气泡显示“正在查询…“，
+回答为汇总 + 关键依据、明细折叠。本版无数据库结构变更、不引入 Redis/pgvector。
 
 安装依赖：`uv sync --extra dev`。
 

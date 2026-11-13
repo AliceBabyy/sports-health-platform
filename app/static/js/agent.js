@@ -47,7 +47,7 @@
       return '<div class="msg-row assistant">' +
         '<div class="msg-avatar">AI</div>' +
         '<div class="msg-body"><div class="msg-bubble' + (isStreaming ? ' streaming' : '') + '">' +
-        App.escapeHtml(content) + '</div></div></div>';
+        renderMarkdown(content) + '</div></div></div>';
     }
     return '<div class="msg-row user"><div class="msg-body"><div class="msg-bubble">' +
       App.escapeHtml(content) + '</div></div></div>';
@@ -175,6 +175,137 @@
     }
   }
 
+  /* ---------- 安全的极简 Markdown 渲染（先转义，后白名单替换，无 XSS） ---------- */
+  function splitMdRow(rowStr) {
+    let s = rowStr.trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|")) s = s.slice(0, -1);
+    return s.split("|").map(c => c.trim());
+  }
+
+  function isTableSep(s) {
+    return s.includes("-") && /^[\s:|-]+$/.test(s);
+  }
+
+  function inlineMd(s) {
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    return s;
+  }
+
+  function renderMarkdown(src) {
+    const lines = App.escapeHtml(src).split("\n");
+    const out = [];
+    let i = 0;
+    let list = null;
+    const closeList = () => { if (list) { out.push("</" + list + ">"); list = null; } };
+
+    while (i < lines.length) {
+      const t = lines[i].trim();
+
+      if (t.startsWith("|") && i + 1 < lines.length && isTableSep(lines[i + 1].trim())) {
+        closeList();
+        const header = splitMdRow(t);
+        i += 2;
+        const body = [];
+        while (i < lines.length && lines[i].trim().startsWith("|")) {
+          body.push(splitMdRow(lines[i].trim()));
+          i++;
+        }
+        let table = '<table class="md-table"><thead><tr>' +
+          header.map(c => "<th>" + inlineMd(c) + "</th>").join("") + "</tr></thead>";
+        if (body.length) {
+          table += "<tbody>" + body.map(r =>
+            "<tr>" + r.map(c => "<td>" + inlineMd(c) + "</td>").join("") + "</tr>").join("") + "</tbody>";
+        }
+        out.push(table + "</table>");
+        continue;
+      }
+
+      const h = /^(#{1,4})\s+(.*)$/.exec(t);
+      if (h) {
+        closeList();
+        out.push("<h" + h[1].length + ' class="md-h">' + inlineMd(h[2]) + "</h" + h[1].length + ">");
+        i++;
+        continue;
+      }
+
+      if (/^[-•]\s+/.test(t)) {
+        if (list !== "ul") { closeList(); out.push('<ul class="md-ul">'); list = "ul"; }
+        out.push("<li>" + inlineMd(t.replace(/^[-•]\s+/, "")) + "</li>");
+        i++;
+        continue;
+      }
+
+      if (/^\d+[.)]\s+/.test(t)) {
+        if (list !== "ol") { closeList(); out.push('<ol class="md-ol">'); list = "ol"; }
+        out.push("<li>" + inlineMd(t.replace(/^\d+[.)]\s+/, "")) + "</li>");
+        i++;
+        continue;
+      }
+
+      if (t === "") { closeList(); i++; continue; }
+
+      closeList();
+      out.push('<p class="md-p">' + inlineMd(t) + "</p>");
+      i++;
+    }
+    closeList();
+    return out.join("");
+  }
+
+  /* ---------- 工具状态与明细 ---------- */
+  const TOOL_LABELS = {
+    get_workout_summary: "运动汇总",
+    get_recent_swims: "游泳记录",
+    get_body_measurements: "身材数据",
+  };
+
+  function fmtDuration(s) {
+    if (s == null) return "—";
+    return Math.floor(s / 60) + "分" + (s % 60) + "秒";
+  }
+
+  function detailTable(headers, rows) {
+    const head = headers.map(h => "<th>" + App.escapeHtml(h) + "</th>").join("");
+    const body = rows.map(r =>
+      "<tr>" + r.map(c => "<td>" + (c == null ? "—" : App.escapeHtml(String(c))) + "</td>").join("") + "</tr>"
+    ).join("");
+    return '<table class="detail-table"><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+  }
+
+  function renderToolDetail(run) {
+    const d = run.data;
+    if (!d) return null;
+    const details = document.createElement("details");
+    details.className = "tool-detail";
+    let summaryText = run.label;
+    let inner = "";
+
+    if (run.tool === "get_workout_summary") {
+      summaryText += "明细（" + d.range.start + " ~ " + d.range.end + "）";
+      const labels = d.sport_labels || {};
+      const rows = Object.keys(d.per_sport).map(k => {
+        const s = d.per_sport[k];
+        return [labels[k] || k, s.records, s.plans, s.minutes, s.kcal];
+      });
+      rows.push(["合计", d.total.records, d.total.plans, d.total.minutes, d.total.kcal]);
+      inner = detailTable(["运动", "记录", "计划", "时长(分)", "热量(千卡)"], rows);
+    } else if (run.tool === "get_recent_swims") {
+      summaryText += "（最近 " + d.count + " 次）";
+      const rows = d.records.map(r => [
+        r.date, r.distance_m, fmtDuration(r.duration_s), r.pace_min_per_100m, r.avg_stroke_rate, r.main_stroke,
+      ]);
+      inner = detailTable(["日期", "距离(m)", "时长", "配速", "划频", "泳姿"], rows);
+    } else if (run.tool === "get_body_measurements") {
+      summaryText = d.label + "趋势（" + d.sample_count + " 个测量点）";
+      inner = detailTable(["日期", d.label + "(" + d.unit + ")"], d.points.map(p => [p.date, p.value]));
+    }
+
+    details.innerHTML = "<summary>" + App.escapeHtml(summaryText) + "</summary><div class='detail-body'>" + inner + "</div>";
+    return details;
+  }
+
   /* ---------- SSE 帧解析 ---------- */
   function parseFrame(raw) {
     let event = "message";
@@ -207,6 +338,10 @@
     const userNode = appendBubble("user", text);
     const aiNode = appendBubble("assistant", "", true);
     const aiBubble = aiNode.querySelector(".msg-bubble");
+    aiBubble.innerHTML = '<div class="tool-trace"></div><div class="msg-text"></div>';
+    const toolTrace = aiBubble.querySelector(".tool-trace");
+    const textEl = aiBubble.querySelector(".msg-text");
+    const toolRuns = [];
     els.chatInput.value = "";
     autoGrow();
     setStreamingUI(true);
@@ -238,9 +373,27 @@
         buffer = frames.pop();
         frames.forEach(frame => {
           const evt = parseFrame(frame);
-          if (evt.event === "delta") {
+          if (evt.event === "tool_start") {
+            const label = TOOL_LABELS[evt.data.tool] || evt.data.tool;
+            const line = document.createElement("div");
+            line.className = "tool-line loading";
+            line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
+            line.querySelector(".tool-name").textContent = "正在查询" + label + "…";
+            toolTrace.appendChild(line);
+            toolRuns.push({ tool: evt.data.tool, label, line, data: null });
+            scrollBottom();
+          } else if (evt.event === "tool_result") {
+            const run = toolRuns.find(r => r.data === null);
+            if (run) {
+              run.data = evt.data.data;
+              run.line.classList.remove("loading");
+              run.line.classList.add("done");
+              run.line.querySelector(".tool-name").textContent = "已查询" + run.label;
+            }
+            scrollBottom();
+          } else if (evt.event === "delta") {
             acc += evt.data.content;
-            aiBubble.textContent = acc;
+            textEl.innerHTML = renderMarkdown(acc);
             scrollBottom();
           } else if (evt.event === "error") {
             failure = evt.data.message || "生成失败";
@@ -264,6 +417,11 @@
       autoGrow();
       App.toast(failure, true);
     } else {
+      if (!acc) textEl.remove();
+      toolRuns.forEach(run => {
+        const detail = renderToolDetail(run);
+        if (detail) aiBubble.appendChild(detail);
+      });
       els.chatTitle.textContent = conv.title;
       renderSessions();
     }

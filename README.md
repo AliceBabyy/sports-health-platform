@@ -2,11 +2,11 @@
 
 ## V2.0 AI 基础骨架
 
-V2 路线以项目根 `AIplan.md` 为准。已完成模型骨架、三运动的一次性 AI 导入、
+V2 路线以 `docs/AIplan.md` 为准。已完成模型骨架、三运动的一次性 AI 导入、
 **V2.2 基础问答**与 **V2.3 数据问答**。Agent 独立模块 `app/modules/agent/`，页面
 `/agent`、API `/api/agent`，基于 LangGraph `StateGraph` + `AsyncPostgresSaver`
 checkpointer，支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久化、登录用户隔离。
-V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用三个**只读工具**查询现有
+V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用 8 个**只读工具**查询现有
 业务表后基于事实回答，不新建表、不写数据。后续依次建设 Skill 管理与多角色智能体
 （V2.4）、LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6），这些尚未实现。
 
@@ -18,7 +18,8 @@ AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 不能直接作为 OpenAI 兼容客户端的 `base_url`。
 
 `app/ai/models/` 管模型注册，`app/ai/prompts/` 管版本化文件提示词，
-`app/ai/runtime/` 管调用和结构化校验，`app/ai/tools/` 预留领域工具适配。
+`app/ai/runtime/` 管调用和结构化校验，`app/ai/tools/` 预留外部工具适配入口
+（Agent 的只读业务工具在 `app/modules/agent/tools/`）。
 受登录保护的 `GET /api/electronic-trainer/models` 返回已注册模型；
 `POST /api/electronic-trainer/probe` 接收 `{"model": "...", "text": "..."}`
 并验证结构化输出。这两个旧命名接口仅用于 V2.0 连接验证，
@@ -45,17 +46,23 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 前端 `fetch` + `ReadableStream` 解析；`trim_messages` 用 `token_counter=len` 按消息条数
 （上限 20）裁剪上下文；会话硬删除、历史永久保留、首条消息前 12 字自动标题、会话级模型
 下拉。checkpointer 用 psycopg3 异步，ORM 仍用 psycopg2；Windows 下启动前切换
-`WindowsSelectorEventLoopPolicy`。
+`WindowsSelectorEventLoopPolicy`。2026-11-13 前端改版：整页白底无卡片、会话侧栏细线分隔且可
+收起，空会话居中欢迎页与输入框，进入页面默认新会话（首条消息发送时才惰性建会话）。
 
-**V2.3 数据问答（2026-11-13）**：图从线性单节点升级为工具循环——`START → agent ⇄ tools
-→ END`，`agent` 用 `bind_tools` 后的模型，条件边按 `tool_calls` 决定进 `ToolNode` 还是
-结束，`recursion_limit=10` 防无限循环。工具集中在 `app/modules/agent/tools/`：
-`get_workout_summary`（时间范围内运动汇总，复用 overview 口径）、`get_recent_swims`
-（最近 N 次游泳，复用 swim 配速/划频）、`get_body_measurements`（身材实测趋势，复用 body
-跨表口径，未测量日期不补值）。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具
-内部用独立短 session；护栏为最大跨度 366 天、最近 N 上限 20；工具全部只读、不接受模型 SQL。
-SSE 新增 `tool_start/tool_result`（`stream_mode=["messages","updates"]`），气泡显示“正在查询…“，
-回答为汇总 + 关键依据、明细折叠。本版无数据库结构变更、不引入 Redis/pgvector。
+**V2.3 数据问答（2026-11-13；2026-11-14 覆盖全部模块）**：图从线性单节点升级为工具循环——
+`START → agent ⇄ tools → END`，`agent` 用 `bind_tools` 后的模型，条件边按 `tool_calls` 决定进
+`ToolNode` 还是结束，`recursion_limit=10` 防无限循环。工具集中在 `app/modules/agent/tools/`，
+按业务域注册 8 个只读工具：`get_workout_summary`（跨三运动汇总，复用 overview 口径）、
+`get_fitness_records`（健身明细含动作与容量）、`get_swim_records`（游泳明细含配速/划频）、
+`get_dance_records`（舞蹈明细）、`get_body_measurements`（身材 4 组，`metric=all` 取整表或单指标趋势，
+未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症）、`get_cycle_records`
+（参考值 + 月经记录 + 每日疼痛 + 今日阶段）、`get_profile_info`（昵称/性别/年龄，不含密码）。
+取数范围由模型按用户意图决定：`days_back`、`start_date + end_date`、`limit` 均可选，
+**不传任何范围参数即取全部历史**，已移除原 366 天 / 20 条硬上限；一次拉全量或只拉最近几次
+都由意图决定。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具内部用独立短 session；
+工具全部只读、不接受模型 SQL，参数只保留日期范围、条数与枚举。SSE 新增
+`tool_start/tool_result`（`stream_mode=["messages","updates"]`），气泡显示“正在查询…“，
+回答为汇总 + 关键依据、明细折叠（最多渲染 50 行）。本版无数据库结构变更、不引入 Redis/pgvector。
 
 安装依赖：`uv sync --extra dev`。
 
@@ -70,7 +77,7 @@ V1 范围：注册/登录认证 + 模块（身材数据 BD / 状态记录 SR / �
 > - 侧边栏改为分组结构：身材数据 / 运动训练·计划（健身、游泳、舞蹈）/ 生理周期 / 个人信息；
 >   总览页 `/overview` 取代原「本周/本月一览」占位菜单。
 > - 数据层：三运动统一 `{sport}_records` 主表与 `{sport}_notes` 心得表，必备列和外键见
->   《数据库建表设计.md》。健身另有 `training_records_items` 动作明细。现有库运行
+>   [`数据库建表设计.md`](docs/数据库建表设计.md)。健身另有 `training_records_items` 动作明细。现有库运行
 >   `scripts/migrate_sport_contract.py`，迁移保留原有数据与模块专属字段。
 > - 接口：新增 `GET /api/overview?granularity=day|week|month&date=`（跨运动聚合）与
 >   `GET /api/overview/day?date=`（单日详情）；swim/dance 新增 `GET /api/swim-records|dance-records/daily?date=`；
@@ -200,7 +207,7 @@ sports-health-platform/
   新增记录未填字段自动沿用该字段最近一次非空值；同日同组重复保存只覆盖当日已提交字段
 - 趋势四档：week=本周周一~周日 7 点当日值；month=本月每日；half_year=近 6 个月每月 1/10/20 号、窗口 [锚点-10 天,锚点] 11 天均值；year=近 12 个月每月 1/15 号、窗口 [锚点-15 天,锚点] 16 天均值；无记录断线不插值；基础+围度 11 维可趋势，目标值不参与
 - 训练负荷宽松化：动作名称必填，部位/重量/组数/每组个数可空；每组个数为字符串（如 "10+8+6"），容量 = Σ 重量×组数×个数首段数字；期望突破重量计划/记录均可填；重量与目标重量（含身材体重/目标体重）取任意数值、保留两位小数，不做范围限值（仅组数 1~99）
-- 新运动模块的统一必填项：计划态和记录态均需日期；其他必填业务字段及默认展示以 `ARCHITECTURE.md` 的需求确认清单为准，现有三模块规则不直接套用于新模块。
+- 新运动模块的统一必填项：计划态和记录态均需日期；其他必填业务字段及默认展示以 [`SPORT_MODULE_GUIDELINES.md`](docs/SPORT_MODULE_GUIDELINES.md) 的需求确认清单为准，现有三模块规则不直接套用于新模块。
 - 三运动页共用可收缩双栏；表格宽于卡片时只在表格区域横向滚动，健身动作表和编辑弹窗的动作字段同样如此。
 - 弹窗填写框（2026-11-10 统一）：所有弹窗内的多行文本框随内容行数自动增高，初始高度由 `rows` 决定，长到 `min(300px, 42vh)` 后在框内滚动；删空内容会缩回初始高度。实现见 `app/static/js/common.js` 的 `autoGrowTextareas` 与 `app/static/css/base.css` 的 `.modal textarea`。
 - 七阶段（2026-11-12 分段推算）：月经记录只存起止日期——经期长度 = 结束日 − 开始日 + 1（未填结束日为 null），周期长度 = 下一条记录开始日 − 本条开始日（无下一条为 null），两个值均实时派生、不落库；阶段以「段」为唯一计算单元，段内排卵日 = 段长 − 14（黄体固定 14 天），卵泡期随段长伸缩；排卵后 1~2 天排卵后期、3~6 天黄体前期、7~10 天黄体中期、11~14 天黄体后期
@@ -256,3 +263,7 @@ sports-health-platform/
 - 默认账号：admin / admin123（生产部署前请修改，见 scripts/init_db.py 参数）
 - 数据库：本地 PostgreSQL `sports-health-platform`（连接信息见 sh-database Skill）
 - 图表：echarts 5.5.1（本地 vendor，无外网依赖）；彩带特效为自研轻量 confetti.js（无外部 CDN）
+
+
+
+

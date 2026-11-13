@@ -1,20 +1,41 @@
 /* AI Agent 前端：会话管理、消息渲染、fetch + ReadableStream 手动解析 SSE（EventSource 不支持 POST） */
 (function () {
   const conversations = [...window.INIT_CONVERSATIONS];
-  let currentId = conversations.length ? conversations[0].id : null;
+  // 进入页面默认停留在一个新会话窗口，不自动选中历史会话；首条消息发送时才惰性创建后端会话
+  let currentId = null;
   let streaming = false;
   let lastUserText = "";
 
+  const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
+
   const els = {
+    workbench: document.getElementById("agentWorkbench"),
     sessionList: document.getElementById("sessionList"),
     btnNewChat: document.getElementById("btnNewChat"),
+    btnToggleSessions: document.getElementById("btnToggleSessions"),
     chatTitle: document.getElementById("chatTitle"),
     chatModel: document.getElementById("chatModel"),
     messageScroll: document.getElementById("messageScroll"),
     messageList: document.getElementById("messageList"),
+    chatWelcome: document.getElementById("chatWelcome"),
+    welcomeTitle: document.getElementById("welcomeTitle"),
     chatInput: document.getElementById("chatInput"),
     btnSend: document.getElementById("btnSend"),
   };
+
+  /* ---------- 欢迎语 ---------- */
+  function greeting() {
+    const h = new Date().getHours();
+    if (h < 6) return "夜深了";
+    if (h < 11) return "上午好";
+    if (h < 14) return "中午好";
+    if (h < 18) return "下午好";
+    return "晚上好";
+  }
+
+  function syncWelcome(show) {
+    els.chatWelcome.style.display = show ? "" : "none";
+  }
 
   function current() {
     return conversations.find(c => c.id === currentId) || null;
@@ -70,16 +91,19 @@
 
   async function loadMessages(conv) {
     if (!conv) {
-      els.messageList.innerHTML = '<div class="chat-empty">左侧新建或选择一个会话开始对话</div>';
+      els.messageList.innerHTML = "";
+      syncWelcome(true);
       return;
     }
     try {
       const res = await App.api("/api/agent/conversations/" + conv.id + "/messages");
       if (!res.messages.length) {
-        els.messageList.innerHTML = '<div class="chat-empty">开始你的第一条消息吧</div>';
+        els.messageList.innerHTML = "";
+        syncWelcome(true);
         return;
       }
       els.messageList.innerHTML = res.messages.map(m => bubbleHtml(m.role, m.content, false)).join("");
+      syncWelcome(false);
       scrollBottom();
     } catch (err) {
       App.toast(err.message, true);
@@ -90,21 +114,35 @@
     if (streaming) { App.toast("请等待当前回复完成"); return; }
     currentId = id;
     const conv = current();
-    els.chatTitle.textContent = conv ? conv.title : "新会话";
+    els.chatTitle.textContent = conv ? conv.title : "";
     syncModelSelect(conv);
     renderSessions();
     await loadMessages(conv);
   }
 
   /* ---------- 新建 / 重命名 / 删除 ---------- */
+  async function createConversation() {
+    const conv = await App.api("/api/agent/conversations", {
+      method: "POST",
+      body: { model_name: els.chatModel.value || null },
+    });
+    conversations.push(conv);
+    renderSessions();
+    return conv;
+  }
+
+  async function ensureConversation() {
+    const conv = current();
+    if (conv) return conv;
+    const created = await createConversation();
+    currentId = created.id;
+    return created;
+  }
+
   async function newChat() {
     if (streaming) return;
     try {
-      const conv = await App.api("/api/agent/conversations", {
-        method: "POST",
-        body: { model_name: els.chatModel.value || null },
-      });
-      conversations.push(conv);
+      const conv = await createConversation();
       await selectConversation(conv.id);
     } catch (err) {
       App.toast(err.message, true);
@@ -165,7 +203,7 @@
       if (currentId === id) {
         currentId = conversations.length ? conversations[0].id : null;
         const c = current();
-        els.chatTitle.textContent = c ? c.title : "新会话";
+        els.chatTitle.textContent = c ? c.title : "";
         syncModelSelect(c);
         await loadMessages(c);
       }
@@ -257,13 +295,34 @@
   /* ---------- 工具状态与明细 ---------- */
   const TOOL_LABELS = {
     get_workout_summary: "运动汇总",
-    get_recent_swims: "游泳记录",
+    get_fitness_records: "健身记录",
+    get_swim_records: "游泳记录",
+    get_dance_records: "舞蹈记录",
     get_body_measurements: "身材数据",
+    get_state_records: "状态记录",
+    get_cycle_records: "生理周期",
+    get_profile_info: "个人资料",
   };
+
+  // 明细只做展示：全量结果可能很长，表格最多铺 50 行，其余交给正文结论
+  const MAX_DETAIL_ROWS = 50;
 
   function fmtDuration(s) {
     if (s == null) return "—";
     return Math.floor(s / 60) + "分" + (s % 60) + "秒";
+  }
+
+  function fmtStatus(s) {
+    if (s === "planned") return "计划";
+    if (s === "recorded") return "记录";
+    return s == null ? "—" : String(s);
+  }
+
+  function rangeLabel(d) {
+    const r = d && d.range;
+    if (!r) return "";
+    if (!r.start && !r.end) return "（全部历史）";
+    return "（" + (r.start || "—") + " ~ " + (r.end || "—") + "）";
   }
 
   function detailTable(headers, rows) {
@@ -274,32 +333,91 @@
     return '<table class="detail-table"><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table>";
   }
 
+  function cappedTable(headers, rows) {
+    const shown = rows.slice(0, MAX_DETAIL_ROWS);
+    const more = rows.length > MAX_DETAIL_ROWS
+      ? '<p class="detail-more">共 ' + rows.length + " 条，此处仅展示前 " + MAX_DETAIL_ROWS + " 条</p>"
+      : "";
+    return detailTable(headers, shown) + more;
+  }
+
   function renderToolDetail(run) {
     const d = run.data;
-    if (!d) return null;
+    if (!d || typeof d !== "object") return null;
     const details = document.createElement("details");
     details.className = "tool-detail";
     let summaryText = run.label;
     let inner = "";
 
     if (run.tool === "get_workout_summary") {
-      summaryText += "明细（" + d.range.start + " ~ " + d.range.end + "）";
+      summaryText += "明细" + rangeLabel(d);
       const labels = d.sport_labels || {};
-      const rows = Object.keys(d.per_sport).map(k => {
-        const s = d.per_sport[k];
+      const per = d.per_sport || {};
+      const rows = Object.keys(per).map(k => {
+        const s = per[k];
         return [labels[k] || k, s.records, s.plans, s.minutes, s.kcal];
       });
-      rows.push(["合计", d.total.records, d.total.plans, d.total.minutes, d.total.kcal]);
+      if (d.total) rows.push(["合计", d.total.records, d.total.plans, d.total.minutes, d.total.kcal]);
       inner = detailTable(["运动", "记录", "计划", "时长(分)", "热量(千卡)"], rows);
-    } else if (run.tool === "get_recent_swims") {
-      summaryText += "（最近 " + d.count + " 次）";
-      const rows = d.records.map(r => [
-        r.date, r.distance_m, fmtDuration(r.duration_s), r.pace_min_per_100m, r.avg_stroke_rate, r.main_stroke,
+    } else if (run.tool === "get_fitness_records") {
+      summaryText += "明细" + rangeLabel(d) + "（" + (d.count || 0) + " 条）";
+      const rows = (d.records || []).map(r => [
+        r.date, fmtStatus(r.status), r.item_count, r.total_sets, r.total_volume,
+        fmtDuration(r.duration_s), r.remark || r.body_parts_summary || "—",
       ]);
-      inner = detailTable(["日期", "距离(m)", "时长", "配速", "划频", "泳姿"], rows);
+      inner = cappedTable(["日期", "状态", "动作数", "总组数", "容量(kg)", "时长", "备注"], rows);
+    } else if (run.tool === "get_swim_records") {
+      summaryText += "明细" + rangeLabel(d) + "（" + (d.count || 0) + " 条）";
+      const rows = (d.records || []).map(r => [
+        r.date, fmtStatus(r.status), r.distance_m, fmtDuration(r.duration_s),
+        r.pace, r.avg_stroke_rate, r.main_stroke_label || r.main_stroke, r.calories,
+      ]);
+      inner = cappedTable(["日期", "状态", "距离(m)", "时长", "配速", "划频", "泳姿", "热量"], rows);
+    } else if (run.tool === "get_dance_records") {
+      summaryText += "明细" + rangeLabel(d) + "（" + (d.count || 0) + " 条）";
+      const rows = (d.records || []).map(r => [
+        r.date, fmtStatus(r.status), r.dance_type, r.teacher, r.style,
+        fmtDuration(r.duration_s), r.stars, r.calories,
+      ]);
+      inner = cappedTable(["日期", "状态", "舞种", "老师", "风格", "时长", "评分", "热量"], rows);
     } else if (run.tool === "get_body_measurements") {
-      summaryText = d.label + "趋势（" + d.sample_count + " 个测量点）";
-      inner = detailTable(["日期", d.label + "(" + d.unit + ")"], d.points.map(p => [p.date, p.value]));
+      if (d.mode === "all") {
+        const labels = d.metric_labels || {};
+        const units = d.metric_units || {};
+        const keys = [];
+        (d.rows || []).forEach(r => {
+          Object.keys(r.values || {}).forEach(k => { if (!keys.includes(k)) keys.push(k); });
+        });
+        const headers = ["日期"].concat(keys.map(k => (labels[k] || k) + "(" + (units[k] || "") + ")"));
+        const rows = (d.rows || []).map(r => [r.date].concat(keys.map(k => r.values[k])));
+        summaryText = "身材记录" + rangeLabel(d) + "（" + (d.count || 0) + " 天）";
+        inner = cappedTable(headers, rows);
+      } else {
+        summaryText = (d.label || "身材") + "趋势" + rangeLabel(d) + "（" + (d.sample_count || 0) + " 个测量点）";
+        inner = cappedTable(["日期", (d.label || "指标") + "(" + (d.unit || "") + ")"],
+          (d.points || []).map(p => [p.date, p.value]));
+      }
+    } else if (run.tool === "get_state_records") {
+      summaryText += "明细" + rangeLabel(d) + "（" + (d.count || 0) + " 条）";
+      const rows = (d.records || []).map(r => [
+        r.date, r.type_label, (r.star == null ? "未评" : r.star), r.remark || "—",
+      ]);
+      inner = cappedTable(["日期", "类型", "星级", "描述"], rows);
+    } else if (run.tool === "get_cycle_records") {
+      const t = d.today;
+      summaryText += t && t.phase_label ? "（今日·" + t.phase_label + "）" : rangeLabel(d);
+      const periodRows = (d.periods || []).map(p => [p.start_date, p.end_date, p.period_length, p.cycle_length]);
+      const painRows = (d.pain_logs || []).map(p => [p.date, p.pain_level]);
+      inner = '<p class="detail-sub">月经记录（' + (d.period_count || 0) + " 条）</p>" +
+        cappedTable(["开始日", "结束日", "经期(天)", "周期(天)"], periodRows) +
+        '<p class="detail-sub">每日疼痛（' + (d.pain_count || 0) + " 条）</p>" +
+        cappedTable(["日期", "等级(0~3)"], painRows);
+    } else if (run.tool === "get_profile_info") {
+      summaryText = "基本信息";
+      inner = detailTable(["项目", "值"], [
+        ["昵称", d.display_name], ["性别", d.gender], ["年龄", d.age],
+        ["账号状态", d.status], ["注册时间", d.created_at],
+      ]);
     }
 
     details.innerHTML = "<summary>" + App.escapeHtml(summaryText) + "</summary><div class='detail-body'>" + inner + "</div>";
@@ -329,12 +447,20 @@
   }
 
   async function send() {
-    const conv = current();
-    if (!conv || streaming) return;
+    if (streaming) return;
     const text = els.chatInput.value.trim();
     if (!text) return;
 
+    let conv;
+    try {
+      conv = await ensureConversation();
+    } catch (err) {
+      App.toast(err.message, true);
+      return;
+    }
+
     lastUserText = text;
+    syncWelcome(false);
     const userNode = appendBubble("user", text);
     const aiNode = appendBubble("assistant", "", true);
     const aiBubble = aiNode.querySelector(".msg-bubble");
@@ -413,6 +539,7 @@
     if (failure) {
       userNode.remove();
       aiNode.remove();
+      if (!els.messageList.children.length) syncWelcome(true);
       els.chatInput.value = lastUserText;
       autoGrow();
       App.toast(failure, true);
@@ -434,15 +561,27 @@
     el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }
 
+  /* ---------- 会话侧栏收起 / 展开 ---------- */
+  function applySidebar(collapsed) {
+    els.workbench.classList.toggle("sessions-collapsed", collapsed);
+  }
+
   /* ---------- 初始化 ---------- */
   function init() {
     renderSessions();
     const c = current();
-    els.chatTitle.textContent = c ? c.title : "新会话";
+    els.chatTitle.textContent = "";
     syncModelSelect(c);
+    els.welcomeTitle.textContent = greeting() + "，我能帮什么忙吗？";
     loadMessages(c);
+    applySidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
 
     els.btnNewChat.addEventListener("click", newChat);
+    els.btnToggleSessions.addEventListener("click", () => {
+      const collapsed = els.workbench.classList.contains("sessions-collapsed");
+      localStorage.setItem(SIDEBAR_KEY, collapsed ? "0" : "1");
+      applySidebar(!collapsed);
+    });
     els.btnSend.addEventListener("click", send);
     els.chatInput.addEventListener("input", autoGrow);
     els.chatInput.addEventListener("keydown", e => {

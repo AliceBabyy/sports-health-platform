@@ -1,55 +1,12 @@
 # 体序 BODY ALMANAC · 架构说明
 
-## AI 基础设施与导入
+## 文档范围
 
-V1 的页面/API 双轨和业务服务层保持不变。新增 `app/ai/models/`、
-`app/ai/prompts/`、`app/ai/runtime/`，分别负责 OpenAI 兼容模型选择、
-文件提示词版本、LangChain 调用与结构化校验。`app/modules/electronic_trainer/`
-目前承载模型探针与 AI 导入编排；三运动模块的 `ai_profile.py` 维护各自
-的输出结构、规范化、校验与落库适配。
+本文档描述当前已实现的系统宏观架构、技术栈、业务模块、共同契约、数据层、目录结构和运维方式。AI 的详细架构、功能清单、工具注册和开发契约见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)；前端规范见 [FRONTEND_GUIDELINES.md](FRONTEND_GUIDELINES.md)；运动模块规范见 [SPORT_MODULE_GUIDELINES.md](SPORT_MODULE_GUIDELINES.md)。业务字段和数据库明细见《数据库建表设计.md》，AI 版本规划和未实现设想见 [AIplan.md](AIplan.md)。
 
-四个已注册模型使用相同 `AI_API_KEY`、`AI_BASE_URL`，默认地址为
-`https://cn-beijing.maas.qianwenaiapi.com/compatible-mode/v1`。
-`deepseek-v4.1-flash` 给出的 DashScope 原生 `/api/v1` 地址不用于
-OpenAI 兼容客户端。模型能力以注册表显式声明；视觉只对 `qwen3-vl-plus` 声明
-（2026-11-10 实测），工具调用暂不声明。
-`/api/electronic-trainer/models` 和 `/probe` 使用现有登录门禁，
-验证配置、提示词和结构化响应；探针不查询健康数据，也不持久化对话。
-AI 基础设施和导入未新增 ORM 模型、数据库表或迁移。
+## AI 子模块概述
 
-**AI 导入链路（2026-11-10）**：`POST /api/{sport}/ai-import`（multipart：
-`prompt` + 多张 `images`）→ `electronic_trainer/ai_import.py::run_import`
-（校验图片、选模型、载入提示词、调用、规范化、校验、落库）→
-`app/ai/runtime/invoke.py::invoke_ai_import`（`with_structured_output(..., method="json_schema", strict=True)`，
-输出结构由服务端解码期强制）。各运动模块的 `ai_profile.py` 提供输出模型、
-`normalize`、`validate`（复用 `json_import.validate_*`）与 `persist`
-（复用 `json_import.persist_valid_*` / `service`）。导入数据统一 `recorded`；
-不反向调用 `/import-json`，也不引入新的数据表。提示词只有 `{today}`、`{weekday}`
-两个变量，正文不写 JSON 结构。
-
-**V2.2 AI Agent 基础问答（2026-11-12）**：独立模块 `app/modules/agent/`，全链路
-agent 命名（页面 `/agent`、API `/api/agent`、表、模板、静态资源、提示词）。核心是
-LangGraph `StateGraph(MessagesState)` 线性图（START→agent→END）+ `AsyncPostgresSaver`
-checkpointer：会话元数据存 `agent_conversations`，**消息不建消息表**，由 checkpointer
-在独立 `langgraph` schema 的 4 张框架表承载，按 `thread_id` 自动加载/重放/持久化。
-agent 节点动态选模型、渲染当天 system prompt、`trim_messages` 按 `token_counter=len`
-（消息条数，上限 20）裁剪后 `ainvoke`。输出 SSE 流式（`start/delta/done/error`），
-前端 `fetch` + `ReadableStream` 手动解析。checkpointer 用 psycopg3 异步，ORM 仍用
-psycopg2；lifespan 统一管理连接池/建表/图的装配与关闭，Windows 下启动前切换
-`WindowsSelectorEventLoopPolicy`。本版不读取运动业务数据，不引入 Redis、pgvector。
-
-**V2.3 数据问答（2026-11-13）**：图升级为工具循环——`START → agent ⇄ tools → END`。
-`agent` 节点用 `bind_tools` 后的模型，条件边判断最后一条消息是否带 `tool_calls`：有则进
-`ToolNode`（`tools` 节点）执行、结果作为 `ToolMessage` 回到 agent 再判断，无则 END；
-`recursion_limit=10` 限制循环轮数。`MessagesState` 不扩展，工具消息随 checkpointer 持久化。
-只读工具集中在 `app/modules/agent/tools/`（`queries.py` 受控查询 + `definitions.py` @tool
-包装）：`get_workout_summary`、`get_recent_swims`、`get_body_measurements`，复用 overview/
-swim/body 的现有口径，不重写统计。`user_id` 经 `RunnableConfig` 注入（模型不可填、不可伪造），
-工具内部用独立短 session；护栏 366 天 / 20 条由代码强制，工具只读、不接受模型 SQL。
-SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`。本版无结构变更。
-
-> 本文件描述当前实现层面的结构，业务口径详见 README「需求口径」与《数据库建表设计.md》。
-
+项目 AI 能力由模型注册与调用、提示词管理、结构化 AI 导入、AI Agent 会话和只读数据工具组成。相关能力位于 `app/ai/`、`app/modules/electronic_trainer/` 和 `app/modules/agent/`，使用独立的 AI 运行时与 LangGraph checkpointer；详细实现见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。AI 功能不改变现有业务表结构；Agent 消息由 `langgraph` schema 中的 checkpointer 表持久化，会话元数据由 `agent_conversations` 保存。
 ## 1. 技术栈
 
 - **后端**：FastAPI（SSR 单体）+ SQLAlchemy 2.0（Mapped 声明式）+ PostgreSQL；ORM 用 psycopg2，AI Agent checkpointer 用 psycopg3 异步 + LangGraph
@@ -57,7 +14,7 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
 - **认证**：服务端会话 Cookie（SessionMiddleware，SameSite=Lax，无 JWT）
 - **配置**：pydantic-settings 读 `.env`；端口 8010（默认）
 
-## 2. 整体架构：页面/API 双轨
+## 2. 整体架构：页面与 API 双轨
 
 所有请求经 FastAPI 路由进入，按返回类型分两轨：
 
@@ -71,10 +28,10 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
           models.py（SQLAlchemy ORM）→ PostgreSQL
 ```
 
-- 页面轨负责可浏览的 SSR 页面与表单提交；API 轨负责列表/增删改查/统计/导入导出。
-- 每个业务模块同时挂 `router_pages` 与 `router_api` 两个 APIRouter，在 `main.py` 统一注册。
+- 页面轨负责 SSR 页面和表单提交；API 轨负责列表、增删改查、统计及导入导出。
+- 每个业务模块同时提供 `router_pages` 和 `router_api` 两个 APIRouter，并由 `main.py` 统一注册。
 
-## 3. 分层结构
+## 3. 分层结构与目录职责
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
@@ -86,7 +43,7 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
 | 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview / state_record |
 | 视图 | `app/templates/` `app/static/` | Jinja2 模板与 CSS/JS/vendor/img |
 
-## 4. 模块职责
+## 4. 业务模块职责
 
 | 模块 | 数据表 | 核心能力 |
 | --- | --- | --- |
@@ -99,9 +56,9 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
 | profile | users（复用） | 基本资料修改 + 修改密码 |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
 | state_record | appetite_record / myalgia_record / inflammation_record | 食欲/肌肉疼痛/炎症按天记录；三表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
-| agent | agent_conversations（消息在 langgraph 框架表） | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；三个只读工具；checkpointer 持久化；SSE 流式（含 tool_start/tool_result）；会话 CRUD/归属隔离；模型下拉；硬删除 |
+| agent | agent_conversations（消息在 langgraph 框架表） | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；checkpointer 持久化；SSE 流式（含 tool_start/tool_result）；会话 CRUD/归属隔离；模型下拉；硬删除 |
 
-## 5. 认证与会话
+## 5. 认证与会话机制
 
 - `SessionMiddleware`：Cookie `sh_session`，`SameSite=Lax`（防 CSRF），`Secure` 由 `.env` 的 `SESSION_COOKIE_SECURE` 控制。
 - `app/core/deps.py::get_current_user` 是业务路由统一门禁：无会话或用户不存在时，页面轨抛 `RedirectRequest`（303 → /login），API 轨抛 `AppError(401)`。
@@ -112,7 +69,7 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
 - `AppError(status, message)`：API 轨返回包含 `code`、`error` 的 JSON；页面轨渲染 `error.html`。
 - `RedirectRequest(url)`：页面轨内部 303 重定向（如未登录跳登录页）。
 
-## 7. 数据层设计
+## 7. 数据层设计与统一契约
 
 - 全库 **19 张业务表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`；另有 `langgraph` schema 4 张 checkpointer 框架表由应用 setup 管理。
 - **中文注释元数据**：全量建表脚本在 `scripts/schema.sql` 中维护列注释；既有库由迁移脚本同步。
@@ -120,9 +77,6 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
 - **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段、经期长度与周期长度均由 service 实时计算。
 - **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`daily_pain_logs` 按 `(user_id, log_date)` 唯一；状态记录三表按 `(user_id, date)` 唯一（同类一天一行）。三运动同日可多条，按主表 id 定位。
 - **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded；统计口径只计 recorded 行。
-- **时间与时长展示口径统一**（2026-11-07）：三运动（健身/游泳/舞蹈）的表单（含计划态）均展示起止时间与时长，均可填、可空（不因计划态隐藏、不设必填）；导入三处同样带起止时间——Excel 模板新增「开始时间 / 结束时间」列（HH:MM，可空），JSON 导入支持 `start_time` / `end_time`（可空），未填时长时按起止时间推导；列表与「查看详情」弹窗对时段/时长/配速/划频等字段不做状态判断，有值即显示、无值显示「—」；**三处导入（Excel/JSON/AI）未填结束时间时保持为空、不补当前时刻**（2026-11-10 起，`create_plan(auto_end_time=False)`），手动新建仍沿用记录态默认记当前时刻的口径；总览日卡计划态时长一律按 0 计，仅 recorded 且有时长才拼时长；心得区块仍仅记录态且确有心得内容才展示。舞蹈的时间字段统一称「上课时间」。
-- **统一运动契约**：主表名为 `{sport}_records`，心得表为 `{sport}_notes`；主表必含 id/user_id/date/status/start_time/end_time/duration_s/remark/avg_heart_rate/max_heart_rate/calories/created_at/updated_at，心得必含 id、专属主表外键、rating、notes。各模块可增加字段和表，健身的 `training_records_items` 即专属表。ORM 共用 `SportRecordMixin`、`SportNoteMixin`；规则共用 `sport_ops.py`。详见《数据库建表设计.md》。
-- **统一接口**：`/api/training`、`/api/swim-records`、`/api/dance-records` 均提供列表、新建、按 id 编辑/删除、`/daily`、`/stats`、`/template`、`/import`、`/import-json`、`/ai-import`、`/batch-delete`、`/{id}/note` 读写。列表包含计划和记录，批量删除限当前用户的所选 id，心得仅记录态可写。模块专属接口可额外提供。
 - **状态记录（非运动模块）**：`appetite_record` / `myalgia_record` / `inflammation_record` 三表结构同构，不套统一运动契约（无计划态、起止时间、时长、心率、热量），字段仅 id/user_id/date/star(0~5 可空；0=最低分，null=未评)/remark/created_at/updated_at。跨表列表在 service 内存合并分页；月历阶段复用 `cycle.service.calendar_month` 推算结果并归并经期/卵泡·排卵/黄体三档，男性或无周期记录时阶段置空。接口前缀 `/api/state-record`：列表（分页 + type 筛选）、`/daily`、`/calendar`、新建、按 id 编辑（body 带 type）、`DELETE /{id}?type=`、`/batch-delete`（items 自带 type）。
 - **账号状态与注销**：`users.status ∈ {启用, 停用}`，注册默认启用；登录和请求门禁拦截停用账号。`DELETE /api/profile/account` 要求当前密码，`retain` 停用并清会话，`purge` 在事务中删除用户及全部关联数据后清会话。停用账号通过注册页显式选择恢复、验证原密码后复用原 user_id。无管理员角色及管理员恢复接口。
 - **时长存秒、距离存米**，界面按分钟/米展示，派生展示值实时换算。
@@ -147,7 +101,7 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
 
 - **Excel**：body / training / swim / dance 均提供模板下载（`/template`）+ 导入（`/import`，openpyxl 解析、行级校验、错误明细回传）；body 另提供 `/export` 导出。Excel 列与校验规则集中在各模块 `excel_io.py`。
 - **JSON**：training / swim / dance 提供 `/import-json`（字段校验、批量入库），逻辑在 `json_import.py`。
-- **AI 导入**：三运动提供 `/ai-import`（文字 + 可选图片，最多 3 张、单张 ≤ 2MB）。结构化输出由 `json_schema` 硬约束，清洗后复用 `json_import` 的校验与 `persist_valid_*` 落库，统一 `recorded`；单条记录日期缺失时按当天处理，起止时间只给一端则整对丢弃，缺关键字段的记录跳过并在 `ai.warnings` 说明。前端一次完成 + 结果就地展示 + 可撤销（批量删除本次新建 id），校验失败可回填 JSON 面板手动修正。
+- **AI 导入**：三运动提供 `/ai-import`；具体输入约束、结构化校验、复用的落库链路和结果处理见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
 - 健身 Excel 新模板以 `(日期, 训练组编号)` 归属一条主表记录，组内各行是动作；不兼容旧模板。模板含「开始时间 / 结束时间」「平均心率 bpm / 最大心率 bpm / 热量 kcal」三列可选训练级字段，与备注同规则：同组多行取首个非空值；心率 1~300、热量 ≥0。JSON 导入的 plan 对象支持同名字段（`avg_heart_rate`/`max_heart_rate`/`calories`）。三处导入未填结束时间时 `end_time` 留空，不写当前时刻（2026-11-10）。
 
 ## 10. 前端组织
@@ -159,36 +113,12 @@ SSE 用 `stream_mode=["messages","updates"]`，新增 `tool_start/tool_result`�
 - 状态记录页 `/state-record`：三卡片自上而下纵向堆叠（`three-row-stack`，内容随卡片宽度自适应铺满），依次为月历（阶段三档圆点 + 有记录标记，翻月/选日联动）、「当日状态」三类块（食欲/肌肉疼痛/炎症）就地填写——每块内联星级（五星 + 「0」最低分按钮，未评存空）+ 描述 + 保存，有记录时块内可删除，不再弹新增表单、「全部记录」列表（类型分段筛选 + 勾选跨表批量删除 + 分页，操作列查看详情/编辑/删除，行内「编辑」才弹出表单弹窗）。详情复用公共 `#modalDetail`；无 Excel/JSON/AI 导入入口。页级脚本 `app/static/js/state_record.js`，页级样式 `css/pages/state_record.css`。
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 - 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
-- AI 助手页 `/agent`：工作台左右两栏（会话列表 + 对话区），撑满视口剩余高度。左栏「新建会话」+ 会话项（选中浅灰底、标题蓝绿，hover 出 ✎/✕ 重命名/删除，重命名为行内输入）；右栏顶部会话标题 + 模型下拉，消息区 AI 消息带圆形「AI」标识与描边气泡、用户消息靠右浅灰气泡，底部 textarea（Enter 发送、Shift+Enter 换行、自动增高）+ 发送。流式用 `fetch` POST + `ReadableStream` 手动解析 SSE（EventSource 不支持 POST），处理 start/delta/tool_start/tool_result/done/error，发送期间禁用发送/新建，失败回滚乐观气泡并把文本回填输入框可重试。V2.3 起 AI 气泡内分「工具状态 + 正文 + 明细折叠」：工具调用时显示带脉冲圆点的“正在查询…“，完成后变“已查询“；正文为汇总 + 关键依据，工具返回的记录以 `<details>` 折叠块按需展开、默认收起。页级脚本 `js/agent.js`、样式 `css/pages/agent.css`，复用 .card/.btn/.input/.select 与 var 令牌，不复制公共逻辑。
+- AI 助手页 `/agent`：提供多会话、多轮问答、工具调用和 SSE 流式交互；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
 
-### 现有视觉系统与新页面复用
+## 专项规范索引
 
-- **样式来源与加载顺序**：`base.html` 先加载 `tokens.css`，再加载 `base.css`、`layout.css`，页面通过 `extra_css` 加载 `css/pages/{module}.css`，通过 `extra_js` 加载模块 JS。共享颜色、圆角、宽度等先查 `tokens.css`；新增语义色在这里定义，页面 CSS 使用 `var(--令牌)`，不要另写一套局部主题。静态文件 URL 带版本参数，改动后同步更新引用以避免旧缓存。
-- **主题与颜色**：整页 `--bg-page: #fbfbfb`，分区 `--bg-section: #f8f8f8`，面板 `--bg-card: #fff`；主要文字 `--color-text: #1f2430`，次要文字 `--color-text-secondary: #6b7280`，深色 `--color-primary: #1b2434`，交互强调 `--color-accent: #17b3a6`。以中性底色和细分割线组织内容，蓝绿用于主要操作、选中与焦点，不铺成大面积背景。危险操作用 `--state-danger`；运动、周期、状态记录各用已有的专属语义令牌，不能拿品牌色代替数据编码色。
-- **字体与层级**：全站沿用 `base.css` 的系统 UI 字体栈（`-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif`，末尾接 emoji 字体）；中文由系统/浏览器回退。正文 14px、行高 1.55，当前全局字距为 `.03em`；表单控件继承字体，数字读数用 `.num` 的等宽数字特性。全站标题、按钮、表头、`strong` 默认正常字重；页标题 `.page-head h1` 为 21px（窄屏 18px），卡片标题 15px，控件与表格约 13px，次要说明约 12–13px。不要用大号标题、加粗口号或大量次要标签填充操作页面。
-- **外壳与页面布局**：业务页继承 `base.html`，页面路由使用 `render_page` 注入登录用户、`active` 导航、面包屑、今日日期和周期信息。左侧固定侧栏宽 `--sidebar-w: 216px`，可收为 52px；顶栏高 52px、吸顶；内容区桌面内边距 `26px 28px 40px`。页头使用 `.page-head`、`.page-head-actions`，主操作紧邻标题，正文用按任务排列的区域，不另造一层外壳或嵌套面板。
-- **面板、统计与表格**：通用 `.card` 是白底、约 0.667px 细描边、6px 圆角、无阴影，内边距 `18px 20px`；统计项复用 `.stat-grid` / `.stat-card` 或 `components/stat_card.html`。重复业务区域按内容选用 `.two-col` 或 `.three-row-stack`。宽表置于 `.table-wrap > table.tbl`，只让表格区域横向滚动，不能让整页被表格撑宽；列表操作、空态与分页分别复用现有按钮、`components/empty_state.html` 和 `components/pagination.html`。
-- **控件和状态**：命令按钮复用 `.btn`、`.btn-primary`、`.btn-ghost`、`.btn-danger`、`.btn-sm`；模式切换用 `.seg`；输入用 `.input`、`.select`、`.field-label` 与 `.form-grid`。按钮文字居中，禁用态保留位置并降低透明度。标签复用 `.tag` 及语义变体；计划/记录分别沿用 `--state-plan`、`--state-record`，三运动状态文案可用 `App.statusTag`，不可按页面另取颜色。缺失数据展示「—」，空列表使用空态，不以假数据占位。
-- **反馈与弹窗**：弹窗沿用 `.modal-mask > .modal`、`.modal-title`、`.modal-actions`；普通弹窗约 520px、视口内限宽限高，删除走公共确认弹窗，结果用 `App.toast`，API 调用用 `App.api` 或上传时的 `App.postMultipart`。共享详情弹窗在 `base.html`，新模块只有确需新表单时再加模块弹窗。用户文本拼接到 HTML 前使用 `App.escapeHtml`；模块脚本不复制公共反馈与请求逻辑。
-- **响应式**：`layout.css` 在 ≤1100px 将双栏改为单栏、统计网格改两列，在 ≤900px 收紧内容与顶栏留白，在 ≤640px 将统计网格改单列、收紧页头；`common.js` 在 ≤768px 强制收起侧栏，中屏默认收起。页面可增加模块级断点，但需保证标题、工具栏、表单、表格和弹窗在窄屏可操作，动态内容不会互相遮挡或改变固定控件尺寸。
-- **图表与资源**：ECharts 由本地 vendor 提供，图表配色经 `App.cssVar(name)` 读取令牌，静态 JS 不维护十六进制色副本。页面资源保存在 `app/static` 对应目录，业务页 CSS/JS 按模块命名；公共行为提取到 `common.js` 或共享模板，避免同一组件在各模块出现不同反馈和配色。
-
-### 新增运动模块需求确认
-
-用户只需提出“新增一个运动模块：xxx（如跑步、羽毛球...），阅读 AGENTS.md、ARCHITECTURE.md”。AI 先核对现有代码和上述统一契约，再就用户尚未说明的模块专属需求给出建议并追问；已有答案不重复问，确认后再开发。不要要求用户指定 SQL 类型、CSS 类名或实现函数。
-
-统一默认项无需追问：计划态和记录态均必填 `date`，`status` 分别为 `planned`、`recorded`；其他必填业务字段由用户决定。当天卡默认显示状态和备注；运动档案默认显示本周、本月已完成记录次数；全部记录默认依次显示日期、状态（计划/记录标签；现有三页列名为“类型”）、操作（查看详情、编辑、删除），并支持批量删除；编辑与详情默认展示日期、状态。统一表字段、接口、导入入口、总览接入和响应式布局仍按本文件契约实现。
-
-对尚未明确的项目，向用户提供建议选项并询问：
-
-1. 模块中文名、英文标识及页面/API 路径（先按名称提出建议）。
-2. `records` 主表还需哪些业务字段；计划态除日期外哪些字段必填；记录态除日期外哪些字段必填。
-3. `notes` 心得表除 `rating`、`notes` 外还需哪些字段；是否需要动作、局数等额外表及其归属关系。
-4. 是否需要统一接口之外的专属接口或操作；Excel/JSON 导入的一条主记录如何归组。
-5. 当天卡、运动档案、全部记录、编辑和详情各需增加展示哪些内容；总览中每条活动的简短摘要与专属统计口径。
-6. 该运动在总览中的专属编码色。计划/记录状态色沿用 `--state-plan`、`--state-record`，不为新运动另设状态色。
-
-用户可回答“无额外字段/表/接口/展示”，此时保持统一默认项。业务字段的类型、空值、校验范围和具体布局由 AI 根据已确认需求设计，并与现有模块保持一致。
+前端规范见 [FRONTEND_GUIDELINES.md](FRONTEND_GUIDELINES.md)。
+运动模块规范见 [SPORT_MODULE_GUIDELINES.md](SPORT_MODULE_GUIDELINES.md)。
 
 ## 11. 目录结构
 
@@ -223,3 +153,4 @@ sports-health-platform/
 - 建库/初始化：`python scripts/init_db.py`（幂等）；结构迁移按需执行 `scripts/migrate_*.py`。
 - 启动：`python main.py`（推荐；Windows 下 psycopg3 异步要求 SelectorEventLoop，命令行 `uvicorn main:app` 会在 import 本模块前用默认 ProactorEventLoop 建好 loop、导致启动失败，main.py 已内置显式 selector loop 的编程式启动）。
 - 依赖：`uv sync --extra dev` 或 `pip install -r requirements.txt`。
+

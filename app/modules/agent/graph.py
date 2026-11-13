@@ -1,7 +1,7 @@
 """LangGraph 图：工具循环（V2.3）。
 
 结构：START → agent ⇄ tools → END。
-- agent 节点：bind_tools 后的模型，自主决定是否调用只读工具；
+- agent 节点：bind_tools 后的模型，自主决定是否调用只读工具以及取多大范围；
 - tools 节点：ToolNode 执行工具，结果作为 ToolMessage 回到 agent；
 - 条件边：agent 最后一条消息带 tool_calls 则继续工具循环，否则结束。
 身份（user_id）由服务端经 config 注入，工具从 config 读取，模型不可填。
@@ -34,7 +34,7 @@ async def agent_node(state: MessagesState, config) -> dict:
 
     today = date.today()
     system_text = load_system_prompt(
-        "agent_chat.v2",
+        "agent_chat.v3",
         today=today.isoformat(),
         weekday=today.strftime("%A"),
     )

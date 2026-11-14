@@ -8,6 +8,21 @@
 
   const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
 
+  const ICON_COPY =
+    '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">' +
+    '<rect x="5.5" y="5.5" width="7" height="7" rx="1.5"/>' +
+    '<path d="M10.5 5.5v-2a1.5 1.5 0 0 0-1.5-1.5h-4a1.5 1.5 0 0 0-1.5 1.5v4a1.5 1.5 0 0 0 1.5 1.5h2"/>' +
+    '</svg>';
+  const ICON_REGEN =
+    '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">' +
+    '<path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89"/>' +
+    '<path d="M13.5 2.5v2.6h-2.6"/>' +
+    '</svg>';
+  const ICON_MORE =
+    '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">' +
+    '<circle cx="8" cy="3" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="13" r="1.3"/>' +
+    '</svg>';
+
   const els = {
     workbench: document.getElementById("agentWorkbench"),
     sessionList: document.getElementById("sessionList"),
@@ -53,11 +68,48 @@
       '<div class="session-item' + (c.id === currentId ? ' active' : '') + '" data-id="' + c.id + '">' +
         '<span class="s-title">' + App.escapeHtml(c.title) + '</span>' +
         '<span class="s-actions">' +
-          '<button class="s-act" data-act="rename" title="重命名" type="button">✎</button>' +
-          '<button class="s-act danger" data-act="delete" title="删除" type="button">✕</button>' +
+          '<button class="s-more" data-act="menu" type="button" title="更多" aria-label="更多">' + ICON_MORE + '</button>' +
         '</span>' +
       '</div>'
     ).join("");
+  }
+
+  /* 会话操作菜单：body 级固定定位弹层，避免被侧栏滚动容器裁剪 */
+  function closeMenus() {
+    const m = document.getElementById("sessionMenu");
+    if (m) m.classList.remove("open");
+  }
+
+  function openSessionMenu(id, anchorBtn) {
+    closeMenus();
+    let menu = document.getElementById("sessionMenu");
+    if (!menu) {
+      menu = document.createElement("div");
+      menu.id = "sessionMenu";
+      menu.className = "s-menu";
+      document.body.appendChild(menu);
+      menu.addEventListener("click", e => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        closeMenus();
+        if (b.dataset.act === "rename") startRename(Number(menu.dataset.id));
+        else if (b.dataset.act === "delete") remove(Number(menu.dataset.id));
+      });
+    }
+    menu.dataset.id = id;
+    menu.innerHTML =
+      '<button type="button" data-act="rename">重命名</button>' +
+      '<button type="button" data-act="delete" class="danger">删除会话</button>';
+    const r = anchorBtn.getBoundingClientRect();
+    menu.style.right = (window.innerWidth - r.right) + "px";
+    if (r.bottom + 84 > window.innerHeight) {
+      menu.style.top = "auto";
+      menu.style.bottom = (window.innerHeight - r.top + 4) + "px";
+    } else {
+      menu.style.bottom = "auto";
+      menu.style.top = (r.bottom + 4) + "px";
+    }
+    menu.classList.add("open");
   }
 
   function syncModelSelect(conv) {
@@ -65,12 +117,20 @@
   }
 
   /* ---------- 消息渲染 ---------- */
+  function actionsHtml() {
+    return '<div class="msg-actions">' +
+      '<button type="button" class="msg-act" data-act="copy" title="复制" aria-label="复制">' + ICON_COPY + '</button>' +
+      '<button type="button" class="msg-act" data-act="regen" title="重新生成" aria-label="重新生成">' + ICON_REGEN + '</button>' +
+    '</div>';
+  }
+
   function bubbleHtml(role, content, isStreaming) {
     if (role === "assistant") {
       return '<div class="msg-row assistant">' +
         '<div class="msg-avatar">AI</div>' +
         '<div class="msg-body"><div class="msg-bubble' + (isStreaming ? ' streaming' : '') + '">' +
-        renderMarkdown(content) + '</div></div></div>';
+        '<div class="msg-text">' + renderMarkdown(content) + '</div></div>' +
+        (isStreaming ? '' : actionsHtml()) + '</div></div>';
     }
     return '<div class="msg-row user"><div class="msg-body"><div class="msg-bubble">' +
       App.escapeHtml(content) + '</div></div></div>';
@@ -104,7 +164,11 @@
         syncWelcome(true);
         return;
       }
-      els.messageList.innerHTML = res.messages.map(m => bubbleHtml(m.role, m.content, false)).join("");
+      els.messageList.innerHTML = "";
+      res.messages.forEach(m => {
+        const node = appendBubble(m.role, m.content, false);
+        if (m.role === "assistant") node.dataset.raw = m.content;
+      });
       syncWelcome(false);
       scrollBottom();
     } catch (err) {
@@ -195,7 +259,7 @@
     if (!conv) return;
     const ok = await App.confirmDialog({
       title: "删除会话",
-      message: "确定删除「" + conv.title + "」？全部消息将一并删除，不可恢复。",
+      message: "确定删除「" + conv.title + "」？删除后不可找回，全部消息将一并删除。",
       confirmText: "删除",
     });
     if (!ok) return;
@@ -258,7 +322,7 @@
           table += "<tbody>" + body.map(r =>
             "<tr>" + r.map(c => "<td>" + inlineMd(c) + "</td>").join("") + "</tr>").join("") + "</tbody>";
         }
-        out.push(table + "</table>");
+        out.push('<div class="md-table-wrap">' + table + "</table></div>");
         continue;
       }
 
@@ -441,6 +505,40 @@
     return { event, data };
   }
 
+  /* 读取 SSE 流并逐帧回调；解析层与业务事件处理分离，发送/重新生成复用同一套 */
+  async function consumeSse(res, onFrame) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop();
+      frames.forEach(frame => onFrame(parseFrame(frame)));
+    }
+  }
+
+  async function copyAnswer(node) {
+    const text = node.dataset.raw || "";
+    if (!text.trim()) { App.toast("暂无内容可复制", true); return; }
+    try {
+      await navigator.clipboard.writeText(text);
+      App.toast("已复制");
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); App.toast("已复制"); }
+      catch (err) { App.toast("复制失败", true); }
+      ta.remove();
+    }
+  }
+
   /* ---------- 发送 + 流式接收 ---------- */
   function setStreamingUI(on) {
     streaming = on;
@@ -490,47 +588,36 @@
       });
       if (!res.ok || !res.body) throw new Error("请求失败（" + res.status + "）");
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop();
-        frames.forEach(frame => {
-          const evt = parseFrame(frame);
-          if (evt.event === "tool_start") {
-            const label = TOOL_LABELS[evt.data.tool] || evt.data.tool;
-            const line = document.createElement("div");
-            line.className = "tool-line loading";
-            line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
-            line.querySelector(".tool-name").textContent = "正在查询" + label + "…";
-            toolTrace.appendChild(line);
-            toolRuns.push({ tool: evt.data.tool, label, line, data: null });
-            scrollBottom();
-          } else if (evt.event === "tool_result") {
-            const run = toolRuns.find(r => r.data === null);
-            if (run) {
-              run.data = evt.data.data;
-              run.line.classList.remove("loading");
-              run.line.classList.add("done");
-              run.line.querySelector(".tool-name").textContent = "已查询" + run.label;
-            }
-            scrollBottom();
-          } else if (evt.event === "delta") {
-            acc += evt.data.content;
-            textEl.innerHTML = renderMarkdown(acc);
-            scrollBottom();
-          } else if (evt.event === "error") {
-            failure = evt.data.message || "生成失败";
-          } else if (evt.event === "done") {
-            if (evt.data.title) conv.title = evt.data.title;
-            conv.last_message_at = evt.data.last_message_at;
+      await consumeSse(res, evt => {
+        if (evt.event === "tool_start") {
+          const label = TOOL_LABELS[evt.data.tool] || evt.data.tool;
+          const line = document.createElement("div");
+          line.className = "tool-line loading";
+          line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
+          line.querySelector(".tool-name").textContent = "正在查询" + label + "…";
+          toolTrace.appendChild(line);
+          toolRuns.push({ tool: evt.data.tool, label, line, data: null });
+          scrollBottom();
+        } else if (evt.event === "tool_result") {
+          const run = toolRuns.find(r => r.data === null);
+          if (run) {
+            run.data = evt.data.data;
+            run.line.classList.remove("loading");
+            run.line.classList.add("done");
+            run.line.querySelector(".tool-name").textContent = "已查询" + run.label;
           }
-        });
-      }
+          scrollBottom();
+        } else if (evt.event === "delta") {
+          acc += evt.data.content;
+          textEl.innerHTML = renderMarkdown(acc);
+          scrollBottom();
+        } else if (evt.event === "error") {
+          failure = evt.data.message || "生成失败";
+        } else if (evt.event === "done") {
+          if (evt.data.title) conv.title = evt.data.title;
+          conv.last_message_at = evt.data.last_message_at;
+        }
+      });
     } catch (err) {
       failure = err.message;
     }
@@ -551,9 +638,99 @@
         const detail = renderToolDetail(run);
         if (detail) aiBubble.appendChild(detail);
       });
+      aiNode.dataset.raw = acc;
+      aiNode.querySelector(".msg-body").insertAdjacentHTML("beforeend", actionsHtml());
       els.chatTitle.textContent = conv.title;
       renderSessions();
     }
+  }
+
+  /* ---------- 重新生成：回滚上一轮后用同一原文重放，流式覆盖本次回答 ---------- */
+  async function regenerate(aiNode) {
+    if (streaming) return;
+    const conv = current();
+    if (!conv) return;
+    const allAi = els.messageList.querySelectorAll(".msg-row.assistant");
+    if (allAi[allAi.length - 1] !== aiNode) { App.toast("只能重新生成最近一次回答"); return; }
+
+    const bubble = aiNode.querySelector(".msg-bubble");
+    const oldActions = aiNode.querySelector(".msg-actions");
+    if (oldActions) oldActions.remove();
+    bubble.classList.add("streaming");
+    bubble.innerHTML = '<div class="tool-trace"></div><div class="msg-text"></div>';
+    const toolTrace = bubble.querySelector(".tool-trace");
+    const textEl = bubble.querySelector(".msg-text");
+    const toolRuns = [];
+    setStreamingUI(true);
+
+    const payload = { client_msg_id: crypto.randomUUID() };
+    if (els.chatModel.value) payload.model_name = els.chatModel.value;
+
+    let failure = null;
+    let acc = "";
+    try {
+      const res = await fetch("/api/agent/conversations/" + conv.id + "/messages/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok || !res.body) {
+        let msg = "请求失败（" + res.status + "）";
+        try { const j = await res.json(); if (j.error) msg = j.error; } catch (e) { /* 非 JSON */ }
+        throw new Error(msg);
+      }
+      await consumeSse(res, evt => {
+        if (evt.event === "tool_start") {
+          const label = TOOL_LABELS[evt.data.tool] || evt.data.tool;
+          const line = document.createElement("div");
+          line.className = "tool-line loading";
+          line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
+          line.querySelector(".tool-name").textContent = "正在查询" + label + "…";
+          toolTrace.appendChild(line);
+          toolRuns.push({ tool: evt.data.tool, label, line, data: null });
+          scrollBottom();
+        } else if (evt.event === "tool_result") {
+          const run = toolRuns.find(r => r.data === null);
+          if (run) {
+            run.data = evt.data.data;
+            run.line.classList.remove("loading");
+            run.line.classList.add("done");
+            run.line.querySelector(".tool-name").textContent = "已查询" + run.label;
+          }
+          scrollBottom();
+        } else if (evt.event === "delta") {
+          acc += evt.data.content;
+          textEl.innerHTML = renderMarkdown(acc);
+          scrollBottom();
+        } else if (evt.event === "error") {
+          failure = evt.data.message || "生成失败";
+        } else if (evt.event === "done") {
+          if (evt.data.title) conv.title = evt.data.title;
+          conv.last_message_at = evt.data.last_message_at;
+        }
+      });
+    } catch (err) {
+      failure = err.message;
+    }
+
+    bubble.classList.remove("streaming");
+    setStreamingUI(false);
+
+    if (failure) {
+      App.toast(failure, true);
+      // 后端已回滚上一轮，前端按持久化状态重拉对齐，避免新旧回答混杂
+      await loadMessages(conv);
+      return;
+    }
+    if (!acc) textEl.remove();
+    toolRuns.forEach(run => {
+      const detail = renderToolDetail(run);
+      if (detail) aiNode.querySelector(".msg-bubble").appendChild(detail);
+    });
+    aiNode.dataset.raw = acc;
+    aiNode.querySelector(".msg-body").insertAdjacentHTML("beforeend", actionsHtml());
+    els.chatTitle.textContent = conv.title;
+    renderSessions();
   }
 
   /* ---------- 输入框自动增高 ---------- */
@@ -595,16 +772,36 @@
       }
     });
     els.sessionList.addEventListener("click", e => {
+      const menuBtn = e.target.closest('[data-act="menu"]');
+      if (menuBtn) {
+        e.stopPropagation();
+        const id = Number(menuBtn.closest(".session-item").dataset.id);
+        openSessionMenu(id, menuBtn);
+        return;
+      }
       const actBtn = e.target.closest("[data-act]");
       if (actBtn) {
         e.stopPropagation();
         const id = Number(actBtn.closest(".session-item").dataset.id);
+        closeMenus();
         if (actBtn.dataset.act === "rename") startRename(id);
         else if (actBtn.dataset.act === "delete") remove(id);
         return;
       }
       const item = e.target.closest(".session-item");
-      if (item) selectConversation(Number(item.dataset.id));
+      if (item) { closeMenus(); selectConversation(Number(item.dataset.id)); }
+    });
+    document.addEventListener("click", e => {
+      if (!e.target.closest("#sessionMenu")) closeMenus();
+    });
+
+    els.messageList.addEventListener("click", e => {
+      const actBtn = e.target.closest("[data-act]");
+      if (!actBtn) return;
+      const node = actBtn.closest(".msg-row.assistant");
+      if (!node) return;
+      if (actBtn.dataset.act === "copy") copyAnswer(node);
+      else if (actBtn.dataset.act === "regen") regenerate(node);
     });
   }
 

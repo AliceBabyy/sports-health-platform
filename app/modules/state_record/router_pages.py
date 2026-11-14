@@ -1,4 +1,4 @@
-"""状态记录页面路由：GET /state-record（月历 + 当日三类记录 + 全部记录列表容器）。"""
+"""状态记录页面路由：GET /state-record（月历 + 当日四类记录 + 全部记录列表容器）。"""
 from datetime import date
 
 from fastapi import APIRouter, Depends, Request

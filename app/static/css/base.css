@@ -126,9 +126,10 @@ label.field-label {
 .tag-average { background: var(--tag-average-bg); color: var(--tag-average-fg); --tag-dot: var(--tag-average-dot); }
 .tag-rest { background: var(--tag-rest-bg); color: var(--tag-rest-fg); --tag-dot: var(--tag-rest-dot); }
 
-/* 状态记录类型标签：食欲橙 / 炎症红（肌肉疼痛复用 tag-gray） */
+/* 状态记录类型标签：食欲橙 / 炎症红 / 情绪紫（肌肉疼痛复用 tag-gray） */
 .tag-appetite { background: var(--tag-appetite-bg); color: var(--tag-appetite-fg); --tag-dot: var(--tag-appetite-dot); }
 .tag-inflam { background: var(--tag-inflam-bg); color: var(--tag-inflam-fg); --tag-dot: var(--tag-inflam-dot); }
+.tag-mood { background: var(--tag-mood-bg); color: var(--tag-mood-fg); --tag-dot: var(--tag-mood-dot); }
 
 /* 阶段标签映射（设计稿：透明底 + 阶段色小方块 + 深灰文字） */
 .phase-menstrual { background: transparent; color: var(--phase-text); --tag-dot: var(--phase-menses); }

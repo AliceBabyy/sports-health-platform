@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block title %}状态记录 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/state_record.css?v=20261111g">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/state_record.css?v=20261114a">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>状态记录</h1>
-  <div class="page-desc">按天记录食欲、肌肉疼痛与炎症状况，结合生理周期阶段回看身体状态。</div>
+  <div class="page-desc">按天记录食欲、肌肉疼痛、炎症与情绪状况，结合生理周期阶段回看身体状态。</div>
 </div>
 
 <div class="three-row-stack state-layout">
@@ -49,6 +49,7 @@
         <button type="button" data-type="appetite">食欲</button>
         <button type="button" data-type="myalgia">肌肉疼痛</button>
         <button type="button" data-type="inflammation">炎症</button>
+        <button type="button" data-type="mood">情绪</button>
       </span>
       <button type="button" class="btn btn-sm btn-danger" id="btnBatchDelete" disabled>删除所选</button>
     </span>
@@ -76,7 +77,7 @@
 <div class="modal-mask" id="modalRecord">
   <div class="modal">
     <div class="modal-title" id="recordModalTitle">新增状态记录</div>
-    <div class="modal-desc">记录当天的食欲、肌肉疼痛或炎症状况，保存后可在列表中继续修改。</div>
+    <div class="modal-desc">记录当天的食欲、肌肉疼痛、炎症或情绪状况，保存后可在列表中继续修改。</div>
     <form id="formRecord">
       <input type="hidden" name="id">
       <div class="form-grid">
@@ -86,6 +87,7 @@
             <option value="appetite">食欲</option>
             <option value="myalgia">肌肉疼痛</option>
             <option value="inflammation">炎症</option>
+            <option value="mood">情绪</option>
           </select>
         </div>
         <div class="form-item full"><label class="field-label">星级</label>
@@ -107,5 +109,5 @@ window.INIT_CAL = {{ calendar | tojson }};
 window.INIT_DAILY = {{ daily | tojson }};
 window.TODAY_STR = '{{ today_str }}';
 </script>
-<script src="/static/js/state_record.js?v=20261111g"></script>
+<script src="/static/js/state_record.js?v=20261114a"></script>
 {% endblock %}

@@ -61,6 +61,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - `user_id`、会话归属和权限由服务端校验；模型不得指定或伪造用户身份。
 - 工具调用期间前端显示查询状态；明细以折叠区展示，最多渲染 50 行。
 - 模型失败返回 `error`，前端保留输入内容以便重试。
+- 重新生成：`POST /api/agent/conversations/{id}/messages/regenerate` 复用同一套 SSE 事件；服务端经 `aupdate_state` + `RemoveMessage` 移除最后一条用户消息之后的工具中转与上一条 AI 回答（保留该用户消息），再以空输入续跑覆盖本次回答，不追加重复的用户消息；仅最近一轮可重新生成。
 
 ## 五、只读数据工具
 
@@ -73,7 +74,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | `get_swim_records` | 游泳明细、距离、时长、配速、划频、泳姿和心得 |
 | `get_dance_records` | 舞蹈明细、舞种、老师、风格、评分、热量和心得 |
 | `get_body_measurements` | 基础、期望、围度、目标四组身材数据及指定指标趋势 |
-| `get_state_records` | 食欲、肌肉疼痛、炎症三类状态记录 |
+| `get_state_records` | 食欲、肌肉疼痛、炎症、情绪四类状态记录 |
 | `get_cycle_records` | 周期参考值、月经记录、派生长度、每日疼痛和当前阶段 |
 | `get_profile_info` | 昵称、性别、年龄、账号状态和注册时间，不含密码等敏感字段 |
 

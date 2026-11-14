@@ -17,3 +17,8 @@ class MessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=settings.agent_max_input_chars)
     client_msg_id: str = Field(min_length=1, max_length=64)
     model_name: str | None = Field(default=None, max_length=64)
+
+
+class RegenerateIn(BaseModel):
+    client_msg_id: str = Field(min_length=1, max_length=64)
+    model_name: str | None = Field(default=None, max_length=64)

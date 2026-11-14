@@ -1,4 +1,4 @@
-"""状态记录 API 路由（/api/state-record 系列）：三类记录增删改查、分页、批量删除、当日聚合、月历。"""
+"""状态记录 API 路由（/api/state-record 系列）：四类记录增删改查、分页、批量删除、当日聚合、月历。"""
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query

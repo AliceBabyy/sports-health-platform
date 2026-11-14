@@ -3,7 +3,7 @@
 只做查询与结构化，不做任何写操作。口径复用各模块 service，保证数据问答与页面一致。
 取数范围由调用方（模型按用户意图）决定：start / end 为 None 表示不限，即全部历史。
 
-覆盖范围：身材（4 组）、状态记录（食欲/肌肉疼痛/炎症）、健身、游泳、舞蹈、
+覆盖范围：身材（4 组）、状态记录（食欲/肌肉疼痛/炎症/情绪）、健身、游泳、舞蹈、
 生理周期（参考值 + 月经记录 + 每日疼痛 + 今日阶段）、个人基本信息。
 """
 from datetime import date
@@ -311,7 +311,7 @@ def state_records(
     type_filter: str = "all",
     limit: int | None = None,
 ) -> dict:
-    """状态记录（食欲 / 肌肉疼痛 / 炎症）跨表明细，按日期倒序；不限范围即全量。"""
+    """状态记录（食欲 / 肌肉疼痛 / 炎症 / 情绪）跨表明细，按日期倒序；不限范围即全量。"""
     if type_filter != "all" and type_filter not in STATE_TYPES:
         raise AppError(400, "记录类型不合法")
     types = list(STATE_TYPES) if type_filter == "all" else [type_filter]
@@ -336,7 +336,7 @@ def state_records(
         "count": len(records),
         "per_type": per_type,
         "records": records,
-        "note": "star 为 0~5 星，0=最低分、null=未评；三类各表同类同一天一行。",
+        "note": "star 为 0~5 星，0=最低分、null=未评；四类各表同类同一天一行。",
     }
 
 

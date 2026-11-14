@@ -55,7 +55,7 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 按业务域注册 8 个只读工具：`get_workout_summary`（跨三运动汇总，复用 overview 口径）、
 `get_fitness_records`（健身明细含动作与容量）、`get_swim_records`（游泳明细含配速/划频）、
 `get_dance_records`（舞蹈明细）、`get_body_measurements`（身材 4 组，`metric=all` 取整表或单指标趋势，
-未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症）、`get_cycle_records`
+未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪）、`get_cycle_records`
 （参考值 + 月经记录 + 每日疼痛 + 今日阶段）、`get_profile_info`（昵称/性别/年龄，不含密码）。
 取数范围由模型按用户意图决定：`days_back`、`start_date + end_date`、`limit` 均可选，
 **不传任何范围参数即取全部历史**，已移除原 366 天 / 20 条硬上限；一次拉全量或只拉最近几次
@@ -180,7 +180,7 @@ sports-health-platform/
 │  │  ├─ dance/            # 舞蹈记录/计划 + 舞种汇总 + 单日视图 + Excel/JSON 导入
 │  │  ├─ overview/         # 运动训练/计划总览：日/周/月聚合 + 单日详情（2026-11 新增）
 │  │  ├─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 + 运动等级
-│  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症三表按天记录 + 月历阶段归并 + 跨表批量删除
+│  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症/情绪四表按天记录 + 月历阶段归并 + 跨表批量删除
 │  │  ├─ profile/          # 个人信息：基本资料（昵称/性别/年龄）+ 修改密码（复用 users 表）
 │  │  └─ agent/            # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE（页面 /agent）
 │  ├─ templates/           # Jinja2（base/侧栏/七模块页面 + auth/register + profile）
@@ -193,7 +193,7 @@ sports-health-platform/
 │  ├─ migrate_remark.py       # 2026-11：三表加 remark、swim/dance 移除 plan_text（幂等）
 │  ├─ migrate_notes.py        # 2026-11：training_notes 扩四字段心得 + 新建 swim_notes/dance_notes
 │  ├─ migrate_swim_avg_stroke_rate.py # 2026-11：swim_records 加 avg_stroke_rate（幂等）
-│  ├─ migrate_state_record.py   # 2026-11：状态记录三表（食欲/肌肉疼痛/炎症）建表 + 注释（幂等）
+│  ├─ migrate_state_record.py   # 2026-11：状态记录四表（食欲/肌肉疼痛/炎症/情绪）建表 + 注释（幂等）
 │  └─ schema.sql           # 全量建表 DDL（整改后结构，含中文 COMMENT 段）
 └─ tests/                  # pytest 单测（含运动契约与总览聚合）
 ```

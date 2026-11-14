@@ -1,15 +1,22 @@
-/* 状态记录页：月历（阶段三档圆点 + 有记录标记）、当日三类就地填写、全部记录分页列表、
+/* 状态记录页：月历（阶段三档圆点 + 有记录标记）、当日四类就地填写、全部记录分页列表、
    类型筛选、勾选批量删除；列表行内编辑走弹窗，详情复用 base.html 通用弹窗 #modalDetail。 */
 (function () {
   const App = window.App;
 
-  const TYPE_LABELS = { appetite: '食欲', myalgia: '肌肉疼痛', inflammation: '炎症' };
-  const TYPE_TAG = { appetite: 'tag-appetite', myalgia: 'tag-gray', inflammation: 'tag-inflam' };
-  const BLOCK_TITLES = { appetite: '今日食欲状况', myalgia: '今日肌肉疼痛状况', inflammation: '今日炎症状况' };
+  const TYPES = ['appetite', 'myalgia', 'inflammation', 'mood'];
+  const TYPE_LABELS = { appetite: '食欲', myalgia: '肌肉疼痛', inflammation: '炎症', mood: '情绪' };
+  const TYPE_TAG = { appetite: 'tag-appetite', myalgia: 'tag-gray', inflammation: 'tag-inflam', mood: 'tag-mood' };
+  const BLOCK_TITLES = {
+    appetite: '今日食欲状况',
+    myalgia: '今日肌肉疼痛状况',
+    inflammation: '今日炎症状况',
+    mood: '今日情绪状况',
+  };
   const BLOCK_PLACEHOLDER = {
     appetite: '如：胃口正常 / 午餐量',
     myalgia: '如：大腿前侧酸胀，上下楼明显',
     inflammation: '如：膝盖轻微发热',
+    mood: '如：心情平稳 / 烦躁易怒',
   };
   const PHASE_SHORT = {
     menstrual: '经期', follicular_pre: '卵泡期', ovulation_day: '排卵日',
@@ -87,7 +94,7 @@
     }).catch(e => App.toast(e.message, true));
   }
 
-  /* ---------- 右栏当日详情（三类就地填写） ---------- */
+  /* ---------- 右栏当日详情（四类就地填写） ---------- */
   function renderDetail() {
     const day = dateOf(state.selected);
     const weekday = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][(day.getDay() + 6) % 7];
@@ -99,7 +106,7 @@
     let html = '<div class="dd-head"><span class="dd-date num">' + (day.getMonth() + 1) + '月' + day.getDate() + '日</span>' + phaseTag + '</div>' +
       '<div class="dd-meta">' + weekday + (state.selected === window.TODAY_STR ? ' · 今天' : '') + '</div>';
 
-    ['appetite', 'myalgia', 'inflammation'].forEach(function (type) {
+    TYPES.forEach(function (type) {
       const rec = state.daily[type];
       html += '<div class="dd-block" data-type="' + type + '">' +
         '<div class="dd-title"><span class="left">' + esc(BLOCK_TITLES[type]) + '</span>' +
@@ -116,7 +123,7 @@
 
     // 回填当日已有记录；星级三态：null=未评，0=最低分，1~5
     state.starCur = {};
-    ['appetite', 'myalgia', 'inflammation'].forEach(function (type) {
+    TYPES.forEach(function (type) {
       const rec = state.daily[type];
       const cur = rec ? rec.star : null;
       state.starCur[type] = cur;

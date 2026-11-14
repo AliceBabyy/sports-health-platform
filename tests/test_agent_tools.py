@@ -208,11 +208,12 @@ def test_state_records_full_pull_all_types_and_isolation(db):
     state_service.create_record(db, U1, StateRecordIn(date=_d("2025-01-01"), type="appetite", star=3, remark="尚可"))
     state_service.create_record(db, U1, StateRecordIn(date=_d("2026-11-10"), type="myalgia", star=2))
     state_service.create_record(db, U1, StateRecordIn(date=_d("2026-11-10"), type="inflammation", star=None))
+    state_service.create_record(db, U1, StateRecordIn(date=_d("2026-11-10"), type="mood", star=4, remark="心情平稳"))
     state_service.create_record(db, U2, StateRecordIn(date=_d("2026-11-10"), type="appetite", star=5))
 
     result = queries.state_records(db, U1, None, None)
-    assert result["count"] == 3
-    assert result["per_type"] == {"appetite": 1, "myalgia": 1, "inflammation": 1}
+    assert result["count"] == 4
+    assert result["per_type"] == {"appetite": 1, "myalgia": 1, "inflammation": 1, "mood": 1}
     assert result["records"][0]["date"] == "2026-11-10"
 
     filtered = queries.state_records(db, U1, None, None, "appetite")

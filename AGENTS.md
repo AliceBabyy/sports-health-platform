@@ -11,6 +11,7 @@
 | 前端页面、样式或交互 | `docs/ARCHITECTURE.md`、`docs/FRONTEND_GUIDELINES.md` | `docs/FRONTEND_GUIDELINES.md`，并同步上述通用文档 |
 | 运动模块 | `docs/ARCHITECTURE.md`、`docs/SPORT_MODULE_GUIDELINES.md`、`docs/数据库建表设计.md` | `docs/SPORT_MODULE_GUIDELINES.md`、`docs/ARCHITECTURE.md`、`docs/数据库建表设计.md`、`scripts/schema.sql`，并同步 `README.md` |
 | 数据库表或字段 | `docs/数据库建表设计.md`、`docs/ARCHITECTURE.md` | `docs/数据库建表设计.md`、`scripts/schema.sql`，并维护数据库 `COMMENT` 注释 |
+| 任意 HTTP 接口（新增、删除、改字段或改权限） | `docs/API_REFERENCE.md`、`docs/ARCHITECTURE.md` | `docs/API_REFERENCE.md`（同步模块表与计数）；涉及模块职责时同步 `docs/ARCHITECTURE.md` |
 
 1. `docs/ARCHITECTURE.md` 只记录已实现的系统结构、功能和约束，不记录未实现内容或设计设想。
 2. `docs/AIplan.md` 只在 AI 功能发生改动时维护；前端和运动模块分别按对应规范文档维护。
@@ -47,3 +48,14 @@
 
 1. 删除多余标语、说明文字和次要标签。删除后若界面难以理解，说明布局有问题，应直接重新设计。
 2. 每次开发后如需重启服务，完成操作后必须关闭服务，不得保留监听端口。
+
+## 六、接口文档契约
+
+1. `docs/API_REFERENCE.md` 是全部 HTTP 接口（页面轨 + API 轨）的唯一清单，人工维护、不自动生成，只记录已实现接口。
+2. 任何路由的新增、删除、方法或路径调整、入参或出参变化、权限或返回形态变化，必须在同一次改动内更新 `docs/API_REFERENCE.md` 的对应模块表格与模块索引计数；不得留下文档与代码不一致的条目。
+3. 表格固定五列：路由地址（含 HTTP 方法）、传参格式、请求字段、响应字段、简述作用。模块顺序与 `main.py` 注册顺序一致；同一模块内页面接口在前、API 接口在后。
+4. 字段名一律使用代码中的原始英文名，不改写、不翻译、不合并；嵌套结构用 `items[]{...}` 表达，可空字段标注“可空”或默认值。
+5. 复用度高的响应对象（分页包、训练/游泳/舞蹈记录、身材快照、总览聚合、周期月历、会话等）在第 13 节定义一次，模块表格只引用对象名，不重复展开。
+6. 只声明前缀但没有接口的路由（如 `/api/auth`）不登记为接口，在模块表下用一行说明标注“预留”。
+7. 本文件只写接口契约，不写业务规则、算法口径和实现细节；业务口径以 `docs/ARCHITECTURE.md` 及各专项文档为准，不得互相复制。
+8. 接口统计值（模块接口数、合计）随接口变更同步修正；文档中不得出现“待补充”“TODO”类占位。

@@ -1,4 +1,4 @@
-"""状态记录三表：食欲 / 肌肉疼痛 / 炎症（按天记录，每类每天一行）。
+"""状态记录四表：食欲 / 肌肉疼痛 / 炎症 / 情绪（按天记录，每类每天一行）。
 
 本模块不是运动模块，不套用 SportRecordMixin（无计划态、起止时间、心率、热量等字段）；
 统一字段：id / user_id / date / star（0~5，可空；0=明确最低分，null=未评）/ remark（可空）/ created_at / updated_at。
@@ -14,12 +14,14 @@ from database import Base
 TYPE_APPETITE = "appetite"
 TYPE_MYALGIA = "myalgia"
 TYPE_INFLAMMATION = "inflammation"
+TYPE_MOOD = "mood"
 
-STATE_TYPES = (TYPE_APPETITE, TYPE_MYALGIA, TYPE_INFLAMMATION)
+STATE_TYPES = (TYPE_APPETITE, TYPE_MYALGIA, TYPE_INFLAMMATION, TYPE_MOOD)
 STATE_TYPE_LABELS = {
     TYPE_APPETITE: "食欲",
     TYPE_MYALGIA: "肌肉疼痛",
     TYPE_INFLAMMATION: "炎症",
+    TYPE_MOOD: "情绪",
 }
 
 
@@ -73,8 +75,20 @@ class InflammationRecord(_StateRecordMixin, Base):
     )
 
 
+class MoodRecord(_StateRecordMixin, Base):
+    """情绪记录（user + date 唯一）。"""
+
+    __tablename__ = "mood_record"
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_mood_user_date"),
+        Index("ix_mood_record_user_date_id", "user_id", "date", "id"),
+        {"comment": "情绪状态记录（按天，每类每天一行）"},
+    )
+
+
 STATE_MODELS = {
     TYPE_APPETITE: AppetiteRecord,
     TYPE_MYALGIA: MyalgiaRecord,
     TYPE_INFLAMMATION: InflammationRecord,
+    TYPE_MOOD: MoodRecord,
 }

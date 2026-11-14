@@ -1,4 +1,4 @@
-"""状态记录 schemas：三类共用一套字段（日期 / 类型 / 星级 / 描述）。"""
+"""状态记录 schemas：四类共用一套字段（日期 / 类型 / 星级 / 描述）。"""
 from datetime import date
 from typing import Literal
 

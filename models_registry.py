@@ -13,6 +13,7 @@ from app.modules.cycle.models import CycleSetting, DailyPainLog, PeriodRecord  #
 from app.modules.state_record.models import (  # noqa: F401
     AppetiteRecord,
     InflammationRecord,
+    MoodRecord,
     MyalgiaRecord,
 )
 from app.modules.agent.models import AgentConversation  # noqa: F401

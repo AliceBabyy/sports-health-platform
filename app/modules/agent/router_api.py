@@ -82,3 +82,26 @@ async def send_message(
             "Connection": "keep-alive",
         },
     )
+
+
+@router.post("/conversations/{conversation_id}/messages/regenerate")
+async def regenerate_message(
+    conversation_id: int,
+    payload: schemas.RegenerateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 回滚最近一轮（移除上一条用户消息及其后的工具/AI 消息）后，用同一原文重新生成并覆盖。
+    row, thread_id, human_content = await service.prepare_regenerate(
+        db, user.id, conversation_id, _runtime(request), payload
+    )
+    return StreamingResponse(
+        service.stream_reply(db, row, thread_id, _runtime(request), payload, human_content, replay=True),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, RemoveMessage
 from sqlalchemy.orm import Session
 
 from app.ai.models.registry import MODELS
@@ -147,6 +147,47 @@ async def acquire_reply_slot(db: Session, user_id: int, conversation_id: int, pa
     return row, thread_id
 
 
+async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, runtime: dict, payload):
+    """回滚最近一轮：移除最后一条用户消息及其后的工具中转/AI 回答，返回待重发的用户原文。
+
+    消息由 checkpointer 承载，这里经 graph.update_state + RemoveMessage 按消息 ID 删除，
+    不直接写框架表；随后复用 stream_reply 用同一用户原文重新生成，覆盖上一条回答。
+    """
+    _validate_model(payload.model_name)
+    row = get_conversation(db, user_id, conversation_id)
+    thread_id = str(row.thread_id)
+    await _acquire_slot(thread_id, payload.client_msg_id)
+    config = {"configurable": {"thread_id": thread_id}}
+    state = await runtime["graph"].aget_state(config)
+    msgs = state.values.get("messages", [])
+
+    human_idx = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].type == "human"), None)
+    if human_idx is None:
+        await _release_slot(thread_id, payload.client_msg_id)
+        raise AppError(400, "暂无可重新生成的回答")
+    # 保留最后一条用户消息，仅移除其后的工具中转/上一条 AI 回答；
+    # 若把用户消息一并删掉，update_state 后消息为空，条件边会取最后一条而越界。
+    removed = msgs[human_idx + 1:]
+    has_answer = any(m.type == "ai" and not getattr(m, "tool_calls", None) for m in removed)
+    if not has_answer:
+        await _release_slot(thread_id, payload.client_msg_id)
+        raise AppError(400, "暂无可重新生成的回答")
+
+    try:
+        await runtime["graph"].aupdate_state(
+            config,
+            {"messages": [RemoveMessage(id=m.id) for m in removed if getattr(m, "id", None)]},
+        )
+        human_content = msgs[human_idx].content
+        if payload.model_name is not None:
+            row.model_name = payload.model_name
+        db.commit()
+    except Exception:
+        await _release_slot(thread_id, payload.client_msg_id)
+        raise
+    return row, thread_id, human_content
+
+
 def _normalize_tool_content(content):
     """工具结果可能是 dict 或 JSON 字符串，统一成可序列化对象。"""
     if isinstance(content, str):
@@ -157,7 +198,7 @@ def _normalize_tool_content(content):
     return content
 
 
-async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload):
+async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload, human_content: str | None = None, replay: bool = False):
     # user_id 服务端注入，工具经 config 读取；recursion_limit 限制工具循环轮数
     config = {
         "configurable": {
@@ -167,11 +208,14 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
         },
         "recursion_limit": 10,
     }
+    content = human_content or payload.content
+    # 重新生成：状态里已保留待回答的用户消息，空输入续跑即可，不再追加重复的 HumanMessage
+    stream_input = {"messages": []} if replay else {"messages": [HumanMessage(content=content)]}
 
     yield _sse("start", {"conversation_id": row.id, "thread_id": thread_id})
     try:
         async for mode, data in runtime["graph"].astream(
-            {"messages": [HumanMessage(content=payload.content)]},
+            stream_input,
             config=config,
             stream_mode=["messages", "updates"],
         ):
@@ -195,7 +239,7 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
         now = datetime.now()
         row.last_message_at = now
         if row.title == DEFAULT_TITLE:
-            row.title = payload.content.strip()[:AUTO_TITLE_LEN]
+            row.title = content.strip()[:AUTO_TITLE_LEN]
         db.commit()
         yield _sse("done", {
             "conversation_id": row.id,

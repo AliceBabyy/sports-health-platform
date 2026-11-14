@@ -26,7 +26,7 @@ BODY_METRIC = Literal[
 ]
 SPORT = Literal["all", "fitness", "swim", "dance"]
 STATUS = Literal["all", "planned", "recorded"]
-STATE_TYPE = Literal["all", "appetite", "myalgia", "inflammation"]
+STATE_TYPE = Literal["all", "appetite", "myalgia", "inflammation", "mood"]
 
 
 def _resolve_range(
@@ -175,10 +175,10 @@ async def get_state_records(
     limit: int | None = None,
     config: RunnableConfig = None,
 ) -> dict:
-    """取状态记录：食欲 appetite / 肌肉疼痛 myalgia / 炎症 inflammation（星级 0~5 可空 + 描述）。
+    """取状态记录：食欲 appetite / 肌肉疼痛 myalgia / 炎症 inflammation / 情绪 mood（星级 0~5 可空 + 描述）。
 
     范围可选：days_back 或 start_date + end_date；都不传取全部历史；limit 为可选条数。
-    问某天 / 某段时间的食欲、肌肉酸痛、炎症状态时调用。
+    问某天 / 某段时间的食欲、肌肉酸痛、炎症、情绪状态时调用。
     """
     uid = _user_id(config)
     start, end = _resolve_range(start_date, end_date, days_back, date.today())

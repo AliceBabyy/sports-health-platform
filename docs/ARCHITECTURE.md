@@ -55,8 +55,8 @@
 | cycle | cycle_settings / period_records / daily_pain_logs | 周期参考值；月经记录增改删（起止日期）；每日疼痛；按记录分段推算七阶段、只延伸一段 + 逐日四档状态 |
 | profile | users（复用） | 基本资料修改 + 修改密码 |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
-| state_record | appetite_record / myalgia_record / inflammation_record | 食欲/肌肉疼痛/炎症按天记录；三表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
-| agent | agent_conversations（消息在 langgraph 框架表） | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；checkpointer 持久化；SSE 流式（含 tool_start/tool_result）；会话 CRUD/归属隔离；模型下拉；硬删除 |
+| state_record | appetite_record / myalgia_record / inflammation_record / mood_record | 食欲/肌肉疼痛/炎症/情绪按天记录；四表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
+| agent | agent_conversations（消息在 langgraph 框架表） | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；checkpointer 持久化；SSE 流式（含 tool_start/tool_result）；会话 CRUD/归属隔离；模型下拉；最近一轮可重新生成并覆盖；硬删除 |
 
 ## 5. 认证与会话机制
 
@@ -73,11 +73,11 @@
 
 - 全库 **19 张业务表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`；另有 `langgraph` schema 4 张 checkpointer 框架表由应用 setup 管理。
 - **中文注释元数据**：全量建表脚本在 `scripts/schema.sql` 中维护列注释；既有库由迁移脚本同步。
-- **外键**：三运动主表与状态记录三表 `user_id` 引用 `users.id ON DELETE CASCADE`；动作与心得外键引用各自主表。其他业务表沿用原有归属策略。
+- **外键**：三运动主表与状态记录四表 `user_id` 引用 `users.id ON DELETE CASCADE`；动作与心得外键引用各自主表。其他业务表沿用原有归属策略。
 - **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段、经期长度与周期长度均由 service 实时计算。
-- **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`daily_pain_logs` 按 `(user_id, log_date)` 唯一；状态记录三表按 `(user_id, date)` 唯一（同类一天一行）。三运动同日可多条，按主表 id 定位。
+- **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`daily_pain_logs` 按 `(user_id, log_date)` 唯一；状态记录四表按 `(user_id, date)` 唯一（同类一天一行）。三运动同日可多条，按主表 id 定位。
 - **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded；统计口径只计 recorded 行。
-- **状态记录（非运动模块）**：`appetite_record` / `myalgia_record` / `inflammation_record` 三表结构同构，不套统一运动契约（无计划态、起止时间、时长、心率、热量），字段仅 id/user_id/date/star(0~5 可空；0=最低分，null=未评)/remark/created_at/updated_at。跨表列表在 service 内存合并分页；月历阶段复用 `cycle.service.calendar_month` 推算结果并归并经期/卵泡·排卵/黄体三档，男性或无周期记录时阶段置空。接口前缀 `/api/state-record`：列表（分页 + type 筛选）、`/daily`、`/calendar`、新建、按 id 编辑（body 带 type）、`DELETE /{id}?type=`、`/batch-delete`（items 自带 type）。
+- **状态记录（非运动模块）**：`appetite_record` / `myalgia_record` / `inflammation_record` / `mood_record` 四表结构同构，不套统一运动契约（无计划态、起止时间、时长、心率、热量），字段仅 id/user_id/date/star(0~5 可空；0=最低分，null=未评)/remark/created_at/updated_at。跨表列表在 service 内存合并分页；月历阶段复用 `cycle.service.calendar_month` 推算结果并归并经期/卵泡·排卵/黄体三档，男性或无周期记录时阶段置空。接口前缀 `/api/state-record`：列表（分页 + type 筛选）、`/daily`、`/calendar`、新建、按 id 编辑（body 带 type）、`DELETE /{id}?type=`、`/batch-delete`（items 自带 type）。
 - **账号状态与注销**：`users.status ∈ {启用, 停用}`，注册默认启用；登录和请求门禁拦截停用账号。`DELETE /api/profile/account` 要求当前密码，`retain` 停用并清会话，`purge` 在事务中删除用户及全部关联数据后清会话。停用账号通过注册页显式选择恢复、验证原密码后复用原 user_id。无管理员角色及管理员恢复接口。
 - **时长存秒、距离存米**，界面按分钟/米展示，派生展示值实时换算。
 
@@ -110,7 +110,7 @@
 - `app/core/templating.py::render_page` 统一注入登录用户、导航高亮、面包屑、侧栏「今日」信息与常量；`today` 按请求取当天（`date.today()`），进程长跑跨天不会停留在启动日。
 - 静态资源 `app/static`：css（base/layout/pages/*）、js（common.js 共享弹窗与工具函数 + 各模块页面脚本）、vendor（echarts）、img。
 - 三运动页顶部都有新建计划、新增记录、Excel/JSON/AI 导入（AI 弹窗为第三个面板：文字 + 图片 + 识别结果）；主体为当日、档案、全部记录三块。全部记录首列日期、次列类型、末列操作，含查看详情、编辑、删除及批量删除；健身全部记录列出类型/备注/时长/动作/容量（备注列 2026-11-10 由「训练内容」替换，训练内容仍在详情展示）。共用双栏使用可收缩网格列，宽表在卡片内部横向滚动；健身动作表和编辑动作区单独滚动。
-- 状态记录页 `/state-record`：三卡片自上而下纵向堆叠（`three-row-stack`，内容随卡片宽度自适应铺满），依次为月历（阶段三档圆点 + 有记录标记，翻月/选日联动）、「当日状态」三类块（食欲/肌肉疼痛/炎症）就地填写——每块内联星级（五星 + 「0」最低分按钮，未评存空）+ 描述 + 保存，有记录时块内可删除，不再弹新增表单、「全部记录」列表（类型分段筛选 + 勾选跨表批量删除 + 分页，操作列查看详情/编辑/删除，行内「编辑」才弹出表单弹窗）。详情复用公共 `#modalDetail`；无 Excel/JSON/AI 导入入口。页级脚本 `app/static/js/state_record.js`，页级样式 `css/pages/state_record.css`。
+- 状态记录页 `/state-record`：三卡片自上而下纵向堆叠（`three-row-stack`，内容随卡片宽度自适应铺满），依次为月历（阶段三档圆点 + 有记录标记，翻月/选日联动）、「当日状态」四类块（食欲/肌肉疼痛/炎症/情绪）就地填写——每块内联星级（五星 + 「0」最低分按钮，未评存空）+ 描述 + 保存，有记录时块内可删除，不再弹新增表单、「全部记录」列表（类型分段筛选 + 勾选跨表批量删除 + 分页，操作列查看详情/编辑/删除，行内「编辑」才弹出表单弹窗）。类型标签：食欲橙 / 肌肉疼痛灰 / 炎症红 / 情绪紫。详情复用公共 `#modalDetail`；无 Excel/JSON/AI 导入入口。页级脚本 `app/static/js/state_record.js`，页级样式 `css/pages/state_record.css`。
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 - 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
 - AI 助手页 `/agent`：提供多会话、多轮问答、工具调用和 SSE 流式交互；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
@@ -136,7 +136,7 @@ sports-health-platform/
 │  │  ├─ cycle/        # 生理周期七阶段 + 疼痛 + 运动等级
 │  │  ├─ profile/      # 个人资料 + 修改密码
 │  │  ├─ overview/     # 跨运动总览聚合（日/周/月）+ 单日详情
-│  │  ├─ state_record/ # 状态记录：食欲/肌肉疼痛/炎症三表 CRUD + 月历阶段归并
+│  │  ├─ state_record/ # 状态记录：食欲/肌肉疼痛/炎症/情绪四表 CRUD + 月历阶段归并
 │  │  └─ agent/        # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE
 │  ├─ templates/       # Jinja2 页面
 │  └─ static/          # css / js / vendor(echarts) / img
@@ -149,7 +149,7 @@ sports-health-platform/
 
 ## 12. 测试与运维
 
-- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合、状态记录三表 CRUD/合并分页/跨表批量删除等）。
+- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合、状态记录四表 CRUD/合并分页/跨表批量删除等）。
 - 建库/初始化：`python scripts/init_db.py`（幂等）；结构迁移按需执行 `scripts/migrate_*.py`。
 - 启动：`python main.py`（推荐；Windows 下 psycopg3 异步要求 SelectorEventLoop，命令行 `uvicorn main:app` 会在 import 本模块前用默认 ProactorEventLoop 建好 loop、导致启动失败，main.py 已内置显式 selector loop 的编程式启动）。
 - 依赖：`uv sync --extra dev` 或 `pip install -r requirements.txt`。

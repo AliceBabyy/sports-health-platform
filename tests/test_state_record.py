@@ -28,7 +28,7 @@ def test_create_and_get_by_date(db):
     assert day["inflammation"]["remark"] is None
 
     empty = service.get_by_date(db, U1, date(2026, 11, 11))
-    assert empty == {"appetite": None, "myalgia": None, "inflammation": None}
+    assert empty == {"appetite": None, "myalgia": None, "inflammation": None, "mood": None}
 
 
 def test_same_type_same_day_unique(db):
@@ -98,6 +98,47 @@ def test_star_out_of_range_rejected():
         _payload("2026-11-10", "appetite", 6)
     with pytest.raises(ValidationError):
         _payload("2026-11-10", "appetite", -1)
+
+
+def test_mood_record_roundtrip_and_daily(db):
+    """情绪记录与另外三类同构：可建、可读、可改，且当日聚合与同类型唯一生效。"""
+    row = service.create_record(db, U1, _payload("2026-11-10", "mood", 4, "心情平稳"))
+    assert row["type"] == "mood"
+    assert row["type_label"] == "情绪"
+    assert row["star"] == 4
+
+    day = service.get_by_date(db, U1, date(2026, 11, 10))
+    assert day["mood"]["id"] == row["id"]
+    assert day["mood"]["remark"] == "心情平稳"
+
+    # 0 分同样是情绪记录的合法最低分
+    updated = service.update_record(db, U1, row["id"], _payload("2026-11-10", "mood", 0, None))
+    assert updated["star"] == 0
+    assert updated["remark"] is None
+
+    with pytest.raises(AppError) as exc:
+        service.create_record(db, U1, _payload("2026-11-10", "mood", 3, "重复"))
+    assert exc.value.status == 409
+
+
+def test_list_includes_mood_and_type_filter(db):
+    service.create_record(db, U1, _payload("2026-11-10", "appetite", 4))
+    service.create_record(db, U1, _payload("2026-11-09", "mood", 2, "略低落"))
+
+    all_rows = service.list_records(db, U1)
+    assert all_rows["total"] == 2
+    assert {r["type"] for r in all_rows["list"]} == {"appetite", "mood"}
+
+    filtered = service.list_records(db, U1, type_filter="mood")
+    assert filtered["total"] == 1
+    assert filtered["list"][0]["type_label"] == "情绪"
+
+
+def test_state_types_cover_four_records():
+    from app.modules.state_record.models import STATE_MODELS, STATE_TYPE_LABELS, STATE_TYPES
+    assert STATE_TYPES == ("appetite", "myalgia", "inflammation", "mood")
+    assert set(STATE_MODELS) == set(STATE_TYPES)
+    assert STATE_TYPE_LABELS["mood"] == "情绪"
 
 
 def test_delete_record(db):

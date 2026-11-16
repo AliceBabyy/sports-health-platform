@@ -52,6 +52,7 @@
   function syncWelcome(show) {
     els.chatWelcome.style.display = show ? "" : "none";
     els.chatBody.classList.toggle("is-empty", show);
+    autoGrow();
   }
 
   function current() {
@@ -136,15 +137,39 @@
       App.escapeHtml(content) + '</div></div></div>';
   }
 
-  function appendBubble(role, content, isStreaming) {
+  // 通用：把一段气泡 HTML 插入消息列表并返回节点（流式/历史共用）
+  function appendNode(html) {
     const empty = els.messageList.querySelector(".chat-empty");
     if (empty) empty.remove();
     const wrap = document.createElement("div");
-    wrap.innerHTML = bubbleHtml(role, content, isStreaming);
+    wrap.innerHTML = html;
     const node = wrap.firstElementChild;
     els.messageList.appendChild(node);
     scrollBottom();
     return node;
+  }
+
+  function appendBubble(role, content, isStreaming) {
+    return appendNode(bubbleHtml(role, content, isStreaming));
+  }
+
+  // 历史 assistant 气泡：工具轨迹为“已查询”完成态，正文与明细由调用方补全
+  function historicalAssistantHtml(turn) {
+    const runs = turn.tool_runs || [];
+    const traceHtml = runs.length
+      ? '<div class="tool-trace">' + runs.map(run => {
+          const label = TOOL_LABELS[run.tool] || run.tool;
+          return '<div class="tool-line done"><span class="tool-dot"></span>' +
+            '<span class="tool-name">已查询' + App.escapeHtml(label) + '</span></div>';
+        }).join("") + '</div>'
+      : '';
+    const textHtml = turn.assistant
+      ? '<div class="msg-text">' + renderMarkdown(turn.assistant) + '</div>'
+      : '';
+    return '<div class="msg-row assistant">' +
+      '<div class="msg-avatar">AI</div>' +
+      '<div class="msg-body"><div class="msg-bubble">' + traceHtml + textHtml + '</div>' +
+      actionsHtml() + '</div></div>';
   }
 
   function scrollBottom() {
@@ -159,15 +184,25 @@
     }
     try {
       const res = await App.api("/api/agent/conversations/" + conv.id + "/messages");
-      if (!res.messages.length) {
+      const turns = res.turns || [];
+      if (!turns.length) {
         els.messageList.innerHTML = "";
         syncWelcome(true);
         return;
       }
       els.messageList.innerHTML = "";
-      res.messages.forEach(m => {
-        const node = appendBubble(m.role, m.content, false);
-        if (m.role === "assistant") node.dataset.raw = m.content;
+      turns.forEach(turn => {
+        if (turn.user != null) appendNode(bubbleHtml("user", turn.user, false));
+        if (turn.assistant != null || (turn.tool_runs || []).length) {
+          const aiNode = appendNode(historicalAssistantHtml(turn));
+          const bubble = aiNode.querySelector(".msg-bubble");
+          (turn.tool_runs || []).forEach(run => {
+            const label = TOOL_LABELS[run.tool] || run.tool;
+            const detail = renderToolDetail({ tool: run.tool, label, data: run.data });
+            if (detail) bubble.appendChild(detail);
+          });
+          aiNode.dataset.raw = turn.assistant || "";
+        }
       });
       syncWelcome(false);
       scrollBottom();
@@ -736,9 +771,11 @@
   /* ---------- 输入框自动增高 ---------- */
   function autoGrow() {
     const el = els.chatInput;
-    const minH = parseFloat(getComputedStyle(el).minHeight) || 0;
+    const cs = getComputedStyle(el);
+    const minH = parseFloat(cs.minHeight) || 0;
+    const maxH = parseFloat(cs.maxHeight) || Infinity;
     el.style.height = "auto";
-    el.style.height = Math.min(Math.max(el.scrollHeight, minH), 140) + "px";
+    el.style.height = Math.min(Math.max(el.scrollHeight, minH), maxH) + "px";
   }
 
   /* ---------- 会话侧栏收起 / 展开 ---------- */

@@ -97,18 +97,77 @@ async def delete_conversation(db: Session, user_id: int, conversation_id: int, r
 
 
 async def get_messages(db: Session, user_id: int, conversation_id: int, runtime: dict) -> dict:
+    """按一轮问答（turn）聚合历史，工具调用轨迹随最终回答一起返回。
+
+    checkpointer 完整存着 HumanMessage、带 tool_calls 的中转 AIMessage、ToolMessage 与
+    最终 AIMessage；这里不再扁平过滤，而是把同一轮的工具调用与结果归并到对应 turn，
+    供前端重建“工具状态 + 明细折叠”，与当次流式视图保持一致。
+    """
     row = get_conversation(db, user_id, conversation_id)
     config = {"configurable": {"thread_id": str(row.thread_id)}}
     state = await runtime["graph"].aget_state(config)
-    messages = []
+
+    turns: list[dict] = []
+    turn: dict | None = None
     for m in state.values.get("messages", []):
-        # 只保留真实问答：用户消息 + 最终 AI 回答；
-        # 跳过 ToolMessage 与带 tool_calls 的工具中转 AIMessage。
         if m.type == "human":
-            messages.append({"role": "user", "content": m.content})
-        elif m.type == "ai" and not getattr(m, "tool_calls", None):
-            messages.append({"role": "assistant", "content": m.content})
-    return {"conversation_id": row.id, "messages": messages}
+            # 旧版本遗留：工具调用后会重插一条相同 human（且无对应 ToolMessage）。
+            # 当前 turn 尚未产生最终回答且内容相同时合并，避免同一问题被拆成两个 turn。
+            if turn is not None and turn["assistant"] is None and turn["user"] == m.content:
+                continue
+            turn = {"user": m.content, "assistant": None, "tool_runs": []}
+            turns.append(turn)
+        elif turn is None:
+            # 没有以用户消息开头的残缺序列，兜底跳过
+            continue
+        elif m.type == "ai":
+            if getattr(m, "tool_calls", None):
+                # 工具调用动作：登记 run，等待 ToolMessage 按 tool_call_id 回填
+                for tc in m.tool_calls:
+                    turn["tool_runs"].append({
+                        "tool": tc["name"],
+                        "args": tc.get("args", {}),
+                        "data": None,
+                        "tool_call_id": tc.get("id"),
+                    })
+            else:
+                turn["assistant"] = m.content
+        elif m.type == "tool":
+            data = _normalize_tool_content(m.content)
+            tcid = getattr(m, "tool_call_id", None)
+            target = None
+            if tcid is not None:
+                target = next(
+                    (r for r in turn["tool_runs"]
+                     if r["tool_call_id"] == tcid and r["data"] is None),
+                    None,
+                )
+            if target is None:
+                # 并行/重放等场景按顺序兜底，取第一个未回填的 run
+                target = next((r for r in turn["tool_runs"] if r["data"] is None), None)
+            if target is not None:
+                target["data"] = data
+                if getattr(m, "name", None):
+                    target["tool"] = m.name
+            else:
+                # 找不到对应调用的异常态，仍保留结果，避免工具数据丢失
+                turn["tool_runs"].append({
+                    "tool": getattr(m, "name", "unknown"),
+                    "args": {},
+                    "data": data,
+                    "tool_call_id": tcid,
+                })
+
+    result = []
+    for t in turns:
+        # 内部匹配字段 tool_call_id 不对外暴露
+        runs = [
+            {"tool": r["tool"], "args": r["args"], "data": r["data"]}
+            for r in t["tool_runs"]
+        ]
+        if t["user"] is not None or t["assistant"] is not None or runs:
+            result.append({"user": t["user"], "assistant": t["assistant"], "tool_runs": runs})
+    return {"conversation_id": row.id, "turns": result}
 
 
 def _sse(event: str, data: dict) -> str:

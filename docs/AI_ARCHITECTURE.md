@@ -62,6 +62,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 工具调用期间前端显示查询状态；明细以折叠区展示，最多渲染 50 行。
 - 模型失败返回 `error`，前端保留输入内容以便重试。
 - 重新生成：`POST /api/agent/conversations/{id}/messages/regenerate` 复用同一套 SSE 事件；服务端经 `aupdate_state` + `RemoveMessage` 移除最后一条用户消息之后的工具中转与上一条 AI 回答（保留该用户消息），再以空输入续跑覆盖本次回答，不追加重复的用户消息；仅最近一轮可重新生成。
+- 历史消息读取（`GET .../messages`）：按一轮问答聚合为 `turns`，把带 `tool_calls` 的中转 AIMessage 与 ToolMessage 归并到对应轮次的 `tool_runs`（含工具名、入参、结构化结果），前端据此重建工具状态与明细折叠，切换会话后与当次流式视图一致；按 `tool_call_id` 精确匹配、顺序兜底。兼容早期无 ToolMessage 的历史数据（对应工具结果为空，仅显示“已查询”、不渲染明细），并合并工具调用后重插的重复用户消息。
 
 ## 五、只读数据工具
 

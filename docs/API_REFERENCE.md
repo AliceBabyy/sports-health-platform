@@ -218,7 +218,7 @@
 | `POST /api/agent/conversations` | JSON | `model_name`（可选，≤64） | 会话对象（A.11） | 新建会话（分配 `thread_id`）；模型不支持 400 |
 | `PUT /api/agent/conversations/{conversation_id}` | 路径参数 + JSON | 路径 `conversation_id`；体 `title`（1~64） | 会话对象（A.11） | 重命名会话；不存在 404 |
 | `DELETE /api/agent/conversations/{conversation_id}` | 路径参数 | 路径 `conversation_id` | `{ok}` | 硬删除会话与 checkpointer 线程；生成中 409，不存在 404 |
-| `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, messages:[{role:"user"/"assistant", content}]}` | 读取历史问答（已过滤工具消息与中间 AI 消息） |
+| `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, turns:[{user, assistant（可空）, tool_runs:[{tool, args, data（可空）}]}]}` | 按一轮问答聚合读取历史，含工具调用轨迹，供前端重建工具状态与明细折叠 |
 | `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；前置校验失败以 JSON 返回 400/404/409 |
 | `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；前置校验失败以 JSON 返回 400/404/409 |
 

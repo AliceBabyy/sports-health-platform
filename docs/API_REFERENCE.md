@@ -71,7 +71,7 @@
 | `PUT /api/body-metrics/{group}/{record_date}` | 路径参数 + JSON | 路径 `group`（仅 `basic`/`girth`）、`record_date`；体 `values` | `{ok, group, record_date}` | 单条更新，仅覆盖提交字段；该日无记录 404 |
 | `DELETE /api/body-metrics` | Query | `record_date`（必填） | `{ok, deleted}` | 删除某日 4 组全部记录，`deleted` 为删除行数 |
 | `GET /api/body-metrics/latest` | 无 | 无 | 身材快照（A.8） | 各维度最新值、较上次差值与 BMI |
-| `GET /api/body-metrics/trend` | Query | `metric`（默认 `weight`；可选 `weight`/`body_fat`/`arm`/`chest`/`waist`/`hip`/`thigh`/`calf`）、`range`（默认 `month`；可选 `week`/`month`/`half_year`/`year`） | `{range, points:[{date, value 或 null}]}` | 趋势序列；窗口内无记录为 `null`，前端断线 |
+| `GET /api/body-metrics/trend` | Query | `metric`（默认 `weight`；可选 `weight`/`body_fat`/`arm`/`chest`/`waist`/`hip`/`thigh`/`calf`）、`range`（默认 `month`；可选 `week`/`month`/`two_month`/`half_year`/`year`） | `{range, points:[{date, value 或 null}]}` | 趋势序列；窗口内无记录为 `null`，前端断线 |
 
 ### 3.1 分组与字段
 

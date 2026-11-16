@@ -1,8 +1,9 @@
-"""趋势聚合服务（BD-10~14）：周/月/半年/年四档，锚点+窗口均值，null 断线。
+"""趋势聚合服务（BD-10~14）：周/月/两月/半年/年五档，锚点+窗口均值，null 断线。
 
-口径（需求 9.3 定稿）：
+口径（需求 9.3 定稿，2026-11-16 增两月档）：
 - week        ：本周周一~周日 7 点，取当日记录值（无记录 null）
 - month       ：本月每天 1 点，取当日记录值（无记录 null）
+- two_month   ：最近 60 天（含今天）每天 1 点，取当日记录值（无记录 null，不做窗口均值）
 - half_year   ：近半年每月 1/10/20 号共 18 锚点，窗口 [锚点-10天, 锚点] 共 11 天取均值
 - year        ：近 12 个月每月 1/15 号共 24 锚点，窗口 [锚点-15天, 锚点] 共 16 天取均值
 同日多条按 BD-02 归一为当日最后一条再参与计算；窗口内无记录 → null（前端断线）。
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.constants import (
     HALF_YEAR_ANCHOR_DAYS,
     HALF_YEAR_WINDOW_BACK,
+    TWO_MONTH_SPAN_DAYS,
     YEAR_ANCHOR_DAYS,
     YEAR_WINDOW_BACK,
     monday_of,
@@ -43,6 +45,17 @@ def _month_points(day_map: dict[date, float]) -> list[dict]:
             d = today.replace(day=i)
         except ValueError:
             break
+        points.append({"date": d.isoformat(), "value": day_map.get(d)})
+    return points
+
+
+def _two_month_points(day_map: dict[date, float]) -> list[dict]:
+    """近两月：以今天为末点向前共 60 天（含今天）逐日 1 点，取当日记录值（无记录 null）。"""
+    today = today_local()
+    start = today - timedelta(days=TWO_MONTH_SPAN_DAYS - 1)
+    points = []
+    for i in range(TWO_MONTH_SPAN_DAYS):
+        d = start + timedelta(days=i)
         points.append({"date": d.isoformat(), "value": day_map.get(d)})
     return points
 
@@ -110,6 +123,8 @@ def build_trend(db: Session, user_id: int, metric: str, range_key: str) -> dict:
         points = _week_points(day_map)
     elif range_key == "month":
         points = _month_points(day_map)
+    elif range_key == "two_month":
+        points = _two_month_points(day_map)
     elif range_key == "half_year":
         points = _half_year_points(day_map)
     elif range_key == "year":

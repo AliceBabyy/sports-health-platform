@@ -80,6 +80,20 @@ def test_year_window_average_and_null(db):
             assert p["value"] is None
 
 
+def test_two_month_daily_points(db):
+    """两月档：最近 60 天（含今天）逐日 1 点，取当日值、不做窗口均值。"""
+    today = today_local()
+    start = today - timedelta(days=59)
+    _add(db, start, 60.0)
+    _add(db, today, 62.0)
+    points = trend_service.build_trend(db, USER, "weight", "two_month")["points"]
+    assert len(points) == 60
+    assert points[0]["date"] == start.isoformat() and points[0]["value"] == 60.0
+    assert points[-1]["date"] == today.isoformat() and points[-1]["value"] == 62.0
+    # 中间无记录的日期为 null，不被窗口均值填平
+    assert all(p["value"] is None for p in points[1:-1])
+
+
 def test_unknown_range_raises(db):
     import pytest
 

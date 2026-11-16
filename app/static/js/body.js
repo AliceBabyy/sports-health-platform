@@ -68,6 +68,8 @@
           color: App.cssVar('--color-text-secondary', '#6b7280'),
           fontSize: 10
         },
+        // 五档共用同一套点/标签样式；点位变密时由 ECharts 统一避让重叠标签，不为某一档单独改样式
+        labelLayout: { hideOverlap: true },
         emphasis: { focus: 'series' }
       }]
     });

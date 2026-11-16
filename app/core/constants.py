@@ -62,7 +62,9 @@ CARD_KEYS = ["weight", "body_fat", "waist", "hip"]
 SILHOUETTE_METRICS = ["chest", "arm", "waist", "hip", "thigh"]
 
 # ---------- 趋势聚合（BD-10~14） ----------
-TREND_RANGES = ["week", "month", "half_year", "year"]
+TREND_RANGES = ["week", "month", "two_month", "half_year", "year"]
+# 两月档：以今天为末点向前共 60 天（含今天），逐日取当日记录值，不做窗口均值
+TWO_MONTH_SPAN_DAYS = 60
 # 半年锚点：每月 1/10/20 号；窗口 [锚点-10天, 锚点] 含两端共 11 天（需求定稿口径）
 HALF_YEAR_ANCHOR_DAYS = (1, 10, 20)
 HALF_YEAR_WINDOW_BACK = 10

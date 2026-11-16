@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-head">
   <h1>身材数据</h1>
-  <div class="page-desc">身高体重与身材维度的连续记录，按周/月/半年/一年回溯变化趋势；四类记录分别添加。</div>
+  <div class="page-desc">身高体重与身材维度的连续记录，按周/月/两月/半年/一年回溯变化趋势；四类记录分别添加。</div>
   <div class="page-head-actions add-actions">
     <button class="btn btn-primary" id="btnAddBasic">＋ 基础记录</button>
     <button class="btn btn-primary" id="btnAddGirth">＋ 围度记录</button>
@@ -37,7 +37,7 @@
 
 <div class="two-col">
   <div class="card chart-card">
-    <div class="card-title">趋势折线 <span class="sub">四档口径 · 无记录点断线不插值</span></div>
+    <div class="card-title">趋势折线 <span class="sub">五档口径 · 无记录点断线不插值</span></div>
     <div class="chart-toolbar">
       <select class="input" id="metricSelect" style="width:150px">
         {% for key in trend_keys %}<option value="{{ key }}">{{ body_labels[key] }}</option>{% endfor %}
@@ -45,6 +45,7 @@
       <div class="seg" id="rangeSeg">
         <button data-range="week">周</button>
         <button data-range="month">月</button>
+        <button data-range="two_month">两月</button>
         <button data-range="half_year" class="active">半年</button>
         <button data-range="year">一年</button>
       </div>
@@ -279,5 +280,5 @@ window.GROUP_LABELS = {{ group_labels | tojson }};
 window.CARD_KEYS = {{ card_keys | tojson }};
 </script>
 <script src="/static/vendor/echarts.min.js?v=20261031"></script>
-<script src="/static/js/body.js?v=20261107b"></script>
+<script src="/static/js/body.js?v=20261116a"></script>
 {% endblock %}

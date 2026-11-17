@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}生理周期 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css?v=20261112a">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css?v=20261117a">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>生理周期</h1>
@@ -101,7 +101,6 @@
 {% block extra_js %}
 <script>window.INIT_CAL = {{ calendar | tojson }};
 window.INIT_SETTINGS = {{ settings | tojson }};
-window.PHASE_INFO = {{ phase_info | tojson }};
 window.TODAY_STR = '{{ today.isoformat() }}';</script>
-<script src="/static/js/cycle.js?v=20261112a"></script>
+<script src="/static/js/cycle.js?v=20261117a"></script>
 {% endblock %}

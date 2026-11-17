@@ -33,6 +33,7 @@ from app.core.constants import (
     PERIOD_STATE_RECORDED,
     PHASE_FOLLICULAR_POST,
     PHASE_FOLLICULAR_PRE,
+    PHASE_HORMONE,
     PHASE_LABELS,
     PHASE_LUTEAL_EARLY,
     PHASE_LUTEAL_LATE,
@@ -240,6 +241,43 @@ def phase_in_segment(day: date, seg: Segment) -> str | None:
     return PHASE_LUTEAL_LATE
 
 
+def phase_bounds(phase_key: str, seg: Segment) -> tuple[int, int] | None:
+    """阶段在段内的起止日序（从 1 起）；无有效区间返回 None。"""
+    ovulation_day = seg.length - OVULATION_OFFSET
+    if phase_key == PHASE_MENSTRUAL:
+        start, end = 1, min(seg.period_length, seg.length)
+    elif phase_key == PHASE_FOLLICULAR_PRE:
+        start, end = seg.period_length + 1, ovulation_day - 1
+    elif phase_key == PHASE_OVULATION_DAY:
+        start = end = ovulation_day
+    elif phase_key == PHASE_FOLLICULAR_POST:
+        start, end = ovulation_day + 1, ovulation_day + OVULATION_POST_POST
+    elif phase_key == PHASE_LUTEAL_EARLY:
+        start, end = ovulation_day + OVULATION_POST_POST + 1, ovulation_day + LUTEAL_EARLY_END
+    elif phase_key == PHASE_LUTEAL_MID:
+        start, end = ovulation_day + LUTEAL_EARLY_END + 1, ovulation_day + LUTEAL_MID_END
+    elif phase_key == PHASE_LUTEAL_LATE:
+        start, end = ovulation_day + LUTEAL_MID_END + 1, seg.length
+    else:
+        return None
+    if start > end:
+        return None
+    return start, end
+
+
+def hormone_text_for(phase_key: str, cycle_day: int, seg: Segment) -> str | None:
+    """按阶段天数取两段文案：前 floor(n/2) 天用 a，其余用 b；n=1 时用 a。"""
+    variants = PHASE_HORMONE.get(phase_key)
+    if not variants:
+        return None
+    bounds = phase_bounds(phase_key, seg)
+    if bounds is None:
+        return variants[0]
+    start, end = bounds
+    split = max(1, (end - start + 1) // 2)
+    return variants[0] if cycle_day - start + 1 <= split else variants[1]
+
+
 def sport_level_for(phase_key: str, cycle_day: int, segment_length: int, period_length: int, pain_level: int) -> str:
     """按阶段内日序判定四档；中重度疼痛优先休息。"""
     if pain_level >= 2:
@@ -424,6 +462,7 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
         cycle_day = (d - seg.start).days + 1 if seg else None
         level = sport_level_for(phase, cycle_day, seg.length, seg.period_length, pain) if seg and phase else None
         state = _period_state(d, phase, seg, windows)
+        hormone_text = hormone_text_for(phase, cycle_day, seg) if seg and phase and cycle_day else None
         if state == PERIOD_STATE_RECORDED:
             phase_source = "recorded"
         elif state == PERIOD_STATE_PREDICTED or (seg is not None and seg.source == SEGMENT_PREDICTED):
@@ -440,6 +479,7 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
                 "phase_source": phase_source,
                 "sport_level": level,
                 "sport_label": SPORT_LABELS[level] if level else None,
+                "hormone_text": hormone_text,
                 "is_period": phase == PHASE_MENSTRUAL,
                 "period_state": state,
                 "period_label": PERIOD_STATE_LABELS[state] if state else None,

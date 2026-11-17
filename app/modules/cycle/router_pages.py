@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.core.constants import PHASE_INFO
 from app.core.deps import get_current_user
 from app.core.templating import render_page
 from app.modules.auth.models import User
@@ -35,6 +34,5 @@ def cycle_page(
                 "cycle_length": calendar_data["overview"]["reference_cycle_length"],
                 "period_length": calendar_data["overview"]["reference_period_length"],
             },
-            "phase_info": PHASE_INFO,
         },
     )

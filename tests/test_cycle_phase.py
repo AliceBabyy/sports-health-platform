@@ -9,6 +9,7 @@ from app.core.constants import (
     PERIOD_STATE_RECORDED,
     PHASE_FOLLICULAR_POST,
     PHASE_FOLLICULAR_PRE,
+    PHASE_HORMONE,
     PHASE_LUTEAL_EARLY,
     PHASE_LUTEAL_LATE,
     PHASE_LUTEAL_MID,
@@ -123,6 +124,51 @@ def test_sport_level_pain_priority(db):
     service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
     service.set_pain(db, 1, date(2026, 10, 29), 3)
     assert _cal(db, 2026, 10)["2026-10-29"]["sport_level"] == SPORT_REST
+
+
+# ---------- 激素文案 ----------
+def test_hormone_copy_contract():
+    """每阶段两份、70 字以内、两句话各占一行。"""
+    for variants in PHASE_HORMONE.values():
+        assert len(variants) == 2
+        for text in variants:
+            assert len(text) <= 70
+            assert text.count("\n") == 1
+
+
+def test_hormone_text_splits_phase_by_half(db):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))  # 28 天段，经期 5 天
+    october = _cal(db, 2026, 10)
+    november = _cal(db, 2026, 11)
+
+    # 经期 5 天：前 2 天 a、后 3 天 b
+    menstrual_a, menstrual_b = PHASE_HORMONE[PHASE_MENSTRUAL]
+    assert october["2026-10-16"]["hormone_text"] == menstrual_a
+    assert october["2026-10-17"]["hormone_text"] == menstrual_a
+    assert october["2026-10-18"]["hormone_text"] == menstrual_b
+    assert october["2026-10-20"]["hormone_text"] == menstrual_b
+
+    # 卵泡期 8 天：前 4 天后 4 天
+    follicular_a, follicular_b = PHASE_HORMONE[PHASE_FOLLICULAR_PRE]
+    assert october["2026-10-21"]["hormone_text"] == follicular_a
+    assert october["2026-10-24"]["hormone_text"] == follicular_a
+    assert october["2026-10-25"]["hormone_text"] == follicular_b
+    assert october["2026-10-28"]["hormone_text"] == follicular_b
+
+    # 排卵日 1 天：用 a
+    assert october["2026-10-29"]["hormone_text"] == PHASE_HORMONE[PHASE_OVULATION_DAY][0]
+
+    # 排卵后期 2 天：1 天 a、1 天 b
+    post_a, post_b = PHASE_HORMONE[PHASE_FOLLICULAR_POST]
+    assert october["2026-10-30"]["hormone_text"] == post_a
+    assert october["2026-10-31"]["hormone_text"] == post_b
+
+    # 黄体中期 4 天：前 2 天后 2 天
+    mid_a, mid_b = PHASE_HORMONE[PHASE_LUTEAL_MID]
+    assert november["2026-11-05"]["hormone_text"] == mid_a
+    assert november["2026-11-06"]["hormone_text"] == mid_a
+    assert november["2026-11-07"]["hormone_text"] == mid_b
+    assert november["2026-11-08"]["hormone_text"] == mid_b
 
 
 # ---------- 三态经期 ----------

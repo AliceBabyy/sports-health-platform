@@ -68,14 +68,15 @@
     const day = state.cal.days.find(d => d.date === state.selected) || state.cal.days[0];
     if (!day) return;
     const dd = dateOf(day.date);
-    const info = window.PHASE_INFO[day.phase_key] || {};
     const ov = state.cal.overview;
     const hasPhase = !!day.phase_key;
+    // 疼痛入口只在经期 / 推算经期 / 预测经期三态开放
+    const showPain = !!day.period_state;
 
-    const painHtml = PAIN_BUTTONS.map(function (b) {
+    const painHtml = showPain ? PAIN_BUTTONS.map(function (b) {
       const active = day.pain_recorded && b.level === day.pain_level;
       return '<button type="button" class="pain-btn ' + (active ? 'active' : '') + '" aria-pressed="' + active + '" data-level="' + b.level + '">' + b.label + '</button>';
-    }).join('');
+    }).join('') : '';
 
     let sourceNote = '';
     if (day.phase_source === 'derived') {
@@ -91,11 +92,12 @@
         : '<span class="tag tag-gray no-dot">未推算</span>') + '</div>' +
       '<div class="dd-meta">' + WEEKDAY[dd.getDay()] + (day.cycle_day ? ' · 周期第 ' + day.cycle_day + ' 天' : '') + (day.is_recorded_start ? ' · 已记录' : '') + '</div>' +
       (hasPhase
-        ? '<div class="dd-block"><div class="dd-title">激素水平</div><div class="dd-text">' + App.escapeHtml(info.hormone || '—') + '</div></div>' +
-          '<div class="dd-block"><div class="dd-title">运动建议</div><div class="dd-text">' + App.escapeHtml(info.advice || '—') + '</div></div>'
+        ? '<div class="dd-block"><div class="dd-title">激素水平</div><div class="dd-text dd-hormone">' + App.escapeHtml(day.hormone_text || '—') + '</div></div>'
         : '<div class="dd-block"><div class="dd-text muted">该日期暂无周期推算</div></div>') +
       sourceNote +
-      '<div class="dd-block"><div class="dd-title">疼痛程度' + (day.pain_recorded ? '' : ' · 未记录') + '</div><div class="pain-group">' + painHtml + '</div></div>' +
+      (showPain
+        ? '<div class="dd-block"><div class="dd-title">疼痛程度' + (day.pain_recorded ? '' : ' · 未记录') + '</div><div class="pain-group">' + painHtml + '</div></div>'
+        : '') +
       '<div class="dd-block"><div class="dd-title">周期概览</div>' +
       '<div class="ov-grid">' +
       '<div class="ov-item"><div class="k">参考周期</div><div class="v num">' + ov.reference_cycle_length + ' 天</div></div>' +

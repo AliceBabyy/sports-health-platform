@@ -8,15 +8,31 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from uuid import uuid4
 
-from langchain_core.messages import HumanMessage, RemoveMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from sqlalchemy.orm import Session
 
 from app.ai.models.registry import MODELS
 from app.core.exceptions import AppError
-from app.modules.agent.models import AUTO_TITLE_LEN, DEFAULT_TITLE, AgentConversation
+from app.modules.agent.models import (
+    AUTO_TITLE_LEN,
+    DEFAULT_TITLE,
+    AgentConversation,
+    AgentSkill,
+    AgentSkillVersion,
+)
+from app.modules.agent.runtime import graph_for_user
+from app.modules.agent.tools.action_definitions import ACTION_TOOLS
+from app.modules.agent.skills.management import resolved_from_version
+from app.modules.agent.skills.parser import build_question, parse_skill_args
+from app.modules.agent.skills.pending import PendingSkill, pending_store
+from app.modules.agent.skills.registry import (
+    ResolvedSkill,
+    available_skills,
+    find_by_slash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +108,7 @@ async def delete_conversation(db: Session, user_id: int, conversation_id: int, r
     if thread_id in _running:
         raise AppError(409, "该会话正在生成，暂不能删除")
     await runtime["saver"].adelete_thread(thread_id)
+    pending_store.clear(conversation_id)
     db.delete(row)
     db.commit()
 
@@ -105,7 +122,7 @@ async def get_messages(db: Session, user_id: int, conversation_id: int, runtime:
     """
     row = get_conversation(db, user_id, conversation_id)
     config = {"configurable": {"thread_id": str(row.thread_id)}}
-    state = await runtime["graph"].aget_state(config)
+    state = await graph_for_user(db, user_id, runtime).aget_state(config)
 
     turns: list[dict] = []
     turn: dict | None = None
@@ -217,7 +234,7 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
     thread_id = str(row.thread_id)
     await _acquire_slot(thread_id, payload.client_msg_id)
     config = {"configurable": {"thread_id": thread_id}}
-    state = await runtime["graph"].aget_state(config)
+    state = await graph_for_user(db, user_id, runtime).aget_state(config)
     msgs = state.values.get("messages", [])
 
     human_idx = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].type == "human"), None)
@@ -233,7 +250,7 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
         raise AppError(400, "暂无可重新生成的回答")
 
     try:
-        await runtime["graph"].aupdate_state(
+        await graph_for_user(db, user_id, runtime).aupdate_state(
             config,
             {"messages": [RemoveMessage(id=m.id) for m in removed if getattr(m, "id", None)]},
         )
@@ -257,54 +274,240 @@ def _normalize_tool_content(content):
     return content
 
 
+BASE_TOOL_LABELS = {
+    "get_workout_summary": "运动汇总",
+    "get_fitness_records": "健身记录",
+    "get_swim_records": "游泳记录",
+    "get_dance_records": "舞蹈记录",
+    "get_body_measurements": "身材数据",
+    "get_state_records": "状态记录",
+    "get_cycle_records": "生理周期",
+    "get_profile_info": "个人资料",
+    "save_today_workout_plan": "保存今日计划",
+}
+
+ACTION_TOOL_NAMES = {tool.name for tool in ACTION_TOOLS}
+
+
+def _tool_meta(tool_name: str, skills: list[ResolvedSkill]) -> dict:
+    for skill in skills:
+        if skill.tool_name == tool_name:
+            return {"tool": tool_name, "label": skill.name, "kind": "skill",
+                    "origin": skill.origin, "version": f"v{skill.version_no}", "skill": skill.key}
+    if tool_name in ACTION_TOOL_NAMES:
+        return {"tool": tool_name, "label": BASE_TOOL_LABELS.get(tool_name, tool_name),
+                "kind": "action", "origin": "system", "version": None, "skill": None}
+    return {"tool": tool_name, "label": BASE_TOOL_LABELS.get(tool_name, tool_name),
+            "kind": "base", "origin": "system", "version": None, "skill": None}
+
+
+def _json_default(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _safe_args(args: dict) -> dict:
+    return json.loads(json.dumps(args, default=_json_default, ensure_ascii=False))
+
+
+def _slash_parts(content: str) -> tuple[str, str] | None:
+    content = content.strip()
+    if not content.startswith("/"):
+        return None
+    body = content[1:].strip()
+    parts = body.split(maxsplit=1)
+    if not parts:
+        return "", ""
+    return parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
+
+
+def _commands_text(skills: list[ResolvedSkill]) -> str:
+    lines = [f"/{s.name}" for s in skills]
+    return "、".join(lines) if lines else "当前没有可用技能"
+
+
+def _pending_skill(db: Session, pending: PendingSkill, user_id: int) -> ResolvedSkill | None:
+    row = db.get(AgentSkill, pending.skill_id)
+    if row is None or row.status != "active" or row.current_version_no != pending.version_no:
+        return None
+    if row.scope == "user" and row.owner_user_id != user_id:
+        return None
+    version = db.query(AgentSkillVersion).filter(
+        AgentSkillVersion.skill_id == row.id,
+        AgentSkillVersion.version_no == pending.version_no,
+    ).first()
+    return resolved_from_version(row, version) if version else None
+
+
+async def _stream_graph(graph, stream_input, config, skills: list[ResolvedSkill]):
+    async for mode, data in graph.astream(
+        stream_input,
+        config=config,
+        stream_mode=["messages", "updates"],
+    ):
+        if mode == "messages":
+            message_chunk, metadata = data
+            if metadata.get("langgraph_node") == "agent" and message_chunk.content:
+                yield _sse("delta", {"content": message_chunk.content})
+        elif mode == "updates":
+            for node, update in data.items():
+                for msg in update.get("messages", []):
+                    if node == "agent" and getattr(msg, "tool_calls", None):
+                        for tc in msg.tool_calls:
+                            meta = _tool_meta(tc["name"], skills)
+                            yield _sse("tool_start", {**meta, "args": tc["args"]})
+                    elif node == "tools":
+                        name = getattr(msg, "name", None)
+                        meta = _tool_meta(name, skills)
+                        yield _sse("tool_result", {**meta, "data": _normalize_tool_content(msg.content)})
+
+
+async def _persist(graph, config, human: str, assistant: str) -> None:
+    await graph.aupdate_state(
+        config,
+        {"messages": [HumanMessage(content=human), AIMessage(content=assistant)]},
+        as_node="agent",
+    )
+
+
+def _finish(db: Session, row: AgentConversation, content: str) -> str:
+    now = datetime.now()
+    row.last_message_at = now
+    if row.title == DEFAULT_TITLE:
+        row.title = content.strip()[:AUTO_TITLE_LEN] or DEFAULT_TITLE
+    db.commit()
+    return _sse("done", {
+        "conversation_id": row.id,
+        "title": row.title,
+        "last_message_at": now.isoformat(),
+    })
+
+
 async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload, human_content: str | None = None, replay: bool = False):
-    # user_id 服务端注入，工具经 config 读取；recursion_limit 限制工具循环轮数
-    config = {
+    graph = graph_for_user(db, row.user_id, runtime)
+    skills = available_skills(db, row.user_id)
+    base_config = {
         "configurable": {
             "thread_id": thread_id,
             "model_name": row.model_name,
             "user_id": row.user_id,
+            "conversation_id": row.id,
         },
         "recursion_limit": 10,
     }
     content = human_content or payload.content
-    # 重新生成：状态里已保留待回答的用户消息，空输入续跑即可，不再追加重复的 HumanMessage
-    stream_input = {"messages": []} if replay else {"messages": [HumanMessage(content=content)]}
+    today = date.today()
 
     yield _sse("start", {"conversation_id": row.id, "thread_id": thread_id})
     try:
-        async for mode, data in runtime["graph"].astream(
-            stream_input,
-            config=config,
-            stream_mode=["messages", "updates"],
-        ):
-            if mode == "messages":
-                message_chunk, metadata = data
-                # 只取 agent 节点的正文 token；tools 节点的消息不混入正文
-                if metadata.get("langgraph_node") == "agent" and message_chunk.content:
-                    yield _sse("delta", {"content": message_chunk.content})
-            elif mode == "updates":
-                for node, update in data.items():
-                    for msg in update.get("messages", []):
-                        if node == "agent" and getattr(msg, "tool_calls", None):
-                            for tc in msg.tool_calls:
-                                yield _sse("tool_start", {"tool": tc["name"], "args": tc["args"]})
-                        elif node == "tools":
-                            yield _sse("tool_result", {
-                                "tool": getattr(msg, "name", None),
-                                "data": _normalize_tool_content(msg.content),
-                            })
+        if replay:
+            config = {**base_config, "configurable": {**base_config["configurable"], "skill_trigger": "model"}}
+            async for event in _stream_graph(graph, {"messages": []}, config, skills):
+                yield event
+        else:
+            slash = _slash_parts(content)
+            pending = pending_store.get(row.id, row.user_id)
 
-        now = datetime.now()
-        row.last_message_at = now
-        if row.title == DEFAULT_TITLE:
-            row.title = content.strip()[:AUTO_TITLE_LEN]
-        db.commit()
-        yield _sse("done", {
-            "conversation_id": row.id,
-            "title": row.title,
-            "last_message_at": now.isoformat(),
-        })
+            if slash is not None:
+                pending_store.clear(row.id)
+                token, rest = slash
+                if not token:
+                    reply = "用法：`/技能名 自然语言`。可用技能：" + _commands_text(skills)
+                    await _persist(graph, base_config, content, reply)
+                    yield _sse("delta", {"content": reply})
+                else:
+                    skill = find_by_slash(db, row.user_id, token)
+                    if skill is None:
+                        reply = f"没有找到 `/{token}` 技能。可用技能：" + _commands_text(skills)
+                        await _persist(graph, base_config, content, reply)
+                        yield _sse("delta", {"content": reply})
+                    else:
+                        parse = await parse_skill_args(skill, rest, today)
+                        if parse.should_ask:
+                            pending_store.set(PendingSkill(
+                                conversation_id=row.id, user_id=row.user_id, skill_id=skill.id,
+                                version_no=skill.version_no, original_text=content,
+                                missing=parse.missing or [e["field"] for e in parse.errors],
+                            ))
+                            reply = build_question(skill, parse.missing, parse.errors)
+                            await _persist(graph, base_config, content, reply)
+                            yield _sse("delta", {"content": reply})
+                        else:
+                            config = {**base_config, "configurable": {
+                                **base_config["configurable"],
+                                "skill_trigger": "slash",
+                                "skill_parse": parse.meta,
+                            }}
+                            safe_args = _safe_args(parse.args)
+                            ai = AIMessage(content="", tool_calls=[{
+                                "name": skill.tool_name,
+                                "args": safe_args,
+                                "id": f"call_{uuid4().hex}",
+                                "type": "tool_call",
+                            }])
+                            await graph.aupdate_state(
+                                config,
+                                {"messages": [HumanMessage(content=content), ai]},
+                                as_node="agent",
+                            )
+                            yield _sse("tool_start", {**_tool_meta(skill.tool_name, skills),
+                                                      "args": safe_args})
+                            async for event in _stream_graph(graph, None, config, skills):
+                                yield event
+
+            elif pending is not None:
+                skill = _pending_skill(db, pending, row.user_id)
+                if skill is None:
+                    pending_store.clear(row.id)
+                    reply = "待补充的技能已停用或版本已更新，请重新发送 `/技能名 自然语言`。"
+                    await _persist(graph, base_config, content, reply)
+                    yield _sse("delta", {"content": reply})
+                else:
+                    parse = await parse_skill_args(skill, pending.original_text + " " + content, today)
+                    if parse.should_ask:
+                        if not pending_store.bump(pending):
+                            pending_store.clear(row.id)
+                            reply = "追问次数已达上限，请重新发送完整命令，例如 `/减重分析 最近两周`。"
+                            await _persist(graph, base_config, content, reply)
+                            yield _sse("delta", {"content": reply})
+                        else:
+                            pending.missing = parse.missing or [e["field"] for e in parse.errors]
+                            pending_store.set(pending)
+                            reply = build_question(skill, parse.missing, parse.errors)
+                            await _persist(graph, base_config, content, reply)
+                            yield _sse("delta", {"content": reply})
+                    else:
+                        pending_store.clear(row.id)
+                        config = {**base_config, "configurable": {
+                            **base_config["configurable"],
+                            "skill_trigger": "slash",
+                            "skill_parse": parse.meta,
+                        }}
+                        safe_args = _safe_args(parse.args)
+                        ai = AIMessage(content="", tool_calls=[{
+                            "name": skill.tool_name,
+                            "args": safe_args,
+                            "id": f"call_{uuid4().hex}",
+                            "type": "tool_call",
+                        }])
+                        await graph.aupdate_state(
+                            config,
+                            {"messages": [HumanMessage(content=content), ai]},
+                            as_node="agent",
+                        )
+                        yield _sse("tool_start", {**_tool_meta(skill.tool_name, skills), "args": safe_args})
+                        async for event in _stream_graph(graph, None, config, skills):
+                            yield event
+
+            else:
+                config = {**base_config, "configurable": {**base_config["configurable"], "skill_trigger": "model"}}
+                async for event in _stream_graph(
+                    graph, {"messages": [HumanMessage(content=content)]}, config, skills
+                ):
+                    yield event
+
+        yield _finish(db, row, content)
     except Exception as exc:
         logger.warning("agent stream failed: conv=%s err=%r", row.id, exc)
         db.rollback()

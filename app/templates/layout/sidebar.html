@@ -8,7 +8,8 @@
     {% for g in nav_groups %}
       {% if g.children %}
       <div class="nav-group {{ 'open' if group_open == g.key else '' }}">
-        <a href="{{ g.url }}" class="nav-group-head {{ 'active' if active == g.key else '' }}">
+        {% set group_active = active == g.key or active in (g.children | map(attribute='key') | list) %}
+        <a href="{{ g.url }}" class="nav-group-head {{ 'active' if group_active else '' }}">
           <span class="nav-t">{{ g.short }}</span><span class="nav-f">{{ g.label }}</span>
           <span class="chev" data-toggle-group title="展开/收起">
             <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3.5 10.5 8 6 12.5"/></svg>

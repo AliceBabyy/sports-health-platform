@@ -75,6 +75,8 @@ from app.modules.overview.router_api import router as overview_api
 from app.modules.electronic_trainer.router_api import router as electronic_trainer_api
 from app.modules.agent.router_pages import router as agent_pages
 from app.modules.agent.router_api import router as agent_api
+from app.modules.report.router_pages import router as report_pages
+from app.modules.report.router_api import router as report_api
 
 _include(auth_pages)
 _include(auth_api)
@@ -97,6 +99,8 @@ _include(overview_api)
 _include(electronic_trainer_api)
 _include(agent_pages)
 _include(agent_api)
+_include(report_pages)
+_include(report_api)
 
 
 @app.get("/", include_in_schema=False)

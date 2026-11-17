@@ -5,6 +5,7 @@
   let currentId = null;
   let streaming = false;
   let lastUserText = "";
+  const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false };
 
   const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
 
@@ -37,6 +38,8 @@
     welcomeTitle: document.getElementById("welcomeTitle"),
     chatInput: document.getElementById("chatInput"),
     btnSend: document.getElementById("btnSend"),
+    skillSuggest: document.getElementById("skillSuggest"),
+    suggestList: document.getElementById("suggestList"),
   };
 
   /* ---------- 欢迎语 ---------- */
@@ -158,9 +161,11 @@
     const runs = turn.tool_runs || [];
     const traceHtml = runs.length
       ? '<div class="tool-trace">' + runs.map(run => {
-          const label = TOOL_LABELS[run.tool] || run.tool;
+          const isSkill = run.data && run.data.skill;
+          const label = (run.data && run.data.name) || TOOL_LABELS[run.tool] || run.tool;
+          const prefix = isSkill ? "已运行" : (ACTION_TOOL_NAMES.has(run.tool) ? "已保存" : "已查询");
           return '<div class="tool-line done"><span class="tool-dot"></span>' +
-            '<span class="tool-name">已查询' + App.escapeHtml(label) + '</span></div>';
+            '<span class="tool-name">' + prefix + App.escapeHtml(label) + '</span></div>';
         }).join("") + '</div>'
       : '';
     const textHtml = turn.assistant
@@ -197,7 +202,7 @@
           const aiNode = appendNode(historicalAssistantHtml(turn));
           const bubble = aiNode.querySelector(".msg-bubble");
           (turn.tool_runs || []).forEach(run => {
-            const label = TOOL_LABELS[run.tool] || run.tool;
+            const label = (run.data && run.data.name) || TOOL_LABELS[run.tool] || run.tool;
             const detail = renderToolDetail({ tool: run.tool, label, data: run.data });
             if (detail) bubble.appendChild(detail);
           });
@@ -213,6 +218,7 @@
 
   async function selectConversation(id) {
     if (streaming) { App.toast("请等待当前回复完成"); return; }
+    closeSkillSuggest();
     currentId = id;
     const conv = current();
     els.chatTitle.textContent = conv ? conv.title : "";
@@ -403,7 +409,21 @@
     get_state_records: "状态记录",
     get_cycle_records: "生理周期",
     get_profile_info: "个人资料",
+    save_today_workout_plan: "保存今日计划",
   };
+
+  // 工具进行中/完成时的状态文案，按 kind 区分：查询（base）、运行（skill）、保存（action）
+  function toolIngressLabel(kind) {
+    if (kind === "skill") return "正在运行";
+    if (kind === "action") return "正在保存";
+    return "正在查询";
+  }
+  function toolEgressLabel(kind) {
+    if (kind === "skill") return "已运行";
+    if (kind === "action") return "已保存";
+    return "已查询";
+  }
+  const ACTION_TOOL_NAMES = new Set(["save_today_workout_plan"]);
 
   // 明细只做展示：全量结果可能很长，表格最多铺 50 行，其余交给正文结论
   const MAX_DETAIL_ROWS = 50;
@@ -450,7 +470,28 @@
     let summaryText = run.label;
     let inner = "";
 
-    if (run.tool === "get_workout_summary") {
+    if (d.kind === "prompt") {
+      summaryText = (d.name || run.label) + " · " + (d.version || "") + " 提示词技能";
+      inner = '<div class="detail-sub">已加载技能提示词，按指令生成回答</div>';
+      const meta = d.meta || {};
+      if (meta.elapsed_ms != null) {
+        inner += '<div class="ai-meta">应用 ' + (meta.elapsed_ms || 0) + " ms</div>";
+      }
+    } else if (d.skill && Array.isArray(d.outputs)) {
+      summaryText = (d.name || run.label) + " · " + (d.version || "") +
+        ((d.range && (d.range.start || d.range.end)) ? rangeLabel(d) : "");
+      const rows = d.outputs.map(o => [o.label, o.display != null ? o.display : o.value]);
+      inner = detailTable(["指标", "值"], rows);
+      if (d.caveats && d.caveats.length) {
+        inner += '<div class="detail-sub">说明</div><ul class="detail-list">' +
+          d.caveats.map(c => "<li>" + App.escapeHtml(c) + "</li>").join("") + "</ul>";
+      }
+      const meta = d.meta || {};
+      if (meta.strategy || meta.elapsed_ms != null) {
+        inner += '<div class="ai-meta">解析 ' + App.escapeHtml(meta.strategy || "direct") +
+          " · " + (meta.elapsed_ms || 0) + " ms</div>";
+      }
+    } else if (run.tool === "get_workout_summary") {
       summaryText += "明细" + rangeLabel(d);
       const labels = d.sport_labels || {};
       const per = d.per_sport || {};
@@ -585,6 +626,7 @@
     if (streaming) return;
     const text = els.chatInput.value.trim();
     if (!text) return;
+    closeSkillSuggest();
 
     let conv;
     try {
@@ -625,13 +667,13 @@
 
       await consumeSse(res, evt => {
         if (evt.event === "tool_start") {
-          const label = TOOL_LABELS[evt.data.tool] || evt.data.tool;
+          const label = evt.data.label || TOOL_LABELS[evt.data.tool] || evt.data.tool;
           const line = document.createElement("div");
           line.className = "tool-line loading";
           line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
-          line.querySelector(".tool-name").textContent = "正在查询" + label + "…";
+          line.querySelector(".tool-name").textContent = toolIngressLabel(evt.data.kind) + label + "…";
           toolTrace.appendChild(line);
-          toolRuns.push({ tool: evt.data.tool, label, line, data: null });
+          toolRuns.push({ tool: evt.data.tool, label, line, data: null, kind: evt.data.kind || "base" });
           scrollBottom();
         } else if (evt.event === "tool_result") {
           const run = toolRuns.find(r => r.data === null);
@@ -639,7 +681,8 @@
             run.data = evt.data.data;
             run.line.classList.remove("loading");
             run.line.classList.add("done");
-            run.line.querySelector(".tool-name").textContent = "已查询" + run.label;
+            const prefix = toolEgressLabel(run.kind);
+            run.line.querySelector(".tool-name").textContent = prefix + run.label;
           }
           scrollBottom();
         } else if (evt.event === "delta") {
@@ -716,13 +759,13 @@
       }
       await consumeSse(res, evt => {
         if (evt.event === "tool_start") {
-          const label = TOOL_LABELS[evt.data.tool] || evt.data.tool;
+          const label = evt.data.label || TOOL_LABELS[evt.data.tool] || evt.data.tool;
           const line = document.createElement("div");
           line.className = "tool-line loading";
           line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
-          line.querySelector(".tool-name").textContent = "正在查询" + label + "…";
+          line.querySelector(".tool-name").textContent = toolIngressLabel(evt.data.kind) + label + "…";
           toolTrace.appendChild(line);
-          toolRuns.push({ tool: evt.data.tool, label, line, data: null });
+          toolRuns.push({ tool: evt.data.tool, label, line, data: null, kind: evt.data.kind || "base" });
           scrollBottom();
         } else if (evt.event === "tool_result") {
           const run = toolRuns.find(r => r.data === null);
@@ -730,7 +773,8 @@
             run.data = evt.data.data;
             run.line.classList.remove("loading");
             run.line.classList.add("done");
-            run.line.querySelector(".tool-name").textContent = "已查询" + run.label;
+            const prefix = toolEgressLabel(run.kind);
+            run.line.querySelector(".tool-name").textContent = prefix + run.label;
           }
           scrollBottom();
         } else if (evt.event === "delta") {
@@ -778,7 +822,131 @@
     el.style.height = Math.min(Math.max(el.scrollHeight, minH), maxH) + "px";
   }
 
-  /* ---------- 会话侧栏收起 / 展开 ---------- */
+  /* ---------- 斜杠技能建议 ---------- */
+  function showSkillSuggest() {
+    els.skillSuggest.hidden = false;
+    skillPick.open = true;
+    els.chatInput.setAttribute("aria-expanded", "true");
+  }
+
+  function closeSkillSuggest() {
+    els.skillSuggest.hidden = true;
+    skillPick.open = false;
+    skillPick.items = [];
+    skillPick.index = 0;
+    els.chatInput.setAttribute("aria-expanded", "false");
+  }
+
+  function slashContext() {
+    const el = els.chatInput;
+    const caret = el.selectionStart != null ? el.selectionStart : el.value.length;
+    const head = el.value.slice(0, caret);
+    if (!head.startsWith("/") || /\s/.test(head.slice(1))) return null;
+    return { query: head.slice(1).toLowerCase(), end: caret };
+  }
+
+  function skillScore(s, query) {
+    if (!query) return 0;
+    const labels = [s.name, s.key, s.slash_alias].filter(Boolean).map(v => String(v).toLowerCase());
+    let score = 9;
+    labels.forEach(label => {
+      if (label === query) score = Math.min(score, 0);
+      else if (label.startsWith(query)) score = Math.min(score, 1);
+      else if (label.includes(query)) score = Math.min(score, 2);
+    });
+    return score;
+  }
+
+  async function loadSkillOptions() {
+    if (skillPick.loading || skillPick.loaded) return;
+    skillPick.loading = true;
+    try {
+      const res = await fetch("/api/agent/skills");
+      if (res.ok) {
+        const data = await res.json();
+        skillPick.all = (data.list || []).filter(s => s.status === "active");
+      }
+    } catch (e) {
+      // 技能列表不可用时静默降级为普通输入
+    } finally {
+      skillPick.loaded = true;
+      skillPick.loading = false;
+      if (skillPick.open) refreshSkillSuggest();
+    }
+  }
+
+  function renderSkillOptions() {
+    els.suggestList.innerHTML = skillPick.items.map((s, i) => {
+      const slash = s.slash_alias || s.name || s.key;
+      const tag = s.kind === "prompt" ? "提示词" : s.scope === "system" ? "平台" : "数据";
+      const initial = String(s.name || s.key || "技").trim().slice(0, 1);
+      const desc = s.description
+        ? '<span class="ss-desc">' + App.escapeHtml(s.description) + "</span>"
+        : "";
+      return '<button class="skill-option' + (i === skillPick.index ? " active" : "") +
+        '" type="button" role="option" aria-selected="' + (i === skillPick.index) +
+        '" data-index="' + i + '">' +
+        '<span class="ss-mark">' + App.escapeHtml(initial) + "</span>" +
+        '<span class="ss-text"><span class="ss-line">' +
+          '<span class="ss-name">' + App.escapeHtml(s.name || s.key) + "</span>" +
+          '<span class="ss-slash">/' + App.escapeHtml(slash) + "</span>" +
+          '<span class="ss-tag">' + tag + "</span>" +
+        "</span>" + desc + "</span></button>";
+    }).join("");
+    const active = els.suggestList.querySelector(".skill-option.active");
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+  }
+
+  function setActiveSkill(index) {
+    if (!skillPick.items.length) return;
+    const count = skillPick.items.length;
+    skillPick.index = ((index % count) + count) % count;
+    els.suggestList.querySelectorAll(".skill-option").forEach((node, i) => {
+      node.classList.toggle("active", i === skillPick.index);
+      node.setAttribute("aria-selected", i === skillPick.index ? "true" : "false");
+    });
+    const active = els.suggestList.querySelector(".skill-option.active");
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest" });
+  }
+
+  function refreshSkillSuggest(reset = true) {
+    const ctx = slashContext();
+    if (!ctx) { closeSkillSuggest(); return; }
+    if (!skillPick.loaded) {
+      els.suggestList.innerHTML = '<div class="suggest-empty">正在加载技能…</div>';
+      showSkillSuggest();
+      loadSkillOptions();
+      return;
+    }
+    const matches = skillPick.all
+      .map(s => ({ s, score: skillScore(s, ctx.query) }))
+      .filter(item => item.score < 9)
+      .sort((a, b) => a.score - b.score ||
+        (a.s.scope === "system" ? 0 : 1) - (b.s.scope === "system" ? 0 : 1) ||
+        String(a.s.name || "").localeCompare(String(b.s.name || ""), "zh-Hans-CN"))
+      .slice(0, 8)
+      .map(item => item.s);
+    if (!matches.length) { closeSkillSuggest(); return; }
+    skillPick.items = matches;
+    if (reset) skillPick.index = 0;
+    renderSkillOptions();
+    showSkillSuggest();
+  }
+
+  function chooseSkill(index) {
+    const s = skillPick.items[index];
+    if (!s) { closeSkillSuggest(); return; }
+    const insert = "/" + (s.slash_alias || s.name || s.key) + " ";
+    const el = els.chatInput;
+    const caret = el.selectionStart != null ? el.selectionStart : el.value.length;
+    el.value = insert + el.value.slice(caret);
+    el.focus();
+    el.setSelectionRange(insert.length, insert.length);
+    closeSkillSuggest();
+    autoGrow();
+  }
+
+
   function applySidebar(collapsed) {
     els.workbench.classList.toggle("sessions-collapsed", collapsed);
   }
@@ -793,6 +961,7 @@
     loadMessages(c);
     applySidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
     autoGrow();
+    loadSkillOptions();
 
     els.btnNewChat.addEventListener("click", newChat);
     els.btnToggleSessions.addEventListener("click", () => {
@@ -801,12 +970,51 @@
       applySidebar(!collapsed);
     });
     els.btnSend.addEventListener("click", send);
-    els.chatInput.addEventListener("input", autoGrow);
+    els.chatInput.addEventListener("input", () => {
+      autoGrow();
+      refreshSkillSuggest();
+    });
+    els.chatInput.addEventListener("click", () => refreshSkillSuggest());
     els.chatInput.addEventListener("keydown", e => {
+      if (e.isComposing) return;
+      if (skillPick.open) {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          setActiveSkill(skillPick.index + (e.key === "ArrowDown" ? 1 : -1));
+          return;
+        }
+        if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+          e.preventDefault();
+          chooseSkill(skillPick.index);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closeSkillSuggest();
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         send();
       }
+    });
+    els.suggestList.addEventListener("mousedown", e => {
+      const option = e.target.closest(".skill-option");
+      if (!option) return;
+      e.preventDefault();
+      chooseSkill(Number(option.dataset.index));
+    });
+    els.suggestList.addEventListener("mousemove", e => {
+      const option = e.target.closest(".skill-option");
+      if (!option) return;
+      const index = Number(option.dataset.index);
+      if (index !== skillPick.index) setActiveSkill(index);
+    });
+    document.addEventListener("click", e => {
+      if (!skillPick.open) return;
+      if (e.target.closest("#skillSuggest") || e.target === els.chatInput) return;
+      closeSkillSuggest();
     });
     els.sessionList.addEventListener("click", e => {
       const menuBtn = e.target.closest('[data-act="menu"]');

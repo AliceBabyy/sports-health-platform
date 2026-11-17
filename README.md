@@ -7,8 +7,9 @@ V2 路线以 `docs/AIplan.md` 为准。已完成模型骨架、三运动的一�
 `/agent`、API `/api/agent`，基于 LangGraph `StateGraph` + `AsyncPostgresSaver`
 checkpointer，支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久化、登录用户隔离。
 V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用 8 个**只读工具**查询现有
-业务表后基于事实回答，不新建表、不写数据。后续依次建设 Skill 管理与多角色智能体
-（V2.4）、LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6），这些尚未实现。
+业务表后基于事实回答，不新建表、不写数据。**V2.4 技能系统**已实现平台代码/声明式技能、用户私有
+提示词技能、斜杠自然语言触发、参数解析与追问续接、技能管理页和运行审计；多角色 Persona
+暂未实现。后续建设 LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6）。
 
 AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 `deepseek-v4.1-flash`、`qwen3.8-flash`、`qwen3.8-2.4t-a95b`、`qwen3-vl-plus`。
@@ -63,6 +64,30 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 工具全部只读、不接受模型 SQL，参数只保留日期范围、条数与枚举。SSE 新增
 `tool_start/tool_result`（`stream_mode=["messages","updates"]`），气泡显示“正在查询…“，
 回答为汇总 + 关键依据、明细折叠（最多渲染 50 行）。本版无数据库结构变更、不引入 Redis/pgvector。
+
+**V2.4 技能系统（2026-11-16，提示词技能 2026-11-17 补齐）**：平台技能只读、可版本化，支持代码实现
+（`lose_weight_analyse` 减重分析、`recent_swim_review` 游泳复盘）和平台内部声明式 DSL；声明式
+只作为平台能力维护，不对用户开放创建或编辑。用户技能私有，只支持提示词：保存 1~4000 字指令，
+作为工具结果 `summary` 交给模型遵循，不取数、不嵌套第二次模型调用。用户可输入 `/技能名 自由文本`
+触发，服务端按 key/name/alias 匹配；平台声明式缺参数自动追问，下一条普通文本会合并原命令继续；
+提示词技能不抽参数、不追问。对话页输入 `/` 会浮出可用技能建议，按名称/键/别名过滤并支持键盘插入。
+管理页 `/agent/skills` 挂在「AI助手」分组，整页白底铺满，提供平台/我的技能列表、用户提示词编辑、
+平台声明式只读展示、校验、发布、停用、删除、试运行和运行记录。数据层新增 `agent_skills` /
+`agent_skill_versions` / `agent_skill_runs`，`scope-kind` 联合约束为：平台 `code/declarative`，
+用户 `prompt`。迁移 `python scripts/migrate_agent_skills.py`，种子 `python scripts/seed_agent_skills.py`。
+SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出表已在 `/agent` 页面接通，
+提示词技能折叠区只显示指令已加载。
+
+**V2.5 AI 运动报告（2026-11-17）**：新增 `/reports` 单页（周报/月报 tab 切换），侧栏挂在
+「运动训练/计划」第四项，总览页顶部提供周报/月报入口。三层结构：事实层由代码确定性计算
+（三运动次数/时长/热量、身材实测变化、状态记录、生理周期阶段，月报另有周节奏与环比），
+叙事层由一次结构化模型调用写 headline/summary/亮点/留意/建议/周期视角，依据层直接展示
+事实快照，叙事的 `evidence` 只能引用真实指标 key。统一 `reports` 表（`period_type` 区分周/月），
+`(user_id, period_type, period_start)` 唯一，`data_hash` 做过期检测，删除为软删除。周报=周一~周日，
+月报=自然月；未结束周期标「进行中（截至 X）」。空数据不调模型、走规则文案。自动生成不在应用内
+起常驻循环：Windows 任务计划程序每 30 分钟执行 `scripts/generate_reports.py --scan`，周一命中上周
+周报、每月 1 日命中上月月报；迁移 `python scripts/migrate_reports.py`，任务注册
+`scripts/register_report_task.ps1`（需手动执行），日志 `logs/report_task.log`。
 
 安装依赖：`uv sync --extra dev`。
 
@@ -140,6 +165,16 @@ SECRET_KEY=<随机生成，勿提交仓库>
 ```powershell
 .\.venv\Scripts\python.exe scripts\init_db.py
 # 可选参数：--username <名> --password <密码> --display-name <昵称>，默认 admin / admin123
+# 已有库补结构：python scripts\migrate_reports.py（AI 运动报告表）
+```
+
+### 3.1 AI 运动报告自动生成（可选）
+
+```powershell
+# 注册 Windows 任务计划：每 30 分钟扫描上周周报与上月月报（需管理员 PowerShell 手动执行）
+powershell -ExecutionPolicy Bypass -File scripts\register_report_task.ps1
+# 试运行（只列出到期周期，不调模型）
+.\.venv\Scripts\python.exe scripts\generate_reports.py --scan --dry-run
 ```
 
 ### 4. 启动
@@ -156,7 +191,7 @@ SECRET_KEY=<随机生成，勿提交仓库>
 ### 5. 测试
 
 ```powershell
-# 单元测试（趋势聚合 / 配速划频 / 周期阶段 / 训练状态机 / 总览聚合 / 个人信息 / Excel 导入 / 状态记录）
+# 单元测试（趋势聚合 / 配速划频 / 周期阶段 / 训练状态机 / 总览聚合 / 个人信息 / Excel 导入 / 状态记录 / AI 运动报告）
 .\.venv\Scripts\python.exe -m pytest tests\ -q
 ```
 
@@ -181,9 +216,10 @@ sports-health-platform/
 │  │  ├─ overview/         # 运动训练/计划总览：日/周/月聚合 + 单日详情（2026-11 新增）
 │  │  ├─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 + 运动等级
 │  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症/情绪四表按天记录 + 月历阶段归并 + 跨表批量删除
+│  │  ├─ report/           # AI 运动报告：周/月事实快照 + 叙事 + 软删除 + 自动生成（页面 /reports）
 │  │  ├─ profile/          # 个人信息：基本资料（昵称/性别/年龄）+ 修改密码（复用 users 表）
 │  │  └─ agent/            # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE（页面 /agent）
-│  ├─ templates/           # Jinja2（base/侧栏/七模块页面 + auth/register + profile）
+│  ├─ templates/           # Jinja2（base/侧栏/各模块页面 + auth/register + profile）
 │  ├─ static/              # css / js / vendor(echarts) / img
 ├─ scripts/
 │  ├─ init_db.py           # 建表 + 账号幂等
@@ -194,8 +230,11 @@ sports-health-platform/
 │  ├─ migrate_notes.py        # 2026-11：training_notes 扩四字段心得 + 新建 swim_notes/dance_notes
 │  ├─ migrate_swim_avg_stroke_rate.py # 2026-11：swim_records 加 avg_stroke_rate（幂等）
 │  ├─ migrate_state_record.py   # 2026-11：状态记录四表（食欲/肌肉疼痛/炎症/情绪）建表 + 注释（幂等）
+│  ├─ migrate_reports.py        # 2026-11：AI 运动报告 reports 表 + 注释（幂等）
+│  ├─ generate_reports.py       # 报告生成 CLI：--scan 扫描上周周报/上月月报（任务计划程序调用）
+│  ├─ register_report_task.ps1  # 注册/卸载 Windows 任务计划 SH-Report-Auto（手动执行）
 │  └─ schema.sql           # 全量建表 DDL（整改后结构，含中文 COMMENT 段）
-└─ tests/                  # pytest 单测（含运动契约与总览聚合）
+└─ tests/                  # pytest 单测（含运动契约、总览聚合与 AI 运动报告）
 ```
 
 ## 需求口径（锁定实现）
@@ -216,7 +255,8 @@ sports-health-platform/
 - 预测边界：只推最新记录后的当前段与一个预测段，再往后留白；最新段逾期 7 天内仍标「预测经期」，超过 7 天转「未推算 + 建议补录」；0 条记录完全不推，1 条记录按参考值铺当前段 + 预测段
 - 周期参考值：`cycle_settings` 单行，只用于当前段、预测段、补推段和未填结束日的记录；参考周期 22~45（默认 28）、参考经期 2~8（默认 5），且需满足 经期 + 15 ≤ 参考周期；页面「周期参数」按钮单独修改，记录变动不再改写它
 - 经期三态：recorded 经期（真实记录窗口）、inferred 推算经期（漏记补推段）、predicted 预测经期（未来段），月历以边框样式区分，详情注明「本段无记录，阶段按参考周期推算」
-- 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录（表单只收起止日期）；四档疼痛独立记录，保存后同步刷新运动等级；侧栏「今日」小卡保留，今天无段显示「未推算」；三运动页周期联动已移除
+- 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录（表单只收起止日期）；疼痛独立记录，填写入口只在经期 / 推算经期 / 预测经期三态出现，保存后同步刷新运动等级；侧栏「今日」小卡保留，今天无段显示「未推算」；三运动页周期联动已移除
+- 阶段激素文案（2026-11-17）：七阶段各两份，按阶段天数 n 取前 floor(n/2) 天用前段、其余用后段（n=1 只用前段）；单份 ≤70 字、两句话各占一行（上行客观激素状态，下行对心情 / 食欲 / 运动表现的影响）；详情只展示「激素水平」，「运动建议」已移除
 - 字体与渲染（2026-11-11）：全局字体逐字照搬 GitHub 原栈（`-apple-system → Segoe UI → Noto Sans → Helvetica/Arial → sans-serif → emoji`），中文走系统默认兜底（本机实测即微软雅黑，与显式雅黑差约 1.5%）；全局 `letter-spacing: .03em` 放宽字距（中文在雅黑下偏挤显扁）；同时不使用 `-webkit-font-smoothing: antialiased`，避免 Windows 关闭 ClearType 导致小字发虚
 - 周期配色：日历格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；阶段保留文字标签，图例与详情使用同一状态配色；窄屏月历保留两字状态名（旺盛/良好/一般/休息）；四档底色（2026-11-11）统一向白混合 50% 再浅一档，圆点与文字深阶保持不变
 - 心得（三表均 1:1 挂记录、仅记录态可填）：共有 `rating/notes`，健身另有 `best_movement/next_steps`，游泳另有 `stroke_insight`，舞蹈另有 `video_effect`；页面字段称呼维持现状

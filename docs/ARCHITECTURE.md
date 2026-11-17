@@ -6,7 +6,7 @@
 
 ## AI 子模块概述
 
-项目 AI 能力由模型注册与调用、提示词管理、结构化 AI 导入、AI Agent 会话和只读数据工具组成。相关能力位于 `app/ai/`、`app/modules/electronic_trainer/` 和 `app/modules/agent/`，使用独立的 AI 运行时与 LangGraph checkpointer；详细实现见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。AI 功能不改变现有业务表结构；Agent 消息由 `langgraph` schema 中的 checkpointer 表持久化，会话元数据由 `agent_conversations` 保存。
+项目 AI 能力由模型注册与调用、提示词管理、结构化 AI 导入、AI Agent 会话、只读数据工具和技能系统组成。相关能力位于 `app/ai/`、`app/modules/electronic_trainer/` 和 `app/modules/agent/`，使用独立的 AI 运行时与 LangGraph checkpointer；详细实现见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。AI 功能不改动既有业务表字段；Agent 消息由 `langgraph` schema 中的 checkpointer 表持久化，会话元数据由 `agent_conversations` 保存，技能定义与审计由 `agent_skills` / `agent_skill_versions` / `agent_skill_runs` 保存。
 ## 1. 技术栈
 
 - **后端**：FastAPI（SSR 单体）+ SQLAlchemy 2.0（Mapped 声明式）+ PostgreSQL；ORM 用 psycopg2，AI Agent checkpointer 用 psycopg3 异步 + LangGraph
@@ -40,7 +40,7 @@
 | 数据库 | `database.py` | engine / SessionLocal / Base / `get_db` 请求级会话依赖 |
 | 模型注册 | `models_registry.py` | 汇总 import 全部模型，供 `create_all` 建表 |
 | 核心 | `app/core/` | security（bcrypt）、deps（登录门禁）、constants（口径常量）、exceptions、pagination、templating（页面公共上下文） |
-| 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview / state_record |
+| 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview / state_record / report / agent |
 | 视图 | `app/templates/` `app/static/` | Jinja2 模板与 CSS/JS/vendor/img |
 
 ## 4. 业务模块职责
@@ -52,11 +52,12 @@
 | training | training_records / training_records_items / training_notes | 训练计划/记录状态机；动作明细（负荷可空）；容量计算；复制到今日；心得；Excel/JSON 导入 |
 | swim | swim_records / swim_notes | 游泳记录/计划两态；配速/划频派生；心得；Excel/JSON 导入 |
 | dance | dance_records / dance_notes | 舞蹈记录/计划两态；课程起止时间；心得；Excel/JSON 导入 |
-| cycle | cycle_settings / period_records / daily_pain_logs | 周期参考值；月经记录增改删（起止日期）；每日疼痛；按记录分段推算七阶段、只延伸一段 + 逐日四档状态 |
+| cycle | cycle_settings / period_records / daily_pain_logs | 周期参考值；月经记录增改删（起止日期）；每日疼痛（入口仅经期三态）；按记录分段推算七阶段、双份激素文案、只延伸一段 + 逐日四档状态 |
 | profile | users（复用） | 基本资料修改 + 修改密码 |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
 | state_record | appetite_record / myalgia_record / inflammation_record / mood_record | 食欲/肌肉疼痛/炎症/情绪按天记录；四表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
-| agent | agent_conversations（消息在 langgraph 框架表） | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；checkpointer 持久化；SSE 流式（含 tool_start/tool_result）；会话 CRUD/归属隔离；模型下拉；最近一轮可重新生成并覆盖；硬删除 |
+| report | reports | AI 运动周报/月报：/reports 单页周/月切换；事实层确定性计算（三运动 + 身材 + 状态 + 周期）→ 叙事层结构化输出 → 依据层；同周期快照复用、过期检测、软删除；空数据走规则文案不调模型；周一/每月 1 日由系统计划任务调 CLI 自动生成 |
+| agent | agent_conversations / agent_skills / agent_skill_versions / agent_skill_runs | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；平台只读代码/声明式技能 + 用户私有提示词技能；斜杠自然语言触发、参数解析与追问续接；按用户技能集装配图；SSE 流式（含工具/技能事件）；会话 CRUD/归属隔离；模型下拉；最近一轮可重新生成并覆盖；硬删除 |
 
 ## 5. 认证与会话机制
 
@@ -71,7 +72,7 @@
 
 ## 7. 数据层设计与统一契约
 
-- 全库 **19 张业务表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`；另有 `langgraph` schema 4 张 checkpointer 框架表由应用 setup 管理。
+- 全库 **24 张业务表**（详见《数据库建表设计.md》），DDL 见 `scripts/schema.sql`，幂等迁移脚本见 `scripts/migrate_*.py`；另有 `langgraph` schema 4 张 checkpointer 框架表由应用 setup 管理。技能三表为 V2.4 新增；报告表 `reports` 为 V2.5 新增，技能定义与运行审计不再塞进 checkpointer。
 - **中文注释元数据**：全量建表脚本在 `scripts/schema.sql` 中维护列注释；既有库由迁移脚本同步。
 - **外键**：三运动主表与状态记录四表 `user_id` 引用 `users.id ON DELETE CASCADE`；动作与心得外键引用各自主表。其他业务表沿用原有归属策略。
 - **派生值不落库**：BMI、配速、划频、趋势聚合、周期阶段、经期长度与周期长度均由 service 实时计算。
@@ -86,6 +87,7 @@
 - 身材：4 组（basic/goal/girth/target）映射 4 表；新增记录未填字段沿用该维度最近一次非空值；趋势五档（week/month/two_month/half_year/year）窗口与锚点见常量（`TREND_RANGES`、`TWO_MONTH_SPAN_DAYS`）：week=本周 7 天、month=本月整月逐日、two_month=最近 60 天（含今天）逐日当日值、half_year=每月 1/10/20 号 11 天窗口均值、year=每月 1/15 号 16 天窗口均值；无记录为 null。
 - 周期分段（2026-11-12）：`period_records` 只存起止日期；经期长度 = 结束 − 开始 + 1（未填结束日为 null），周期长度 = 下一条开始 − 本条开始（无下一条为 null），两者仅展示、不落库。阶段以「段」为唯一单元：段内排卵日 = 段长 − 14（黄体固定 14 天），排卵后 1~2 / 3~6 / 7~10 / 11~14 天依次为排卵后期 / 黄体前期 / 中期 / 后期。四档状态按阶段内日序判定（黄体中期前 2 天良好、余下一般；黄体后期前 2 天一般、余下休息；经期前 3 天休息、第 4 天一般、第 5 天起良好），疼痛 ≥2 覆盖为休息。
 - 段长与预测：相邻首日间隔 < max(22, 参考周期 + 15) 拒绝保存；22~45 为真实段；46~90 判漏记，按参考周期等分补推（余数摊前几段）；>90 不补推并留白。只推最新记录后的当前段与一个预测段，再往后留白；逾期 7 天内仍标预测，超过转「未推算 + 建议补录」；0 条记录完全不推，1 条按参考值铺当前段 + 预测段。
+- 阶段激素文案（2026-11-17）：`app/core/constants.py` 的 `PHASE_HORMONE` 为七阶段各备两份文案；阶段天数为 n 时，前 `floor(n/2)` 天用前段、剩余天数用后段（n=1 只用前段），由 `service.hormone_text_for` 按段内日序取用并随月历逐日返回 `hormone_text`。单份 ≤70 字，固定两句话各占一行：上行客观激素状态，下行对心情 / 食欲 / 运动表现的影响。详情页只保留「激素水平」，已移除「运动建议」；疼痛填写入口只在经期 / 推算经期 / 预测经期（`period_state` 非空）出现，其余阶段不展示入口。
 - 参考值与三态：`cycle_settings` 单行仅作参考值（周期 22~45 默认 28、经期 2~8 默认 5，且 经期 + 15 ≤ 周期），只服务当前段、预测段、补推段与未填结束日的记录，页面「周期参数」单独修改。period_state 三态：recorded（真实记录窗口）/ inferred（漏记补推段）/ predicted（未来段），月历以边框样式区分，详情注明推算来源。
 - 周期颜色由 `app/static/css/tokens.css` 统一提供：月历单元格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；窄屏仍显示两字状态名；周期静态资源带版本号以避免旧样式缓存。四档底色 2026-11-11 统一向白混合 50% 再浅一档（`--tag-*-bg`），对应圆点/文字深阶不变。
 - 运动类型编码色同由 tokens.css 提供：`--ov-fit`（健身·灰）、`--ov-swim`（游泳·蓝）、`--ov-dance`（舞蹈·粉），日视图色条、图例圆点、汇总卡 chip 共用；chip 底色为 `--ov-fit-soft/--ov-swim-soft/--ov-dance-soft`（同基色独立透明度）。ECharts 读不到 CSS 变量，`app/static/js/overview.js` 的 `COLORS` 与 `body.js` 的图表配色一律通过 `App.cssVar('--令牌名')` 运行时读取，不再维护手工副本。
@@ -94,6 +96,7 @@
 - 配色规范：颜色唯一来源是 `app/static/css/tokens.css`。CSS 与 Jinja 模板一律用 `var(--令牌)`；**SVG 不能把 `var()` 写进 `fill` / `stroke` 属性**（presentation attribute 不解析变量），必须改写 `style="fill:var(--…)"`。JS / ECharts 用 `App.cssVar(name, fallback)`。
 - 同值但语义不同、**禁止合并**的令牌对（合并会让两条业务线绑死）：`#6b7280` = 次要文字 / 记录态 / 健身编码；`#17b3a6` = 品牌强调 / 计划态；`rgba(23,179,166,.10)` = hover 浅底 / 计划标签底；`rgba(27,36,52,.08)` = 焦点环 / 轻投影；`rgba(107,114,128,.10)` = 中性标签底 / 健身 chip 底。要“当前同值、将来可分”，用 `var()` 别名而非删令牌。
 - 总览：`/api/overview` 按 day/week/month 聚合，逐日 per-sport 计数 + 汇总卡 + 图表序列；健身时长优先 duration_s，缺失时按 recorded 的 end_time−start_time 推导，游泳/舞蹈= duration_s；热量按记录字段汇总。
+- AI 运动报告（2026-11-17）：周报=周一~周日（`monday_of`），月报=自然月 1 日~月末；未结束周期 `period_end` 仍存周日/月末，事实截至 `as_of=min(end,today)` 并标 `partial`，未来周期禁止生成；进行中周期的环比只取上期同期天数（标「较上期同期」），不与整期直接比较。统计只计 `recorded`，计划单独计数；不做「计划完成率」（planned→recorded 原地改状态、无溯源）。热量沿用总览口径只汇总游泳+舞蹈，健身热量单列。事实快照 `facts` 存 JSON，`data_hash` = facts（剔除 `as_of`/`partial`）的 SHA-256，用于同周期过期检测；`narrative` 为结构化叙事，`evidence` 只能引用 `facts.metrics` 中真实存在的键，服务端二次过滤。生成状态机 `generating → ready/failed`，唯一约束 `(user_id, period_type, period_start)` 兜底并发；删除为软删除（`status=deleted`），扫描任务跳过 deleted，避免把用户删掉的报告重新生成；若报告是在周期未结束时生成的（快照 `facts.partial=true`），周期结束后扫描会带 `force` 重写，避免月报停留在半程数据。空数据周期走 `mode=rule` 规则文案，不调用模型。周期分析仅对 `gender != 男` 且存在月经记录的账号生成，真实/推算/预测分开统计，预测段不得当事实。自动生成由 Windows 任务计划程序每 30 分钟调用 `scripts/generate_reports.py --scan`（周一命中上周周报、每月 1 日命中上月月报），应用进程内不起常驻循环。
 - 训练容量：Σ 重量 × 组数 × 每组个数首段数字（reps 为字符串，如 `"10+8+6"` 按 10 计），负荷任一为空跳过。
 - 数值精度口径（2026-11-10 统一）：重量类字段 `weight_kg` / `target_weight_kg`（健身动作重量、身材体重/目标体重）统一 `numeric(10,2)`——任意数值、保留两位小数；Pydantic 不再设 `ge/le`，Excel/JSON 导入不做范围限值，前端 `step="0.01"` 且不设 `min`。仅组数保留 1~99 校验。
 
@@ -106,14 +109,16 @@
 
 ## 10. 前端组织
 
-- 页面模板 `app/templates`：`base.html` 提供公共布局与 `#modalDetail` 详情弹窗；`layout/sidebar.html` 为分组导航（身材数据 / 状态记录 / 运动训练·计划[健身/游泳/舞蹈] / 生理周期 / 个人信息，男性账号隐藏周期入口；状态记录对男女开放，不做男性重定向）。
+- 页面模板 `app/templates`：`base.html` 提供公共布局与 `#modalDetail` 详情弹窗；`layout/sidebar.html` 为分组导航（身材数据 / 状态记录 / 运动训练·计划[健身/游泳/舞蹈/报告] / 生理周期 / 个人信息，男性账号隐藏周期入口；状态记录对男女开放，不做男性重定向）。
 - `app/core/templating.py::render_page` 统一注入登录用户、导航高亮、面包屑、侧栏「今日」信息与常量；`today` 按请求取当天（`date.today()`），进程长跑跨天不会停留在启动日。
 - 静态资源 `app/static`：css（base/layout/pages/*）、js（common.js 共享弹窗与工具函数 + 各模块页面脚本）、vendor（echarts）、img。
 - 三运动页顶部都有新建计划、新增记录、Excel/JSON/AI 导入（AI 弹窗为第三个面板：文字 + 图片 + 识别结果）；主体为当日、档案、全部记录三块。全部记录首列日期、次列类型、末列操作，含查看详情、编辑、删除及批量删除；健身全部记录列出类型/备注/时长/动作/容量（备注列 2026-11-10 由「训练内容」替换，训练内容仍在详情展示）。共用双栏使用可收缩网格列，宽表在卡片内部横向滚动；健身动作表和编辑动作区单独滚动。
 - 状态记录页 `/state-record`：三卡片自上而下纵向堆叠（`three-row-stack`，内容随卡片宽度自适应铺满），依次为月历（阶段三档圆点 + 有记录标记，翻月/选日联动）、「当日状态」四类块（食欲/肌肉疼痛/炎症/情绪）就地填写——每块内联星级（五星 + 「0」最低分按钮，未评存空）+ 描述 + 保存，有记录时块内可删除，不再弹新增表单、「全部记录」列表（类型分段筛选 + 勾选跨表批量删除 + 分页，操作列查看详情/编辑/删除，行内「编辑」才弹出表单弹窗）。类型标签：食欲橙 / 肌肉疼痛灰 / 炎症红 / 情绪紫。详情复用公共 `#modalDetail`；无 Excel/JSON/AI 导入入口。页级脚本 `app/static/js/state_record.js`，页级样式 `css/pages/state_record.css`。
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 - 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
-- AI 助手页 `/agent`：提供多会话、多轮问答、工具调用和 SSE 流式交互；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
+- AI 助手页 `/agent`：提供多会话、多轮问答、工具/技能调用和 SSE 流式交互；输入框支持 `/技能名 自然语言`，输入 `/` 会浮出可用技能建议并支持键盘选择；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
+- 技能管理页 `/agent/skills`：整页白底铺满、左侧平台/我的技能列表 + 右侧编辑区；用户技能只提供提示词文本域，平台代码/声明式技能只读展示；校验/保存/发布/停用/删除/试运行/运行记录；平台技能只读。页面挂在侧栏「AI助手」分组下，`active=agent_skills`。
+- 报告页 `/reports`：周报/月报单页（`?type=weekly|monthly&anchor=YYYY-MM-DD`），侧栏「运动训练/计划」第四项；顶部周期步进 + 进行中标记 + 生成/重新生成；4 张事实卡 → 叙事（亮点/留意/建议/周期视角/数据说明）→ 判断依据（运动/身体/状态/周期/完整度）→ 历史报告（软删除）。总览页顶部提供「周报」「月报」入口。页级脚本 `app/static/js/report.js`，样式 `css/pages/report.css`。
 
 ## 专项规范索引
 
@@ -137,7 +142,8 @@ sports-health-platform/
 │  │  ├─ profile/      # 个人资料 + 修改密码
 │  │  ├─ overview/     # 跨运动总览聚合（日/周/月）+ 单日详情
 │  │  ├─ state_record/ # 状态记录：食欲/肌肉疼痛/炎症/情绪四表 CRUD + 月历阶段归并
-│  │  └─ agent/        # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE
+│  │  ├─ report/       # AI 运动报告：reports 表 + 事实快照 + 叙事 + 自动生成
+│  │  └─ agent/        # AI 助手：LangGraph 图 + checkpointer + 会话/SSE + skills 技能子系统
 │  ├─ templates/       # Jinja2 页面
 │  └─ static/          # css / js / vendor(echarts) / img
 ├─ scripts/
@@ -149,8 +155,9 @@ sports-health-platform/
 
 ## 12. 测试与运维
 
-- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合、状态记录四表 CRUD/合并分页/跨表批量删除等）。
-- 建库/初始化：`python scripts/init_db.py`（幂等）；结构迁移按需执行 `scripts/migrate_*.py`。
+- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合、状态记录四表 CRUD/合并分页/跨表批量删除、报告周期归一/事实快照/生成/软删除/扫描/evidence 校验等）。
+- 建库/初始化：`python scripts/init_db.py`（幂等）；结构迁移按需执行 `scripts/migrate_*.py`；报告表迁移 `python scripts/migrate_reports.py`。
+- 报告自动生成：Windows 任务计划程序每 30 分钟执行 `python scripts/generate_reports.py --scan`（注册脚本 `scripts/register_report_task.ps1`，需手动执行）；日志 `logs/report_task.log`；`--dry-run` 只列出到期周期，`--type/--anchor/--user` 可手动生成单个周期。
 - 启动：`python main.py`（推荐；Windows 下 psycopg3 异步要求 SelectorEventLoop，命令行 `uvicorn main:app` 会在 import 本模块前用默认 ProactorEventLoop 建好 loop、导致启动失败，main.py 已内置显式 selector loop 的编程式启动）。
 - 依赖：`uv sync --extra dev` 或 `pip install -r requirements.txt`。
 

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}AI 助手 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261114n">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261117b">{% endblock %}
 {% block content %}
 <div class="agent-workbench" id="agentWorkbench">
   <!-- 会话列表 -->
@@ -35,8 +35,12 @@
       </div>
 
       <div class="chat-composer-wrap">
+        <div class="skill-suggest" id="skillSuggest" hidden>
+          <div class="suggest-list" id="suggestList" role="listbox" aria-label="可选技能"></div>
+          <div class="suggest-hint">↑↓ 选择 · Enter 插入 · Esc 关闭</div>
+        </div>
         <div class="chat-input">
-          <textarea class="input" id="chatInput" rows="1" placeholder="输入你的问题"></textarea>
+          <textarea class="input" id="chatInput" rows="1" placeholder="输入你的问题，使用 / 可选择skill"></textarea>
           <div class="composer-row">
             <select class="select chat-model" id="chatModel" aria-label="选择模型">
               <option value="">默认模型</option>
@@ -62,5 +66,5 @@ window.INIT_CONVERSATIONS = {{ conversations | tojson }};
 window.MODEL_OPTIONS = {{ model_options | tojson }};
 window.DEFAULT_MODEL = {{ default_model | tojson }};
 </script>
-<script src="/static/js/agent.js?v=20261114n"></script>
+<script src="/static/js/agent.js?v=20261117b"></script>
 {% endblock %}

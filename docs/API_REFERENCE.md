@@ -42,8 +42,9 @@
 | 个人信息 profile | `/profile`、`/api/profile` | 1 | 3 | 4 |
 | 总览 overview | `/overview`、`/api/overview` | 1 | 2 | 3 |
 | 电子教练 electronic_trainer | `/api/electronic-trainer` | 0 | 2 | 2 |
-| AI 助手 agent | `/agent`、`/api/agent` | 1 | 7 | 8 |
-| **合计** | — | **15** | **79** | **94** |
+| AI 助手 agent | `/agent`、`/api/agent` | 2 | 19 | 21 |
+| AI 运动报告 report | `/reports`、`/api/reports` | 1 | 4 | 5 |
+| **合计** | — | **17** | **95** | **112** |
 
 ## 2. 全局与认证
 
@@ -162,7 +163,7 @@
 | `PUT /api/cycle/periods/{record_id}` | 路径参数 + JSON | 路径 `record_id`；体 `start_date`（可空）、`end_date`（可空，显式 `null` 可清空） | `{id, start_date, end_date}` | 修改；日期冲突 409，不存在 404 |
 | `DELETE /api/cycle/periods/{record_id}` | 路径参数 | 路径 `record_id` | `{ok}` | 删除月经记录；不存在 404 |
 | `PUT /api/cycle/pain/{log_date}` | 路径参数 + JSON | 路径 `log_date`；体 `pain_level`（0~3） | `{ok, log_date, pain_level}` | 按日写入/覆盖疼痛等级 |
-| `GET /api/cycle/calendar` | Query | `month`（`YYYY-MM`） | 周期月历（A.10） | 逐日阶段、四档状态、三态经期、疼痛与今日概览 |
+| `GET /api/cycle/calendar` | Query | `month`（`YYYY-MM`） | 周期月历（A.10） | 逐日阶段、双份激素文案、四档状态、三态经期、疼痛与今日概览 |
 
 > 男性账号访问本模块全部 API 返回 403 `{code:"FORBIDDEN", error:"男性账号不开放生理周期模块"}`。
 
@@ -214,6 +215,7 @@
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
 | `GET /agent` | 无 | 无 | HTML 页面 | AI 助手页（会话列表 + 对话区 + 模型下拉） |
+| `GET /agent/skills` | 无 | 无 | HTML 页面 | 技能管理页（平台/我的技能列表 + 用户提示词编辑/平台只读展示） |
 | `GET /api/agent/conversations` | 无 | 无 | `{list:[会话对象]}` | 当前用户会话列表，按最近消息时间倒序 |
 | `POST /api/agent/conversations` | JSON | `model_name`（可选，≤64） | 会话对象（A.11） | 新建会话（分配 `thread_id`）；模型不支持 400 |
 | `PUT /api/agent/conversations/{conversation_id}` | 路径参数 + JSON | 路径 `conversation_id`；体 `title`（1~64） | 会话对象（A.11） | 重命名会话；不存在 404 |
@@ -221,6 +223,18 @@
 | `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, turns:[{user, assistant（可空）, tool_runs:[{tool, args, data（可空）}]}]}` | 按一轮问答聚合读取历史，含工具调用轨迹，供前端重建工具状态与明细折叠 |
 | `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；前置校验失败以 JSON 返回 400/404/409 |
 | `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；前置校验失败以 JSON 返回 400/404/409 |
+| `GET /api/agent/skills` | 无 | 无 | `{list:[技能对象（A.14）]}` | 当前用户可见的平台技能与自己的私有技能 |
+| `GET /api/agent/skills/runs` | Query | `limit`（默认 20，最大 100） | `{list:[技能运行记录（A.15）]}` | 当前用户全部技能运行记录；此路由必须位于 `/{skill_id}` 之前 |
+| `POST /api/agent/skills/validate` | JSON | `kind`（仅 `prompt`，默认 `prompt`）、`definition`（可空，定义对象） | `{ok, errors[], warnings[]}` | 校验用户提示词定义，不落库 |
+| `GET /api/agent/skills/{skill_id}` | 路径参数 | 路径 `skill_id` | 技能对象（A.14） | 技能详情；不存在 404，非本人用户技能 403 |
+| `POST /api/agent/skills` | JSON | `name`（1~48）、`key`（1~48）、`slash_alias`（可空 ≤24）、`description`（≤200）、`category`、`kind`（仅 `prompt`，默认 `prompt`）、`definition` | 技能对象（A.14） | 创建用户私有提示词技能草稿；非法类型由请求模型返回 422，定义或键/别名冲突返回 400 |
+| `PUT /api/agent/skills/{skill_id}` | 路径参数 + JSON | 路径 `skill_id`；体同 `POST` | 技能对象（A.14） | 保存用户提示词技能草稿（定义变化才新增版本）；平台技能 403 |
+| `POST /api/agent/skills/{skill_id}/validate` | 路径参数 + JSON | 路径 `skill_id`；体 `definition`（可空，空则用当前版本） | `{ok, errors[], warnings[]}` | 按技能当前 kind 校验定义；平台代码技能返回不可修改警告 |
+| `POST /api/agent/skills/{skill_id}/publish` | 路径参数 | 路径 `skill_id` | 技能对象（A.14） | 发布最新用户技能版本并设为 active；平台技能 403 |
+| `POST /api/agent/skills/{skill_id}/status` | 路径参数 + JSON | 路径 `skill_id`；体 `status`（`active`/`disabled`/`archived`） | 技能对象（A.14） | 启用/停用/归档用户技能；平台技能 403 |
+| `DELETE /api/agent/skills/{skill_id}` | 路径参数 | 路径 `skill_id` | `{ok}` | 删除用户技能及其版本/运行记录；平台技能 403 |
+| `POST /api/agent/skills/{skill_id}/test` | 路径参数 + JSON | 路径 `skill_id`；体 `args`（参数字典） | 技能结果（A.15）；缺参返回 `{ok:false,status:"invalid_args",missing[],errors[],warnings[]}` | 试运行技能并写入 `trigger=test` 审计 |
+| `GET /api/agent/skills/{skill_id}/runs` | 路径参数 + Query | 路径 `skill_id`；Query `limit`（默认 20） | `{list:[技能运行记录（A.15）]}` | 单技能运行记录；非本人用户技能 403 |
 
 ### 12.1 SSE 事件
 
@@ -228,14 +242,26 @@
 | --- | --- | --- |
 | `start` | `conversation_id`、`thread_id` | 开始生成 |
 | `delta` | `content` | 正文增量 token |
-| `tool_start` | `tool`、`args` | 模型发起工具调用 |
-| `tool_result` | `tool`、`data` | 工具返回结果（对象或 `{text}`） |
+| `tool_start` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`args` | 模型或斜杠链路发起工具/技能调用 |
+| `tool_result` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`data` | 工具/技能返回结果（对象或 `{text}`）；技能结果含 `outputs/caveats/meta` |
 | `done` | `conversation_id`、`title`、`last_message_at` | 生成完成；首条消息自动取前 12 字作标题 |
 | `error` | `message` | 生成失败（固定文案） |
 
-> 同一会话同时只允许一个生成；重复 `client_msg_id` 返回 409。`X-Accel-Buffering: no`、`Cache-Control: no-cache`。
+> 同一会话同时只允许一个生成；重复 `client_msg_id` 返回 409。`X-Accel-Buffering: no`、`Cache-Control: no-cache`。消息内容以 `/技能名 自由文本` 开头时走技能解析；缺参数先返回一条追问 delta 并写入历史，下一条普通文本自动合并原命令继续解析。
 
-## 13. 响应对象字典
+## 13. AI 运动报告 report
+
+| 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
+| --- | --- | --- | --- | --- |
+| `GET /reports` | Query | `type`（`weekly`/`monthly`，默认 `weekly`）、`anchor`（可选，日期 `YYYY-MM-DD`，默认今天） | HTML 页面 | 报告页：周/月切换、周期步进、生成/删除与历史列表 |
+| `GET /api/reports` | Query | `type`（`weekly`/`monthly`）、`anchor`（可选） | 报告视图（A.16） | 读取某周期事实快照与已生成叙事；无报告时 `report=null` |
+| `POST /api/reports/generate` | JSON | `type`（`weekly`/`monthly`）、`anchor`（可选）、`force`（bool，默认 `false`） | 报告视图（A.16） | 生成/复用报告；已 ready 且数据未变直接返回，`force` 强制重写；同周期并发 409，模型失败 502 |
+| `GET /api/reports/history` | Query | `type`（可选筛选）、`page`（默认 1）、`page_size`（默认 10，1~50） | `{items:[{id,type,type_label,period_start,period_end,period_label,status,mode,headline,generated_at}], total, page, page_size}` | 历史报告列表，按周期倒序；软删除项不返回 |
+| `DELETE /api/reports/{report_id}` | Path | 无 | `{ok:true, id}` | 软删除报告；已删除的周期不再被自动扫描重新生成 |
+
+> 报告只统计 `recorded` 记录；计划单独计数、不计入训练量。热量沿用总览口径只汇总游泳+舞蹈。未结束周期仍返回 `period_end`（周日/月末），事实截至 `as_of` 并标 `partial`；未来周期读取/生成返回 400。
+
+## 14. 响应对象字典
 
 ### A.1 分页包
 
@@ -328,7 +354,7 @@
 | 字段 | 说明 |
 | --- | --- |
 | `year`、`month`、`days[]` | 年月与逐日数据 |
-| `days` 单项 | `{date, phase_key, phase_label, phase_source, sport_level, sport_label, is_period, period_state, period_label, pain_level, pain_recorded, is_recorded_start, cycle_day, segment_source}` |
+| `days` 单项 | `{date, phase_key, phase_label, phase_source, sport_level, sport_label, hormone_text, is_period, period_state, period_label, pain_level, pain_recorded, is_recorded_start, cycle_day, segment_source}`；`hormone_text` 为当前阶段双份文案中的一份（含换行，70 字内），无阶段为 `null` |
 | `overview` | `{has_records, reference_cycle_length, reference_period_length, latest_cycle_length, latest_period_length, next_period, overdue_days, ovulation_date, cycle_day_today, cycle_length_today, today_source, progress}` |
 | `today` | `{date, phase_key, phase_label, sport_level, sport_label}` |
 
@@ -359,9 +385,49 @@
 | 游泳/舞蹈 Excel/JSON | `{ok, imported, created_ids[], failed[]}` |
 | 身材 Excel | `{ok, imported, failed[]}` |
 
+### A.14 技能对象
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 技能主键 |
+| `scope` | `system` 平台 / `user` 用户私有 |
+| `key` | 稳定技能键，工具名为 `skill_<key>` |
+| `name` / `slash_alias` | 显示名 / 斜杠别名（用户技能可空） |
+| `description` / `category` | 能力描述 / 分类 |
+| `kind` | `code` 平台代码技能 / `declarative` 平台声明式技能 / `prompt` 用户提示词技能 |
+| `status` | `draft` / `active` / `disabled` / `archived` |
+| `current_version_no` / `version_no` | 当前发布版本 / 本次返回版本 |
+| `published` / `can_edit` / `can_delete` | 是否已发布 / 当前用户是否可编辑 / 当前用户是否可删除；平台技能均为否，用户提示词技能可编辑，用户历史声明式技能只可删除 |
+| `definition` | 平台声明式 DSL 或用户提示词定义 `{schema_version,prompt}`；平台代码技能为 `{kind:"code", code_key}` 或空 |
+| `updated_at` | 更新时间 |
+
+### A.15 技能运行记录
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` / `skill_id` / `version_no` | 运行主键、技能与版本 |
+| `scope` / `name` / `kind` / `version` / `skill` | 试运行结果中的技能元信息 |
+| `trigger` / `status` | `slash` / `model` / `test`；`ok` / `insufficient_data` / `invalid_args` / `failed` |
+| `args` / `parse` | 归一化参数 / 解析元信息（model、prompt_version、strategy、耗时、warnings） |
+| `sample_size` / `duration_ms` | 样本条数 / 执行耗时 |
+| `error_code` / `error_message` | 失败错误码与说明 |
+| `range` / `outputs` / `facts` / `summary` / `caveats` | 技能结果契约；试运行和运行记录接口返回；提示词技能 `range=null`、`outputs=[]`、`sample_size=0`、`summary` 为提示词指令 |
+
+### A.16 报告视图 ReportView
+
+| 字段 | 说明 |
+| --- | --- |
+| `type` / `type_label` | `weekly` / `monthly` 与中文「周报 / 月报」 |
+| `period{type,label,start,end,as_of,partial,range_label}` | 周期信息；未结束周期 `partial=true`，`as_of` 为事实截止日 |
+| `facts` | 事实快照：`metrics`（key → `{key,label,value,unit,display}`）、`cards[]{key,label,value,unit,display,delta_text,delta_dir}`、`totals` / `prev_totals`、`sports{fitness,swim,dance}`、`body{weight,body_fat,waist,hip}`、`state{types,pain_days,mood_low_days}`、`cycle`（可空）、`weekly_breakdown`（月报）、`notes`、`completeness`、`kcal_scope` / `kcal_note` |
+| `report` | 可空；无报告或已删除时为 `null`。含 `id` / `type` / `type_label` / `period_start` / `period_end` / `period_label` / `status` / `mode` / `headline` / `narrative` / `stale` / `generated_at` / `model_name` / `prompt_version` / `attempts` / `error{code,message}` |
+| `report.status` / `mode` | `generating` / `ready` / `failed`；`ai` / `rule`（规则文案，未调模型） |
+| `report.narrative` | `{headline,summary,highlights[]{title,detail,evidence[]},watchouts[]{...},next_actions[]{...},caveats[],cycle_note}`；`evidence` 为 `facts.metrics` 的真实 key |
+| `status` / `stale` / `auto_enabled` | 页面状态（`none` / `generating` / `ready` / `failed` / `deleted`）、数据是否已过期、自动生成是否启用 |
+
 > 导入语义：失败行/计划只记录错误，不阻断其他行；健身、游泳、舞蹈导入一律落 `recorded`，不覆盖已有数据。
 
-## 14. 维护
+## 15. 维护
 
 - 本文件人工维护，不由代码自动生成；只增删改与代码一致的内容。
 - 新增、删除、改方法、改路径、改入参/出参、改权限或改返回形态时，同步修改对应模块表格与 1.3 的计数。

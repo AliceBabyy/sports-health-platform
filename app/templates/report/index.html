@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}AI 运动报告 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/report.css?v=20261117b">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>AI 运动报告</h1>
+  <div class="page-head-actions">
+    <div class="seg" id="rpTypeSeg">
+      <button type="button" data-type="weekly" class="active">周报</button>
+      <button type="button" data-type="monthly">月报</button>
+    </div>
+    <div class="date-nav" id="rpPeriodNav">
+      <button type="button" class="dn-btn" data-step="-1" title="上一周期" aria-label="上一周期">‹</button>
+      <span class="dn-label num" id="rpPeriodLabel"></span>
+      <button type="button" class="dn-btn" data-step="1" title="下一周期" aria-label="下一周期">›</button>
+      <button type="button" class="dn-today" id="rpTodayBtn">回到本周</button>
+    </div>
+    <span class="rp-status" id="rpPeriodState"></span>
+    {% if auto_enabled %}<span class="rp-auto">周一自动生成上周 · 每月 1 日生成上月</span>{% endif %}
+    <button type="button" class="btn btn-primary" id="rpGenerateBtn">生成报告</button>
+  </div>
+</div>
+
+<div class="stat-grid" id="rpCards"></div>
+
+<div class="card rp-hero" id="rpHero">
+  <div class="rp-hero-head">
+    <div>
+      <div class="rp-meta" id="rpMeta"></div>
+      <h2 class="rp-headline" id="rpHeadline"></h2>
+      <div class="rp-summary" id="rpSummary"></div>
+    </div>
+    <div class="rp-hero-side" id="rpHeroSide"></div>
+  </div>
+  <div class="rp-note" id="rpCycleNote" style="display:none"></div>
+  <div class="rp-sections" id="rpSections"></div>
+  <div class="rp-caveats" id="rpCaveats" style="display:none"></div>
+  <div class="rp-empty" id="rpEmpty" style="display:none"></div>
+</div>
+
+<div class="card" id="rpEvidenceCard">
+  <div class="card-title">判断依据 <span class="sub">事实快照 · 数字由服务端计算，叙事只引用这些指标</span></div>
+  <div class="rp-evidence-grid" id="rpEvidence"></div>
+</div>
+
+<div class="card" id="rpHistoryCard">
+  <div class="card-title">历史报告 <span class="sub">软删除后不再自动生成</span></div>
+  <div class="table-wrap">
+    <table class="tbl rp-history-table">
+      <thead>
+        <tr><th>周期</th><th>类型</th><th>主题</th><th>状态</th><th>生成时间</th><th>操作</th></tr>
+      </thead>
+      <tbody id="rpHistoryBody">
+        <tr><td colspan="6" class="rp-history-empty">暂无历史报告</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="rp-history-more" id="rpHistoryMore" style="display:none">
+    <button type="button" class="btn btn-sm" id="rpHistoryMoreBtn">查看更多</button>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.INIT_REPORT = {
+  type: "{{ report_type }}",
+  anchor: "{{ report_anchor }}",
+  today: "{{ today }}",
+  autoEnabled: {{ 'true' if auto_enabled else 'false' }}
+};
+</script>
+<script src="/static/js/report.js?v=20261117a"></script>
+{% endblock %}

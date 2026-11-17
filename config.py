@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     agent_max_input_chars: int = 2000
     agent_pool_min_size: int = 1
     agent_pool_max_size: int = 10
+    # AI 运动报告（2026-11-17）：周报周一生成上周、月报每月 1 日生成上月；
+    # 自动生成不在应用进程内，由系统计划任务调用 scripts/generate_reports.py --scan。
+    report_auto_enabled: bool = True
+    report_model: str = ""  # 留空用 ai_default_model
+    report_timeout_seconds: float = 60.0
+    report_max_attempts: int = 3
 
 
 settings = Settings()

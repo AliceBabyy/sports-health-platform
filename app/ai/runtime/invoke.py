@@ -25,9 +25,10 @@ def invoke_structured(
     schema: type[T],
     input_text: str,
     variables: dict[str, str],
+    timeout: float | None = None,
 ) -> T:
     started = time.monotonic()
-    model = get_model(model_name, required="structured_output")
+    model = get_model(model_name, required="structured_output", timeout=timeout)
     prompt = load_prompt(prompt_id, **variables)
     try:
         # json_schema lets the provider enforce the schema while decoding.
@@ -77,5 +78,33 @@ def invoke_ai_import(
         raise AIServiceError("模型返回格式无效") from exc
     except Exception as exc:
         logger.warning("AI import call failed: model=%s prompt=%s elapsed_ms=%d",
+                       model_name, prompt_id, int((time.monotonic() - started) * 1000))
+        raise AIServiceError("模型服务暂不可用") from exc
+
+
+async def ainvoke_structured(
+    *,
+    model_name: str | None,
+    prompt_id: str,
+    schema: type[T],
+    input_text: str,
+    variables: dict[str, str],
+    strict: bool = True,
+) -> T:
+    """异步结构化调用（Agent 斜杠解析等异步链路使用），语义与同步版一致。"""
+    started = time.monotonic()
+    model = get_model(model_name, required="structured_output")
+    prompt = load_prompt(prompt_id, **variables)
+    try:
+        chain = prompt | model.with_structured_output(schema, method="json_schema", strict=strict)
+        result = await chain.ainvoke({"input_text": input_text})
+        return schema.model_validate(result)
+    except AIServiceError:
+        raise
+    except (ValidationError, ValueError, TypeError) as exc:
+        logger.warning("AI async output validation failed: model=%s prompt=%s", model_name, prompt_id)
+        raise AIServiceError("模型返回格式无效") from exc
+    except Exception as exc:
+        logger.warning("AI async call failed: model=%s prompt=%s elapsed_ms=%d",
                        model_name, prompt_id, int((time.monotonic() - started) * 1000))
         raise AIServiceError("模型服务暂不可用") from exc

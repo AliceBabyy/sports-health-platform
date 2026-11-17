@@ -1,10 +1,30 @@
-"""AI Agent API 路由（/api/agent 系列）：会话 CRUD、消息读取、流式 SSE 发送。"""
+"""AI Agent API 路由（/api/agent 系列）：会话 CRUD、消息流式 SSE、技能管理。"""
+from datetime import date
+
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
+from app.core.exceptions import AppError
 from app.modules.agent import schemas, service
+from app.modules.agent.models import AgentSkill
+from app.modules.agent.skills.argument import validate_args
+from app.modules.agent.skills.execution import test_skill
+from app.modules.agent.skills.management import (
+    SkillValidationError,
+    create_skill,
+    current_or_latest_version,
+    delete_skill,
+    latest_version,
+    list_runs,
+    list_skills,
+    publish_skill,
+    resolved_from_version,
+    save_skill,
+    set_status,
+    validate_definition_payload,
+)
 from app.modules.auth.models import User
 from database import get_db
 
@@ -105,3 +125,218 @@ async def regenerate_message(
             "Connection": "keep-alive",
         },
     )
+
+
+# ---------- 技能管理 ----------
+
+def _skill_dict(row: AgentSkill, version, user_id: int) -> dict:
+    can_delete = row.scope == "user" and row.owner_user_id == user_id
+    can_edit = can_delete and row.kind == "prompt"
+    definition = None
+    if version is not None:
+        definition = version.definition if row.kind in ("declarative", "prompt") \
+            else {"kind": "code", "code_key": row.skill_key}
+    return {
+        "id": row.id,
+        "scope": row.scope,
+        "key": row.skill_key,
+        "name": row.name,
+        "slash_alias": row.slash_alias,
+        "description": row.description,
+        "kind": row.kind,
+        "category": row.category,
+        "status": row.status,
+        "current_version_no": row.current_version_no,
+        "version_no": version.version_no if version else None,
+        "published": bool(version and version.published_at),
+        "can_edit": can_edit,
+        "can_delete": can_delete,
+        "definition": definition,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def _validation_response(exc: SkillValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={"code": "SKILL_DEFINITION_INVALID", "error": "技能定义或基本信息不合法",
+                 "errors": exc.errors, "warnings": exc.warnings},
+    )
+
+
+@router.get("/skills")
+def list_skills_api(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return {"list": [_skill_dict(row, version, user.id) for row, version in list_skills(db, user.id)]}
+
+
+@router.get("/skills/runs")
+def all_skill_runs_api(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    runs = list_runs(db, user.id, None, limit)
+    return {"list": [{
+        "id": r.id, "skill_id": r.skill_id, "trigger": r.trigger, "status": r.status,
+        "args": r.args, "parse": r.parse, "sample_size": r.sample_size,
+        "duration_ms": r.duration_ms, "error_code": r.error_code,
+        "error_message": r.error_message,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in runs]}
+
+
+@router.post("/skills/validate")
+def validate_new_skill_api(
+    payload: schemas.SkillValidateIn,
+    _: User = Depends(get_current_user),
+):
+    errors, warnings = validate_definition_payload(payload.kind or "prompt", payload.definition or {})
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+@router.get("/skills/{skill_id}")
+def get_skill_api(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.get(AgentSkill, skill_id)
+    if row is None:
+        raise AppError(404, "技能不存在")
+    if row.scope == "user" and row.owner_user_id != user.id:
+        raise AppError(403, "无权查看该技能")
+    version = current_or_latest_version(db, row)
+    return _skill_dict(row, version, user.id)
+
+
+@router.post("/skills")
+def create_skill_api(
+    payload: schemas.SkillIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        row = create_skill(db, user.id, payload.model_dump())
+    except SkillValidationError as exc:
+        return _validation_response(exc)
+    return _skill_dict(row, current_or_latest_version(db, row), user.id)
+
+
+@router.put("/skills/{skill_id}")
+def update_skill_api(
+    skill_id: int,
+    payload: schemas.SkillIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        row = save_skill(db, user.id, skill_id, payload.model_dump())
+    except SkillValidationError as exc:
+        return _validation_response(exc)
+    return _skill_dict(row, current_or_latest_version(db, row), user.id)
+
+
+@router.post("/skills/{skill_id}/validate")
+def validate_skill_api(
+    skill_id: int,
+    payload: schemas.SkillValidateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.get(AgentSkill, skill_id)
+    if row is None:
+        raise AppError(404, "技能不存在")
+    if row.scope == "user" and row.owner_user_id != user.id:
+        raise AppError(403, "无权查看该技能")
+    definition = payload.definition
+    if row.kind == "code":
+        return {"ok": True, "errors": [], "warnings": ["平台代码技能不可修改定义"]}
+    if definition is None:
+        version = current_or_latest_version(db, row)
+        definition = version.definition if version else {}
+    errors, warnings = validate_definition_payload(row.kind, definition)
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
+
+
+@router.post("/skills/{skill_id}/publish")
+def publish_skill_api(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        row = publish_skill(db, user.id, skill_id)
+    except SkillValidationError as exc:
+        return _validation_response(exc)
+    return _skill_dict(row, current_or_latest_version(db, row), user.id)
+
+
+@router.post("/skills/{skill_id}/status")
+def set_skill_status_api(
+    skill_id: int,
+    payload: schemas.SkillStatusIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = set_status(db, user.id, skill_id, payload.status)
+    return _skill_dict(row, current_or_latest_version(db, row), user.id)
+
+
+@router.delete("/skills/{skill_id}")
+def delete_skill_api(
+    skill_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    delete_skill(db, user.id, skill_id)
+    return {"ok": True}
+
+
+@router.post("/skills/{skill_id}/test")
+def test_skill_api(
+    skill_id: int,
+    payload: schemas.SkillTestIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.get(AgentSkill, skill_id)
+    if row is None:
+        raise AppError(404, "技能不存在")
+    if row.scope == "user" and row.owner_user_id != user.id:
+        raise AppError(403, "无权试运行该技能")
+    version = latest_version(db, row) if row.scope == "user" else current_or_latest_version(db, row)
+    if version is None:
+        raise AppError(400, "技能没有可用定义")
+    skill = resolved_from_version(row, version)
+    args, errors, warnings, missing = validate_args(skill, payload.args, date.today())
+    if errors or missing:
+        return {"ok": False, "status": "invalid_args", "errors": errors,
+                "missing": missing, "warnings": warnings}
+    result = test_skill(db, user.id, skill, args)
+    db.commit()
+    return result
+
+
+@router.get("/skills/{skill_id}/runs")
+def skill_runs_api(
+    skill_id: int,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.get(AgentSkill, skill_id)
+    if row is None:
+        raise AppError(404, "技能不存在")
+    if row.scope == "user" and row.owner_user_id != user.id:
+        raise AppError(403, "无权查看该技能")
+    runs = list_runs(db, user.id, skill_id, limit)
+    return {"list": [{
+        "id": r.id, "trigger": r.trigger, "status": r.status,
+        "args": r.args, "parse": r.parse, "sample_size": r.sample_size,
+        "duration_ms": r.duration_ms, "error_code": r.error_code,
+        "error_message": r.error_message,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    } for r in runs]}

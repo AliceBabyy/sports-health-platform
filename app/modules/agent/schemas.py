@@ -1,4 +1,6 @@
-"""AI Agent schemas：会话创建/重命名、消息发送入参。"""
+"""AI Agent schemas：会话创建/重命名、消息发送入参、技能管理入参。"""
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 from app.modules.agent.models import TITLE_MAX_CHARS
@@ -22,3 +24,26 @@ class MessageIn(BaseModel):
 class RegenerateIn(BaseModel):
     client_msg_id: str = Field(min_length=1, max_length=64)
     model_name: str | None = Field(default=None, max_length=64)
+
+
+class SkillIn(BaseModel):
+    name: str = Field(min_length=1, max_length=48)
+    key: str = Field(min_length=1, max_length=48)
+    slash_alias: str | None = Field(default=None, max_length=24)
+    description: str = Field(default="", max_length=200)
+    category: str = Field(default="custom", max_length=16)
+    kind: Literal["prompt"] = "prompt"
+    definition: dict[str, Any]
+
+
+class SkillStatusIn(BaseModel):
+    status: Literal["active", "disabled", "archived"]
+
+
+class SkillTestIn(BaseModel):
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class SkillValidateIn(BaseModel):
+    kind: Literal["prompt"] | None = None
+    definition: dict[str, Any] | None = None

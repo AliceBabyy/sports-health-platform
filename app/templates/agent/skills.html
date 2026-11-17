@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}技能管理 · AI 助手 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent_skills.css?v=20261117t">{% endblock %}
+{% block content %}
+<div class="skills-page">
+  <aside class="skills-rail">
+    <button class="rail-new" id="btnNewSkill" type="button">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+      </svg>
+      新建技能
+    </button>
+
+    <div class="rail-scroll">
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">平台技能</span>
+          <span class="skills-count" id="platformCount">0</span>
+        </div>
+        <div class="skills-list" id="platformList"></div>
+      </div>
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">我的技能</span>
+          <span class="skills-count" id="myCount">0</span>
+        </div>
+        <div class="skills-list" id="myList"></div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="skills-work">
+    <header class="work-head">
+      <div class="work-identity">
+        <div class="work-kicker" id="editorKicker">技能</div>
+        <div class="work-name-row">
+          <h1 class="work-name" id="editorName">选择或新建技能</h1>
+          <code class="work-slash" id="editorSlash" hidden></code>
+        </div>
+      </div>
+      <div class="work-badges" id="editorBadges"></div>
+    </header>
+
+    <div class="work-scroll">
+      <div class="editor-empty" id="editorEmpty">
+        <div class="empty-graphic" aria-hidden="true">
+          <span>技能名</span><i></i><span>提示词</span><i></i><span>斜杠触发</span>
+        </div>
+        <div class="empty-title">左侧选择一个技能，或新建一个</div>
+        <div class="empty-sub">用户技能只写一段提示词；平台技能由平台维护，页面只读展示。</div>
+        <button class="btn btn-primary btn-sm" id="btnEmptyNew" type="button">新建技能</button>
+      </div>
+
+      <form class="skill-editor" id="skillForm" hidden>
+        <section class="editor-section">
+          <div class="section-head">基本信息</div>
+          <div class="field-grid">
+            <label class="field">
+              <span>技能名</span>
+              <input class="input" id="fName" maxlength="48" required>
+            </label>
+            <label class="field">
+              <span>技能键（工具名 skill_&lt;key&gt;）</span>
+              <input class="input mono" id="fKey" maxlength="48" placeholder="body_fat_month" required>
+            </label>
+            <label class="field">
+              <span>斜杠别名</span>
+              <input class="input" id="fAlias" maxlength="24" placeholder="体脂月报（可空）">
+            </label>
+            <label class="field">
+              <span>分类</span>
+              <select class="select" id="fCategory">
+                <option value="custom">自定义</option>
+                <option value="body">身材</option>
+                <option value="swim">游泳</option>
+                <option value="fitness">健身</option>
+                <option value="dance">舞蹈</option>
+              </select>
+            </label>
+            <label class="field field-wide">
+              <span>能力描述（模型据此决定何时调用）</span>
+              <input class="input" id="fDescription" maxlength="200" placeholder="按教练视角点评训练">
+            </label>
+          </div>
+        </section>
+
+        <section class="editor-section" id="definitionSection">
+          <div class="section-head">
+            <span>声明式定义（平台只读）</span>
+          </div>
+          <textarea class="code-editor mono" id="fDefinition" spellcheck="false" rows="22"></textarea>
+          <div class="editor-hint">平台声明式技能由平台维护：参数 date/int/bool/enum、白名单数据源、聚合算子与四则运算；用户不可编辑。</div>
+        </section>
+
+        <section class="editor-section" id="promptSection" hidden>
+          <div class="section-head"><span>提示词</span></div>
+          <textarea class="code-editor prompt-editor" id="fPrompt" rows="14" spellcheck="false"
+                    placeholder="你是一名……，请根据用户要求……；回答使用……格式，不要编造数据。"></textarea>
+          <div class="editor-hint">提示词会作为技能指令交给模型；斜杠后的文字作为本次输入。需要数据时，可在提示词中要求模型调用已有只读工具。</div>
+        </section>
+
+        <section class="editor-section" id="testArgsWrap" hidden>
+          <div class="section-head"><span>试运行参数 JSON</span></div>
+          <textarea class="code-editor mono" id="fTestArgs" rows="3" spellcheck="false" placeholder='{"start_date":"2026-11-01","end_date":"2026-11-16"}'></textarea>
+        </section>
+
+        <div class="editor-result" id="editorResult"></div>
+
+        <section class="run-panel" id="runPanel" hidden>
+          <div class="section-head">
+            <span>运行记录</span>
+            <div class="section-tools">
+              <button class="btn btn-ghost btn-sm" type="button" id="btnCloseRuns">关闭</button>
+            </div>
+          </div>
+          <div class="run-table-head" aria-hidden="true">
+            <span>时间</span><span>状态</span><span>触发与参数</span><span>耗时</span>
+          </div>
+          <div id="runList"></div>
+        </section>
+      </form>
+    </div>
+
+    <footer class="work-actions" id="workActions" hidden>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnValidate">校验</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnTest">试运行</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnRuns">运行记录</button>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm danger" type="button" id="btnDelete">删除</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnDisable">停用</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnSave">保存草稿</button>
+      <button class="btn btn-primary btn-sm" type="button" id="btnPublish">发布</button>
+    </footer>
+  </section>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.INIT_SKILLS = {{ skills | tojson }};
+</script>
+<script src="/static/js/agent_skills.js?v=20261117u"></script>
+{% endblock %}

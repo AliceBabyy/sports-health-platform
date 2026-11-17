@@ -21,13 +21,17 @@ NAV_GROUPS = [
         "label": "运动训练/计划",
         "short": "训练",
         "children": [
+            {"key": "reports", "url": "/reports", "label": "周/月运动报告", "short": "周/月运动报告"},
             {"key": "training", "url": "/training", "label": "健身", "short": "健身"},
             {"key": "swim", "url": "/swim", "label": "游泳", "short": "游泳"},
             {"key": "dance", "url": "/dance", "label": "舞蹈", "short": "舞蹈"},
         ],
     },
     {"key": "cycle", "url": "/cycle", "label": "生理周期", "short": "周期", "children": []},
-    {"key": "agent", "url": "/agent", "label": "AI助手", "short": "AI", "children": []},
+    {"key": "agent", "url": "/agent", "label": "AI助手", "short": "AI", "children": [
+        {"key": "agent_chat", "url": "/agent", "label": "对话", "short": "对话"},
+        {"key": "agent_skills", "url": "/agent/skills", "label": "技能", "short": "技能"},
+    ]},
     {"key": "profile", "url": "/profile", "label": "个人信息", "short": "我的", "children": []},
 ]
 

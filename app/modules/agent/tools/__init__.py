@@ -1,4 +1,5 @@
-"""Agent 只读工具集：数据问答的受限工具。"""
+"""Agent 工具集：只读数据工具 + 人机交互工具。"""
 from .definitions import ALL_TOOLS
+from .interaction import ASK_TOOL_NAME, ask_user
 
-__all__ = ["ALL_TOOLS"]
+__all__ = ["ALL_TOOLS", "ask_user", "ASK_TOOL_NAME"]

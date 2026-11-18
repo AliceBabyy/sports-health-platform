@@ -229,9 +229,10 @@
 | `POST /api/agent/conversations` | JSON | `model_name`（可选，≤64）、`persona_id`（可选，角色 id） | 会话对象（A.11） | 新建会话（分配 `thread_id`）；传 `persona_id` 即创建角色会话并固定该角色版本，之后不可切换；模型不支持 400，角色不可用 400/403 |
 | `PUT /api/agent/conversations/{conversation_id}` | 路径参数 + JSON | 路径 `conversation_id`；体 `title`（1~64） | 会话对象（A.11） | 重命名会话；不存在 404 |
 | `DELETE /api/agent/conversations/{conversation_id}` | 路径参数 | 路径 `conversation_id` | `{ok}` | 硬删除会话与 checkpointer 线程；生成中 409，不存在 404 |
-| `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, persona:{id,key,name,version_no}（可空）, turns:[{user, assistant（可空）, tool_runs:[{tool, args, data（可空）}]}]}` | 按一轮问答聚合读取历史，含工具调用轨迹与当前角色快照，供前端重建工具状态与明细折叠 |
+| `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, turns:[{user, blocks:[{type:"text", content} \| {type:"ask", question, options[], multiple, answer（可空）, pending（可空）, call_id}], tool_runs:[{tool, label, kind, call_id（可空）, args, data（可空）}]}]}` | 按一轮问答聚合读取历史：`blocks` 为按出现顺序排列的正文段与中途提问段，`tool_runs` 携带工具标签与类别并按 `call_id` 配对结果；当前正等待回答的 ask 段带 `pending=true` |
+| `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；若该会话正等待 `ask_user` 回答，则 `content` 作为答案用 `Command(resume)` 恢复同一轮，不新增用户消息；前置校验失败以 JSON 返回 400/404/409 |
 | `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；前置校验失败以 JSON 返回 400/404/409 |
-| `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；前置校验失败以 JSON 返回 400/404/409 |
+| `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；该会话正等待回答时返回 409；前置校验失败以 JSON 返回 400/404/409 |
 | `GET /api/agent/personas` | 无 | 无 | `{list:[角色对象（A.20）]}` | 平台内置角色（2 个）+ 当前用户私有角色 |
 | `GET /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | 角色对象（A.20） | 角色详情；不存在 404，非本人用户角色 403 |
 | `POST /api/agent/personas` | JSON | `name`（1~48）、`key`（1~48）、`description`（≤200）、`definition{schema_version,prompt}` | 角色对象（A.20） | 创建用户私有角色，保存即生成 v1 并生效；定义或键/名冲突 400 |
@@ -255,11 +256,12 @@
 
 | 事件 | `data` 字段 | 说明 |
 | --- | --- | --- |
-| `start` | `conversation_id`、`thread_id` | 开始生成 |
+| `start` | `conversation_id`、`thread_id`、`resume` | 开始生成；`resume=true` 表示本次是在回答上一轮的 `ask`，从同一 thread 恢复 |
 | `delta` | `content` | 正文增量 token |
-| `tool_start` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`args` | 模型或斜杠链路发起工具/技能调用 |
-| `tool_result` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`data` | 工具/技能返回结果（对象或 `{text}`）；技能结果含 `outputs/caveats/meta` |
-| `done` | `conversation_id`、`title`、`last_message_at`、`persona`（可空，`{id,key,name,version_no}`） | 生成完成；首条消息自动取前 12 字作标题 |
+| `tool_start` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`args`、`call_id`（可空） | 模型或斜杠链路发起工具/技能调用；`ask_user` 不发送该事件 |
+| `tool_result` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`data`、`call_id`（可空） | 工具/技能返回结果（对象或 `{text}`），按 `call_id` 与调用配对；技能结果含 `outputs/caveats/meta`；`ask_user` 不发送该事件 |
+| `ask` | `question`、`options[]`、`multiple` | 本轮中途向用户提问并暂停，等回答后再继续；同期回答走 `POST .../messages` |
+| `done` | `conversation_id`、`title`、`last_message_at`、`persona`（可空，`{id,key,name,version_no}`） | 生成完成或本轮暂停等待回答；首条消息自动取前 12 字作标题 |
 | `error` | `message` | 生成失败（固定文案） |
 
 > 同一会话同时只允许一个生成；重复 `client_msg_id` 返回 409。`X-Accel-Buffering: no`、`Cache-Control: no-cache`。消息内容以 `/技能名 自由文本` 开头时走技能解析；缺参数先返回一条追问 delta 并写入历史，下一条普通文本自动合并原命令继续解析。

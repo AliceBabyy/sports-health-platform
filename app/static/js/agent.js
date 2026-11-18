@@ -6,6 +6,7 @@
   let currentId = null;
   let streaming = false;
   let lastUserText = "";
+  let activeAsk = null; // 当前唯一等待回答的卡片，主输入框也复用它作答
   const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false };
 
   const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
@@ -23,6 +24,11 @@
   const ICON_MORE =
     '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">' +
     '<circle cx="8" cy="3" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="13" r="1.3"/>' +
+    '</svg>';
+  const ICON_PERSONA =
+    '<svg class="s-persona-icon" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">' +
+    '<circle cx="8" cy="5.5" r="2.2"/>' +
+    '<path d="M3.8 13c.4-2.1 2-3.1 4.2-3.1s3.8 1 4.2 3.1"/>' +
     '</svg>';
 
   const els = {
@@ -79,6 +85,11 @@
     return conversations.find(c => c.id === currentId) || null;
   }
 
+  function conversationTitle(conv) {
+    if (!conv) return "";
+    return conv.persona_name ? conv.title + " · " + conv.persona_name : conv.title;
+  }
+
   /* ---------- 会话列表 ---------- */
   function renderSessions() {
     if (!conversations.length) {
@@ -86,10 +97,12 @@
       return;
     }
     els.sessionList.innerHTML = conversations.map(c =>
-      '<div class="session-item' + (c.id === currentId ? ' active' : '') + '" data-id="' + c.id + '">' +
+      '<div class="session-item' + (c.id === currentId ? ' active' : '') +
+        (c.kind === "persona" ? ' persona-session' : '') + '" data-id="' + c.id + '">' +
         '<span class="s-title">' + App.escapeHtml(c.title) + '</span>' +
         (c.kind === "persona" && c.persona_name
-          ? '<span class="s-persona">' + App.escapeHtml(c.persona_name) + '</span>'
+          ? '<span class="s-persona" title="角色会话 · ' + App.escapeHtml(c.persona_name) + '">' +
+            ICON_PERSONA + '<span class="s-persona-name">' + App.escapeHtml(c.persona_name) + '</span></span>'
           : '') +
         '<span class="s-actions">' +
           '<button class="s-more" data-act="menu" type="button" title="更多" aria-label="更多">' + ICON_MORE + '</button>' +
@@ -100,10 +113,8 @@
 
   /* 会话操作菜单：body 级固定定位弹层，避免被侧栏滚动容器裁剪 */
   function closeMenus() {
-    ["sessionMenu", "personaMenu"].forEach(id => {
-      const m = document.getElementById(id);
-      if (m) m.classList.remove("open");
-    });
+    const m = document.getElementById("sessionMenu");
+    if (m) m.classList.remove("open");
   }
 
   function openSessionMenu(id, anchorBtn) {
@@ -142,24 +153,14 @@
     els.chatModel.value = (conv && conv.model_name) || "";
   }
 
-  /* ---------- 消息渲染 ---------- */
-  function actionsHtml() {
+  /* ---------- 消息渲染：流式与历史共用同一套 turn 结构 ---------- */
+  function actionsHtml(withRegen = true) {
     return '<div class="msg-actions">' +
       '<button type="button" class="msg-act" data-act="copy" title="复制" aria-label="复制">' + ICON_COPY + '</button>' +
-      '<button type="button" class="msg-act" data-act="regen" title="重新生成" aria-label="重新生成">' + ICON_REGEN + '</button>' +
+      (withRegen
+        ? '<button type="button" class="msg-act" data-act="regen" title="重新生成" aria-label="重新生成">' + ICON_REGEN + '</button>'
+        : '') +
     '</div>';
-  }
-
-  function bubbleHtml(role, content, isStreaming) {
-    if (role === "assistant") {
-      return '<div class="msg-row assistant">' +
-        '<div class="msg-avatar">AI</div>' +
-        '<div class="msg-body"><div class="msg-bubble' + (isStreaming ? ' streaming' : '') + '">' +
-        '<div class="msg-text">' + renderMarkdown(content) + '</div></div>' +
-        (isStreaming ? '' : actionsHtml()) + '</div></div>';
-    }
-    return '<div class="msg-row user"><div class="msg-body"><div class="msg-bubble">' +
-      App.escapeHtml(content) + '</div></div></div>';
   }
 
   // 通用：把一段气泡 HTML 插入消息列表并返回节点（流式/历史共用）
@@ -174,33 +175,323 @@
     return node;
   }
 
-  function appendBubble(role, content, isStreaming) {
-    return appendNode(bubbleHtml(role, content, isStreaming));
-  }
-
-  // 历史 assistant 气泡：工具轨迹为“已查询”完成态，正文与明细由调用方补全
-  function historicalAssistantHtml(turn) {
-    const runs = turn.tool_runs || [];
-    const traceHtml = runs.length
-      ? '<div class="tool-trace">' + runs.map(run => {
-          const isSkill = run.data && run.data.skill;
-          const label = (run.data && run.data.name) || TOOL_LABELS[run.tool] || run.tool;
-          const prefix = isSkill ? "已运行" : (ACTION_TOOL_NAMES.has(run.tool) ? "已保存" : "已查询");
-          return '<div class="tool-line done"><span class="tool-dot"></span>' +
-            '<span class="tool-name">' + prefix + App.escapeHtml(label) + '</span></div>';
-        }).join("") + '</div>'
-      : '';
-    const textHtml = turn.assistant
-      ? '<div class="msg-text">' + renderMarkdown(turn.assistant) + '</div>'
-      : '';
-    return '<div class="msg-row assistant">' +
-      '<div class="msg-avatar">AI</div>' +
-      '<div class="msg-body"><div class="msg-bubble">' + traceHtml + textHtml + '</div>' +
-      actionsHtml() + '</div></div>';
+  function appendUserBubble(content) {
+    return appendNode('<div class="msg-row user"><div class="msg-body"><div class="msg-bubble">' +
+      App.escapeHtml(content) + '</div></div></div>');
   }
 
   function scrollBottom() {
     els.messageScroll.scrollTop = els.messageScroll.scrollHeight;
+  }
+
+  // 一条 AI 回答 = 一个 turn 对象；流式、历史恢复、重新生成、中途问答共用同一套状态
+  const ASSISTANT_SHELL =
+    '<div class="msg-row assistant">' +
+      '<div class="msg-avatar">AI</div>' +
+      '<div class="msg-body">' +
+        '<div class="msg-bubble">' +
+          '<div class="tool-trace"></div><div class="msg-blocks"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  function createTurn(node) {
+    const bubble = node.querySelector(".msg-bubble");
+    return {
+      node: node,
+      bubble: bubble,
+      trace: bubble.querySelector(".tool-trace"),
+      blocksEl: bubble.querySelector(".msg-blocks"),
+      blocks: [],
+      toolRuns: [],
+      meta: {},
+      failure: null,
+      busy: false,
+      closed: false,
+      raf: 0,
+    };
+  }
+
+  function appendAssistantTurn(streaming) {
+    const turn = createTurn(appendNode(ASSISTANT_SHELL));
+    if (streaming) turn.bubble.classList.add("streaming");
+    return turn;
+  }
+
+  function turnText(turn) {
+    return turn.blocks
+      .filter(b => b.type === "text" && b.content)
+      .map(b => b.content)
+      .join("\n\n");
+  }
+
+  // 正文按段渲染：每个 text 段一个 .msg-text，ask 段一张问答卡片
+  function textBlockNode(turn, block) {
+    if (block._node && block._node.parentNode) return block._node;
+    const el = document.createElement("div");
+    el.className = "msg-text";
+    turn.blocksEl.appendChild(el);
+    block._node = el;
+    return el;
+  }
+
+  // delta 每帧只在下一个动画帧渲染一次，避免长回答反复全量解析 Markdown
+  function appendDelta(turn, content) {
+    let last = turn.blocks[turn.blocks.length - 1];
+    if (!last || last.type !== "text") {
+      last = { type: "text", content: "" };
+      turn.blocks.push(last);
+    }
+    last.content += content;
+    if (turn.raf) return;
+    turn.raf = requestAnimationFrame(() => {
+      turn.raf = 0;
+      if (turn.closed) return;
+      textBlockNode(turn, last).innerHTML = renderMarkdown(last.content);
+      scrollBottom();
+    });
+  }
+
+  /* ---------- 中途提问卡片 ---------- */
+  function askCardNode(turn, block) {
+    const waiting = !block.answer && !!block.pending;
+    const card = document.createElement("div");
+    card.className = "ask-card" + (waiting ? " is-pending" : "");
+
+    const label = document.createElement("div");
+    label.className = "ask-label";
+    label.textContent = block.answer ? "已回复" : waiting ? "需要你回答" : "待回答";
+    card.appendChild(label);
+
+    const question = document.createElement("div");
+    question.className = "ask-question";
+    question.textContent = block.question || "";
+    card.appendChild(question);
+
+    if (block.answer) {
+      const answer = document.createElement("div");
+      answer.className = "ask-answer";
+      answer.textContent = block.answer;
+      card.appendChild(answer);
+      return card;
+    }
+    // 历史里未回答、且当前没有挂起（异常态）时只展示问题，不给输入
+    if (!waiting) return card;
+
+    const selected = [];
+    const options = block.options || [];
+    let sendBtn = null;
+    if (options.length) {
+      const row = document.createElement("div");
+      row.className = "ask-options";
+      options.forEach(opt => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ask-opt";
+        btn.textContent = opt;
+        btn.addEventListener("click", () => {
+          if (turn.busy) return;
+          if (!block.multiple) { submitAsk(turn, block, opt); return; }
+          btn.classList.toggle("active");
+          const idx = selected.indexOf(opt);
+          if (idx >= 0) selected.splice(idx, 1); else selected.push(opt);
+          if (sendBtn) sendBtn.disabled = !selected.length;
+        });
+        row.appendChild(btn);
+      });
+      card.appendChild(row);
+    }
+
+    const reply = document.createElement("div");
+    reply.className = "ask-reply";
+    const input = document.createElement("input");
+    input.className = "input ask-input";
+    input.type = "text";
+    input.placeholder = options.length ? "或直接输入回答" : "输入你的回答";
+    sendBtn = document.createElement("button");
+    sendBtn.type = "button";
+    sendBtn.className = "btn btn-primary ask-send";
+    sendBtn.textContent = "发送";
+    if (block.multiple) sendBtn.disabled = true;
+
+    const submit = () => {
+      if (turn.busy) return;
+      let text = "";
+      if (block.multiple && selected.length) text = selected.join("、");
+      else if (input.value.trim()) text = input.value.trim();
+      if (!text) return;
+      submitAsk(turn, block, text);
+    };
+    sendBtn.addEventListener("click", submit);
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); submit(); }
+    });
+    reply.appendChild(input);
+    reply.appendChild(sendBtn);
+    card.appendChild(reply);
+    return card;
+  }
+
+  function renderAskCard(turn, block) {
+    const card = askCardNode(turn, block);
+    if (block._node && block._node.parentNode) block._node.replaceWith(card);
+    else turn.blocksEl.appendChild(card);
+    block._node = card;
+    if (!block.answer && block.pending) activeAsk = { turn, block };
+    else if (activeAsk && activeAsk.block === block) activeAsk = null;
+    scrollBottom();
+  }
+
+  function appendAskBlock(turn, data) {
+    const block = {
+      type: "ask",
+      question: data.question || "",
+      options: data.options || [],
+      multiple: !!data.multiple,
+      answer: null,
+      pending: true,
+    };
+    turn.blocks.push(block);
+    renderAskCard(turn, block);
+  }
+
+  // 作答就是下一条消息：后端检测到挂起的 ask_user 会用答案恢复同一轮
+  async function submitAsk(turn, block, answer) {
+    if (streaming || turn.busy) return;
+    const conv = current();
+    if (!conv) return;
+    const text = String(answer || "").trim();
+    if (!text) return;
+
+    turn.busy = true;
+    turn.closed = false;
+    turn.bubble.classList.add("streaming");
+    block.answer = text;
+    block.pending = false;
+    renderAskCard(turn, block);
+    setStreamingUI(true);
+
+    const payload = { content: text, client_msg_id: newClientMsgId() };
+    if (els.chatModel.value) payload.model_name = els.chatModel.value;
+    await runStream("/api/agent/conversations/" + conv.id + "/messages", payload, turn);
+    setStreamingUI(false);
+    turn.busy = false;
+
+    if (turn.failure) {
+      App.toast(turn.failure, true);
+      turn.bubble.classList.remove("streaming");
+      block.answer = null;
+      block.pending = true;
+      renderAskCard(turn, block);
+      turn.failure = null;
+      return;
+    }
+    finalizeTurn(turn);
+    if (turn.meta.title) conv.title = turn.meta.title;
+    if (turn.meta.last_message_at) conv.last_message_at = turn.meta.last_message_at;
+    els.chatTitle.textContent = conversationTitle(conv);
+    renderSessions();
+  }
+
+  function traceLine(kind, label, done) {
+    const line = document.createElement("div");
+    line.className = "tool-line " + (done ? "done" : "loading");
+    line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
+    line.querySelector(".tool-name").textContent =
+      (done ? toolEgressLabel(kind) : toolIngressLabel(kind)) + label + (done ? "" : "…");
+    return line;
+  }
+
+  function startToolRun(turn, data) {
+    const run = {
+      tool: data.tool,
+      label: data.label || data.tool,
+      kind: data.kind || "base",
+      call_id: data.call_id || null,
+      args: data.args || {},
+      data: null,
+    };
+    run.line = traceLine(run.kind, run.label, false);
+    turn.trace.appendChild(run.line);
+    turn.toolRuns.push(run);
+    scrollBottom();
+  }
+
+  // 结果优先按 call_id 配对，缺失时回退到第一个未回填的 run
+  function finishToolRun(turn, data) {
+    let run = null;
+    if (data.call_id) {
+      run = turn.toolRuns.find(r => r.call_id === data.call_id && r.data === null);
+    }
+    if (!run) run = turn.toolRuns.find(r => r.data === null);
+    if (!run) return;
+    run.data = data.data;
+    if (!run.line) {
+      run.line = traceLine(run.kind, run.label, false);
+      turn.trace.appendChild(run.line);
+    }
+    run.line.classList.remove("loading");
+    run.line.classList.add("done");
+    run.line.querySelector(".tool-name").textContent = toolEgressLabel(run.kind) + run.label;
+    scrollBottom();
+  }
+
+  function applyEvent(turn, evt) {
+    const d = evt.data || {};
+    if (evt.event === "tool_start") startToolRun(turn, d);
+    else if (evt.event === "tool_result") finishToolRun(turn, d);
+    else if (evt.event === "delta") appendDelta(turn, d.content || "");
+    else if (evt.event === "ask") appendAskBlock(turn, d);
+    else if (evt.event === "done") turn.meta = d;
+    else if (evt.event === "error") turn.failure = d.message || "生成失败";
+  }
+
+  // 历史恢复：服务端已给出有序正文段（含 ask）与工具轨迹，直接灌进同一 turn 结构
+  function hydrateTurn(turn, item) {
+    turn.blocks = (item.blocks || [])
+      .filter(b => b && (b.type === "ask" || (b.type === "text" && b.content)))
+      .map(b => ({ ...b }));
+    (item.tool_runs || []).forEach(run => {
+      turn.toolRuns.push({
+        tool: run.tool,
+        label: run.label || run.tool,
+        kind: run.kind || "base",
+        call_id: run.call_id || null,
+        args: run.args || {},
+        data: run.data,
+        line: null,
+      });
+    });
+  }
+
+  // 收口：按段重建正文与问答卡片、补完成态工具行、挂明细与操作按钮
+  function finalizeTurn(turn) {
+    if (turn.raf) { cancelAnimationFrame(turn.raf); turn.raf = 0; }
+    turn.node.querySelectorAll(".tool-detail").forEach(node => node.remove());
+    const oldActions = turn.node.querySelector(".msg-actions");
+    if (oldActions) oldActions.remove();
+    turn.blocksEl.innerHTML = "";
+    turn.blocks.forEach(block => {
+      block._node = null;
+      if (block.type === "ask") renderAskCard(turn, block);
+      else if (block.content) {
+        textBlockNode(turn, block).innerHTML = renderMarkdown(block.content);
+      }
+    });
+    turn.toolRuns.forEach(run => {
+      if (!run.line) {
+        run.line = traceLine(run.kind, run.label, true);
+        turn.trace.appendChild(run.line);
+      }
+      const detail = renderToolDetail(run);
+      if (detail) turn.bubble.appendChild(detail);
+    });
+    const text = turnText(turn);
+    turn.node.dataset.raw = text;
+    turn.bubble.classList.remove("streaming");
+    const waiting = turn.blocks.some(b => b.type === "ask" && b.pending && !b.answer);
+    turn.node.querySelector(".msg-body").insertAdjacentHTML("beforeend", actionsHtml(!waiting));
+    turn.closed = true;
   }
 
   async function loadMessages(conv) {
@@ -218,17 +509,13 @@
         return;
       }
       els.messageList.innerHTML = "";
-      turns.forEach(turn => {
-        if (turn.user != null) appendNode(bubbleHtml("user", turn.user, false));
-        if (turn.assistant != null || (turn.tool_runs || []).length) {
-          const aiNode = appendNode(historicalAssistantHtml(turn));
-          const bubble = aiNode.querySelector(".msg-bubble");
-          (turn.tool_runs || []).forEach(run => {
-            const label = (run.data && run.data.name) || TOOL_LABELS[run.tool] || run.tool;
-            const detail = renderToolDetail({ tool: run.tool, label, data: run.data });
-            if (detail) bubble.appendChild(detail);
-          });
-          aiNode.dataset.raw = turn.assistant || "";
+      activeAsk = null;
+      turns.forEach(item => {
+        if (item.user != null) appendUserBubble(item.user);
+        if ((item.blocks || []).length || (item.tool_runs || []).length) {
+          const turn = appendAssistantTurn();
+          hydrateTurn(turn, item);
+          finalizeTurn(turn);
         }
       });
       syncWelcome(false);
@@ -243,9 +530,7 @@
     closeSkillSuggest();
     currentId = id;
     const conv = current();
-    els.chatTitle.textContent = conv
-      ? (conv.persona_name ? conv.title + " · " + conv.persona_name : conv.title)
-      : "";
+    els.chatTitle.textContent = conversationTitle(conv);
     syncModelSelect(conv);
     renderSessions();
     await loadMessages(conv);
@@ -289,36 +574,23 @@
     }
   }
 
-  /* 角色选择弹层：与「新建会话」并排，创建后整个会话固定该角色，不可切换 */
-  function openPersonaMenu(anchorBtn) {
+  /* 角色选择弹窗：选好后创建角色会话，整段会话固定该角色，不可切换 */
+  function openPersonaModal() {
     if (streaming) return;
     if (!personas.length) { App.toast("暂无可用角色"); return; }
-    closeMenus();
-    let menu = document.getElementById("personaMenu");
-    if (!menu) {
-      menu = document.createElement("div");
-      menu.id = "personaMenu";
-      menu.className = "s-menu";
-      document.body.appendChild(menu);
-      menu.addEventListener("click", e => {
-        const b = e.target.closest("button");
-        if (!b) return;
-        closeMenus();
-        newPersonaChat(Number(b.dataset.personaId));
-      });
-    }
-    menu.innerHTML = personas.map(p =>
-      '<button type="button" data-persona-id="' + p.id + '">' +
-        App.escapeHtml(p.name) +
-        (p.scope === "system" ? '<span class="s-menu-tag">内置</span>' : '') +
+    const list = document.getElementById("personaPickList");
+    list.innerHTML = personas.map(p =>
+      '<button type="button" class="persona-pick" data-persona-id="' + p.id + '">' +
+        '<span class="p-head">' +
+          '<span class="p-name">' + App.escapeHtml(p.name) + '</span>' +
+          '<span class="p-tag">' + (p.scope === "system" ? '内置' : '我的角色') + '</span>' +
+        '</span>' +
+        (p.description
+          ? '<span class="p-desc">' + App.escapeHtml(p.description) + '</span>'
+          : '') +
       '</button>'
     ).join("");
-    const r = anchorBtn.getBoundingClientRect();
-    menu.classList.add("open");
-    menu.style.right = "auto";
-    menu.style.left = r.left + "px";
-    menu.style.bottom = "auto";
-    menu.style.top = Math.min(r.bottom + 4, window.innerHeight - 12 - personas.length * 34) + "px";
+    App.openModal("personaModal");
   }
 
   function startRename(id) {
@@ -345,7 +617,7 @@
             body: { title: val },
           });
           conv.title = updated.title;
-          if (currentId === id) els.chatTitle.textContent = conv.title;
+          if (currentId === id) els.chatTitle.textContent = conversationTitle(conv);
         } catch (err) {
           App.toast(err.message, true);
         }
@@ -375,7 +647,7 @@
       if (currentId === id) {
         currentId = conversations.length ? conversations[0].id : null;
         const c = current();
-        els.chatTitle.textContent = c ? c.title : "";
+        els.chatTitle.textContent = conversationTitle(c);
         syncModelSelect(c);
         await loadMessages(c);
       }
@@ -465,30 +737,14 @@
   }
 
   /* ---------- 工具状态与明细 ---------- */
-  const TOOL_LABELS = {
-    get_workout_summary: "运动汇总",
-    get_fitness_records: "健身记录",
-    get_swim_records: "游泳记录",
-    get_dance_records: "舞蹈记录",
-    get_body_measurements: "身材数据",
-    get_state_records: "状态记录",
-    get_cycle_records: "生理周期",
-    get_profile_info: "个人资料",
-    save_today_workout_plan: "保存今日计划",
+  // 工具名与展示标签一律由服务端 tool_start / tool_result 下发；前端只保留类别到文案的映射
+  const KIND_TEXT = {
+    base: ["正在查询", "已查询"],
+    action: ["正在保存", "已保存"],
+    skill: ["正在运行", "已运行"],
   };
-
-  // 工具进行中/完成时的状态文案，按 kind 区分：查询（base）、运行（skill）、保存（action）
-  function toolIngressLabel(kind) {
-    if (kind === "skill") return "正在运行";
-    if (kind === "action") return "正在保存";
-    return "正在查询";
-  }
-  function toolEgressLabel(kind) {
-    if (kind === "skill") return "已运行";
-    if (kind === "action") return "已保存";
-    return "已查询";
-  }
-  const ACTION_TOOL_NAMES = new Set(["save_today_workout_plan"]);
+  function toolIngressLabel(kind) { return (KIND_TEXT[kind] || KIND_TEXT.base)[0]; }
+  function toolEgressLabel(kind) { return (KIND_TEXT[kind] || KIND_TEXT.base)[1]; }
 
   // 明细只做展示：全量结果可能很长，表格最多铺 50 行，其余交给正文结论
   const MAX_DETAIL_ROWS = 50;
@@ -688,11 +944,39 @@
     els.btnNewPersona.disabled = on;
   }
 
+  // 发送与重新生成共用：请求 → SSE 逐帧喂给同一个 turn，失败只记录不抛给页面
+  async function runStream(path, payload, turn) {
+    turn.failure = null;
+    try {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok || !res.body) {
+        let msg = "请求失败（" + res.status + "）";
+        try { const j = await res.json(); if (j.error) msg = j.error; } catch (e) { /* 非 JSON */ }
+        throw new Error(msg);
+      }
+      await consumeSse(res, evt => applyEvent(turn, evt));
+    } catch (err) {
+      turn.failure = err.message || "生成失败";
+    }
+  }
+
   async function send() {
     if (streaming) return;
     const text = els.chatInput.value.trim();
     if (!text) return;
     closeSkillSuggest();
+
+    // 上一轮还在等回答：主输入框直接作为答案，不新开一轮
+    if (activeAsk) {
+      els.chatInput.value = "";
+      autoGrow();
+      submitAsk(activeAsk.turn, activeAsk.block, text);
+      return;
+    }
 
     let conv;
     try {
@@ -704,89 +988,32 @@
 
     lastUserText = text;
     syncWelcome(false);
-    const userNode = appendBubble("user", text);
-    const aiNode = appendBubble("assistant", "", true);
-    const aiBubble = aiNode.querySelector(".msg-bubble");
-    aiBubble.innerHTML = '<div class="tool-trace"></div><div class="msg-text"></div>';
-    const toolTrace = aiBubble.querySelector(".tool-trace");
-    const textEl = aiBubble.querySelector(".msg-text");
-    const toolRuns = [];
+    const userNode = appendUserBubble(text);
+    const turn = appendAssistantTurn(true);
     els.chatInput.value = "";
     autoGrow();
     setStreamingUI(true);
 
-    const payload = {
-      content: text,
-      client_msg_id: newClientMsgId(),
-    };
+    const payload = { content: text, client_msg_id: newClientMsgId() };
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
-    let failure = null;
-    let acc = "";
-    try {
-      const res = await fetch("/api/agent/conversations/" + conv.id + "/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok || !res.body) throw new Error("请求失败（" + res.status + "）");
-
-      await consumeSse(res, evt => {
-        if (evt.event === "tool_start") {
-          const label = evt.data.label || TOOL_LABELS[evt.data.tool] || evt.data.tool;
-          const line = document.createElement("div");
-          line.className = "tool-line loading";
-          line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
-          line.querySelector(".tool-name").textContent = toolIngressLabel(evt.data.kind) + label + "…";
-          toolTrace.appendChild(line);
-          toolRuns.push({ tool: evt.data.tool, label, line, data: null, kind: evt.data.kind || "base" });
-          scrollBottom();
-        } else if (evt.event === "tool_result") {
-          const run = toolRuns.find(r => r.data === null);
-          if (run) {
-            run.data = evt.data.data;
-            run.line.classList.remove("loading");
-            run.line.classList.add("done");
-            const prefix = toolEgressLabel(run.kind);
-            run.line.querySelector(".tool-name").textContent = prefix + run.label;
-          }
-          scrollBottom();
-        } else if (evt.event === "delta") {
-          acc += evt.data.content;
-          textEl.innerHTML = renderMarkdown(acc);
-          scrollBottom();
-        } else if (evt.event === "error") {
-          failure = evt.data.message || "生成失败";
-        } else if (evt.event === "done") {
-          if (evt.data.title) conv.title = evt.data.title;
-          conv.last_message_at = evt.data.last_message_at;
-        }
-      });
-    } catch (err) {
-      failure = err.message;
-    }
-
-    aiBubble.classList.remove("streaming");
+    await runStream("/api/agent/conversations/" + conv.id + "/messages", payload, turn);
     setStreamingUI(false);
 
-    if (failure) {
+    if (turn.failure) {
       userNode.remove();
-      aiNode.remove();
+      turn.node.remove();
       if (!els.messageList.children.length) syncWelcome(true);
       els.chatInput.value = lastUserText;
       autoGrow();
-      App.toast(failure, true);
-    } else {
-      if (!acc) textEl.remove();
-      toolRuns.forEach(run => {
-        const detail = renderToolDetail(run);
-        if (detail) aiBubble.appendChild(detail);
-      });
-      aiNode.dataset.raw = acc;
-      aiNode.querySelector(".msg-body").insertAdjacentHTML("beforeend", actionsHtml());
-      els.chatTitle.textContent = conv.title;
-      renderSessions();
+      App.toast(turn.failure, true);
+      return;
     }
+    finalizeTurn(turn);
+    if (turn.meta.title) conv.title = turn.meta.title;
+    if (turn.meta.last_message_at) conv.last_message_at = turn.meta.last_message_at;
+    els.chatTitle.textContent = conversationTitle(conv);
+    renderSessions();
   }
 
   /* ---------- 重新生成：回滚上一轮后用同一原文重放，流式覆盖本次回答 ---------- */
@@ -797,84 +1024,30 @@
     const allAi = els.messageList.querySelectorAll(".msg-row.assistant");
     if (allAi[allAi.length - 1] !== aiNode) { App.toast("只能重新生成最近一次回答"); return; }
 
-    const bubble = aiNode.querySelector(".msg-bubble");
     const oldActions = aiNode.querySelector(".msg-actions");
     if (oldActions) oldActions.remove();
+    const bubble = aiNode.querySelector(".msg-bubble");
+    bubble.innerHTML = '<div class="tool-trace"></div><div class="msg-blocks"></div>';
     bubble.classList.add("streaming");
-    bubble.innerHTML = '<div class="tool-trace"></div><div class="msg-text"></div>';
-    const toolTrace = bubble.querySelector(".tool-trace");
-    const textEl = bubble.querySelector(".msg-text");
-    const toolRuns = [];
+    const turn = createTurn(aiNode);
     setStreamingUI(true);
 
-    let failure = null;
-    let acc = "";
-    try {
-      const payload = { client_msg_id: newClientMsgId() };
-      if (els.chatModel.value) payload.model_name = els.chatModel.value;
+    const payload = { client_msg_id: newClientMsgId() };
+    if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
-      const res = await fetch("/api/agent/conversations/" + conv.id + "/messages/regenerate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok || !res.body) {
-        let msg = "请求失败（" + res.status + "）";
-        try { const j = await res.json(); if (j.error) msg = j.error; } catch (e) { /* 非 JSON */ }
-        throw new Error(msg);
-      }
-      await consumeSse(res, evt => {
-        if (evt.event === "tool_start") {
-          const label = evt.data.label || TOOL_LABELS[evt.data.tool] || evt.data.tool;
-          const line = document.createElement("div");
-          line.className = "tool-line loading";
-          line.innerHTML = '<span class="tool-dot"></span><span class="tool-name"></span>';
-          line.querySelector(".tool-name").textContent = toolIngressLabel(evt.data.kind) + label + "…";
-          toolTrace.appendChild(line);
-          toolRuns.push({ tool: evt.data.tool, label, line, data: null, kind: evt.data.kind || "base" });
-          scrollBottom();
-        } else if (evt.event === "tool_result") {
-          const run = toolRuns.find(r => r.data === null);
-          if (run) {
-            run.data = evt.data.data;
-            run.line.classList.remove("loading");
-            run.line.classList.add("done");
-            const prefix = toolEgressLabel(run.kind);
-            run.line.querySelector(".tool-name").textContent = prefix + run.label;
-          }
-          scrollBottom();
-        } else if (evt.event === "delta") {
-          acc += evt.data.content;
-          textEl.innerHTML = renderMarkdown(acc);
-          scrollBottom();
-        } else if (evt.event === "error") {
-          failure = evt.data.message || "生成失败";
-        } else if (evt.event === "done") {
-          if (evt.data.title) conv.title = evt.data.title;
-          conv.last_message_at = evt.data.last_message_at;
-        }
-      });
-    } catch (err) {
-      failure = err.message;
-    }
-
-    bubble.classList.remove("streaming");
+    await runStream("/api/agent/conversations/" + conv.id + "/messages/regenerate", payload, turn);
     setStreamingUI(false);
 
-    if (failure) {
-      App.toast(failure, true);
+    if (turn.failure) {
+      App.toast(turn.failure, true);
       // 后端已回滚上一轮，前端按持久化状态重拉对齐，避免新旧回答混杂
       await loadMessages(conv);
       return;
     }
-    if (!acc) textEl.remove();
-    toolRuns.forEach(run => {
-      const detail = renderToolDetail(run);
-      if (detail) aiNode.querySelector(".msg-bubble").appendChild(detail);
-    });
-    aiNode.dataset.raw = acc;
-    aiNode.querySelector(".msg-body").insertAdjacentHTML("beforeend", actionsHtml());
-    els.chatTitle.textContent = conv.title;
+    finalizeTurn(turn);
+    if (turn.meta.title) conv.title = turn.meta.title;
+    if (turn.meta.last_message_at) conv.last_message_at = turn.meta.last_message_at;
+    els.chatTitle.textContent = conversationTitle(conv);
     renderSessions();
   }
 
@@ -1030,7 +1203,16 @@
     loadSkillOptions();
 
     els.btnNewChat.addEventListener("click", newChat);
-    els.btnNewPersona.addEventListener("click", () => openPersonaMenu(els.btnNewPersona));
+    els.btnNewPersona.addEventListener("click", openPersonaModal);
+    document.querySelectorAll("#personaModal [data-close]").forEach(btn => {
+      btn.addEventListener("click", () => App.closeModal(btn.dataset.close));
+    });
+    document.getElementById("personaPickList").addEventListener("click", e => {
+      const btn = e.target.closest(".persona-pick");
+      if (!btn) return;
+      App.closeModal("personaModal");
+      newPersonaChat(Number(btn.dataset.personaId));
+    });
     els.btnToggleSessions.addEventListener("click", () => {
       const collapsed = els.workbench.classList.contains("sessions-collapsed");
       localStorage.setItem(SIDEBAR_KEY, collapsed ? "0" : "1");

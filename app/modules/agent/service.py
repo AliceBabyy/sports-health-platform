@@ -12,6 +12,7 @@ from datetime import date, datetime
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
+from langgraph.types import Command
 from sqlalchemy.orm import Session
 
 from app.ai.models.registry import MODELS
@@ -32,6 +33,7 @@ from app.modules.agent.personas.runtime import (
 )
 from app.modules.agent.runtime import graph_for_user
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
+from app.modules.agent.tools.interaction import ASK_TOOL_NAME
 from app.modules.agent.skills.management import resolved_from_version
 from app.modules.agent.skills.parser import build_question, parse_skill_args
 from app.modules.agent.skills.pending import PendingSkill, pending_store
@@ -124,7 +126,8 @@ def rename_conversation(db: Session, user_id: int, conversation_id: int, title: 
     row.title = title.strip()
     db.commit()
     db.refresh(row)
-    return conversation_to_dict(row)
+    persona = db.get(AgentPersona, row.persona_id) if row.persona_id else None
+    return conversation_to_dict(row, persona)
 
 
 async def delete_conversation(db: Session, user_id: int, conversation_id: int, runtime: dict) -> None:
@@ -138,51 +141,99 @@ async def delete_conversation(db: Session, user_id: int, conversation_id: int, r
     db.commit()
 
 
-async def get_messages(db: Session, user_id: int, conversation_id: int, runtime: dict) -> dict:
-    """按一轮问答（turn）聚合历史，工具调用轨迹随最终回答一起返回。
+def _message_text(content) -> str:
+    """AI 消息正文可能是字符串或多段内容块，统一取文本部分。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text") or ""))
+        return "".join(parts)
+    return ""
 
-    checkpointer 完整存着 HumanMessage、带 tool_calls 的中转 AIMessage、ToolMessage 与
-    最终 AIMessage；这里不再扁平过滤，而是把同一轮的工具调用与结果归并到对应 turn，
-    供前端重建“工具状态 + 明细折叠”，与当次流式视图保持一致。
+
+def _ask_answer(content) -> str | None:
+    """ask_user 工具返回结构化答案；空答案（用户跳过）视为未回答。"""
+    data = _normalize_tool_content(content)
+    if not isinstance(data, dict):
+        return None
+    text = str(data.get("answer") or "").strip()
+    return text or None
+
+
+def build_turns(
+    messages,
+    skills: list[ResolvedSkill],
+    pending_ask: dict | None = None,
+) -> list[dict]:
+    """把 checkpointer 消息按一轮问答聚合成前端可直接渲染的结构。
+
+    - `blocks` 保留同一轮内所有正文段（含带 tool_calls 的中转消息正文），按出现顺序
+      排列；中途提问以 `{type:"ask"}` 段插在同一位置，答案随 ToolMessage 回填。
+    - `tool_runs` 携带工具名、展示标签与类别，按 `call_id` 精确配对工具结果；早期没有
+      ToolMessage 的历史数据结果为空，只显示“已查询”。
+    - `pending_ask` 来自图状态里的 interrupt，表示这一轮正停在一个等待回答的问题上。
     """
-    row = get_conversation(db, user_id, conversation_id)
-    persona = resolve_for_conversation(db, row, user_id)
-    config = {"configurable": {"thread_id": str(row.thread_id)}}
-    state = await graph_for_user(db, user_id, runtime, persona).aget_state(config)
-
     turns: list[dict] = []
     turn: dict | None = None
-    for m in state.values.get("messages", []):
+    ask_index: dict[str, dict] = {}
+    for m in messages:
         if m.type == "human":
-            # 旧版本遗留：工具调用后会重插一条相同 human（且无对应 ToolMessage）。
-            # 当前 turn 尚未产生最终回答且内容相同时合并，避免同一问题被拆成两个 turn。
-            if turn is not None and turn["assistant"] is None and turn["user"] == m.content:
+            # 旧版本遗留：工具调用后会重插一条相同 human（且此前没有产生任何正文）。
+            # 内容相同时并入当前轮，避免同一问题被拆成两轮。
+            if (turn is not None and not turn["blocks"] and turn["user"] == m.content):
                 continue
-            turn = {"user": m.content, "assistant": None, "tool_runs": []}
+            turn = {"user": m.content, "blocks": [], "tool_runs": []}
+            ask_index = {}
             turns.append(turn)
         elif turn is None:
             # 没有以用户消息开头的残缺序列，兜底跳过
             continue
         elif m.type == "ai":
-            if getattr(m, "tool_calls", None):
-                # 工具调用动作：登记 run，等待 ToolMessage 按 tool_call_id 回填
-                for tc in m.tool_calls:
-                    turn["tool_runs"].append({
-                        "tool": tc["name"],
-                        "args": tc.get("args", {}),
-                        "data": None,
-                        "tool_call_id": tc.get("id"),
-                    })
-            else:
-                turn["assistant"] = m.content
+            text = _message_text(m.content)
+            if text.strip():
+                turn["blocks"].append({"type": "text", "content": text})
+            # 工具调用动作：登记 run，等待 ToolMessage 按 call_id 回填
+            for tc in getattr(m, "tool_calls", None) or []:
+                if tc.get("name") == ASK_TOOL_NAME:
+                    args = tc.get("args") or {}
+                    block = {
+                        "type": "ask",
+                        "question": str(args.get("question") or "").strip(),
+                        "options": [str(o).strip() for o in (args.get("options") or []) if str(o).strip()][:4],
+                        "multiple": bool(args.get("multiple")),
+                        "answer": None,
+                        "call_id": tc.get("id"),
+                    }
+                    turn["blocks"].append(block)
+                    if tc.get("id"):
+                        ask_index[tc["id"]] = block
+                    continue
+                meta = _tool_meta(tc["name"], skills)
+                turn["tool_runs"].append({
+                    "tool": meta["tool"],
+                    "label": meta["label"],
+                    "kind": meta["kind"],
+                    "args": _safe_args(tc.get("args") or {}),
+                    "data": None,
+                    "call_id": tc.get("id"),
+                })
         elif m.type == "tool":
+            call_id = getattr(m, "tool_call_id", None)
+            ask_block = ask_index.get(call_id) if call_id else None
+            if ask_block is not None:
+                ask_block["answer"] = _ask_answer(m.content)
+                continue
             data = _normalize_tool_content(m.content)
-            tcid = getattr(m, "tool_call_id", None)
             target = None
-            if tcid is not None:
+            if call_id is not None:
                 target = next(
                     (r for r in turn["tool_runs"]
-                     if r["tool_call_id"] == tcid and r["data"] is None),
+                     if r["call_id"] == call_id and r["data"] is None),
                     None,
                 )
             if target is None:
@@ -191,26 +242,57 @@ async def get_messages(db: Session, user_id: int, conversation_id: int, runtime:
             if target is not None:
                 target["data"] = data
                 if getattr(m, "name", None):
-                    target["tool"] = m.name
+                    meta = _tool_meta(m.name, skills)
+                    target["tool"] = meta["tool"]
+                    target["label"] = meta["label"]
+                    target["kind"] = meta["kind"]
             else:
                 # 找不到对应调用的异常态，仍保留结果，避免工具数据丢失
+                meta = _tool_meta(getattr(m, "name", None) or "unknown", skills)
                 turn["tool_runs"].append({
-                    "tool": getattr(m, "name", "unknown"),
+                    "tool": meta["tool"],
+                    "label": meta["label"],
+                    "kind": meta["kind"],
                     "args": {},
                     "data": data,
-                    "tool_call_id": tcid,
+                    "call_id": call_id,
                 })
 
-    result = []
-    for t in turns:
-        # 内部匹配字段 tool_call_id 不对外暴露
-        runs = [
-            {"tool": r["tool"], "args": r["args"], "data": r["data"]}
-            for r in t["tool_runs"]
-        ]
-        if t["user"] is not None or t["assistant"] is not None or runs:
-            result.append({"user": t["user"], "assistant": t["assistant"], "tool_runs": runs})
-    return {"conversation_id": row.id, "turns": result}
+    if pending_ask:
+        # 只可能有一个问题处于等待态：标记最后一条未回答的 ask 段
+        for t in turns:
+            block = next(
+                (b for b in reversed(t["blocks"])
+                 if b["type"] == "ask" and b["answer"] is None),
+                None,
+            )
+            if block is not None:
+                block["pending"] = True
+                break
+
+    return [t for t in turns
+            if t["user"] is not None or t["blocks"] or t["tool_runs"]]
+
+
+async def get_messages(db: Session, user_id: int, conversation_id: int, runtime: dict) -> dict:
+    """按一轮问答（turn）聚合历史，正文段、中途提问与工具轨迹一并返回。
+
+    checkpointer 完整存着 HumanMessage、带 tool_calls 的中转 AIMessage、ToolMessage 与
+    最终 AIMessage；这里把同一轮的正文按出现顺序收进 `blocks`（含 ask 段），工具调用
+    与结果归并进 `tool_runs`，供前端用与流式一致的渲染器重建视图。
+    """
+    row = get_conversation(db, user_id, conversation_id)
+    persona = resolve_for_conversation(db, row, user_id)
+    config = {"configurable": {"thread_id": str(row.thread_id)}}
+    graph = graph_for_user(db, user_id, runtime, persona)
+    state = await graph.aget_state(config)
+    skills = available_skills(db, user_id, persona.key if persona is not None else None)
+    return {
+        "conversation_id": row.id,
+        "turns": build_turns(
+            state.values.get("messages", []), skills, pending_ask=_pending_ask(state),
+        ),
+    }
 
 
 def _sse(event: str, data: dict) -> str:
@@ -263,6 +345,10 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
     config = {"configurable": {"thread_id": thread_id}}
     state = await graph_for_user(db, user_id, runtime, persona).aget_state(config)
     msgs = state.values.get("messages", [])
+
+    if _pending_ask(state):
+        await _release_slot(thread_id, payload.client_msg_id)
+        raise AppError(409, "当前有等待回答的问题，请先回答或跳过")
 
     human_idx = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].type == "human"), None)
     if human_idx is None:
@@ -367,6 +453,15 @@ def _pending_skill(db: Session, pending: PendingSkill, user_id: int) -> Resolved
     return resolved_from_version(row, version) if version else None
 
 
+def _pending_ask(state) -> dict | None:
+    """从图状态里取出等待回答的提问；没有挂起的 interrupt 时返回 None。"""
+    for item in getattr(state, "interrupts", ()) or ():
+        value = getattr(item, "value", None)
+        if isinstance(value, dict) and value.get("question"):
+            return value
+    return None
+
+
 async def _stream_graph(graph, stream_input, config, skills: list[ResolvedSkill]):
     async for mode, data in graph.astream(
         stream_input,
@@ -379,15 +474,38 @@ async def _stream_graph(graph, stream_input, config, skills: list[ResolvedSkill]
                 yield _sse("delta", {"content": message_chunk.content})
         elif mode == "updates":
             for node, update in data.items():
+                if node == "__interrupt__":
+                    for item in update:
+                        value = getattr(item, "value", None)
+                        if isinstance(value, dict) and value.get("question"):
+                            yield _sse("ask", {
+                                "question": value.get("question", ""),
+                                "options": value.get("options") or [],
+                                "multiple": bool(value.get("multiple")),
+                            })
+                    continue
+                if not isinstance(update, dict):
+                    continue
                 for msg in update.get("messages", []):
                     if node == "agent" and getattr(msg, "tool_calls", None):
                         for tc in msg.tool_calls:
+                            if tc["name"] == ASK_TOOL_NAME:
+                                continue
                             meta = _tool_meta(tc["name"], skills)
-                            yield _sse("tool_start", {**meta, "args": tc["args"]})
+                            yield _sse("tool_start", {
+                                **meta, "args": tc["args"], "call_id": tc.get("id"),
+                            })
                     elif node == "tools":
                         name = getattr(msg, "name", None)
+                        if name == ASK_TOOL_NAME:
+                            # 提问的答案由 ask 段承载，不再作为工具行展示
+                            continue
                         meta = _tool_meta(name, skills)
-                        yield _sse("tool_result", {**meta, "data": _normalize_tool_content(msg.content)})
+                        yield _sse("tool_result", {
+                            **meta,
+                            "data": _normalize_tool_content(msg.content),
+                            "call_id": getattr(msg, "tool_call_id", None),
+                        })
 
 
 async def _persist(graph, config, human: str, assistant: str) -> None:
@@ -398,10 +516,10 @@ async def _persist(graph, config, human: str, assistant: str) -> None:
     )
 
 
-def _finish(db: Session, row: AgentConversation, content: str, persona) -> str:
+def _finish(db: Session, row: AgentConversation, content: str | None, persona) -> str:
     now = datetime.now()
     row.last_message_at = now
-    if row.title == DEFAULT_TITLE:
+    if content and row.title == DEFAULT_TITLE:
         row.title = content.strip()[:AUTO_TITLE_LEN] or DEFAULT_TITLE
     db.commit()
     return _sse("done", {
@@ -432,8 +550,30 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
     content = human_content or payload.content
     today = date.today()
 
-    yield _sse("start", {"conversation_id": row.id, "thread_id": thread_id})
     try:
+        # 上一轮停在 ask_user 等待回答时，本条消息即答案：用 Command(resume) 从同一
+        # thread 继续，不新增 HumanMessage，问答都留在原来那一轮里。
+        pending_ask = None
+        if not replay:
+            state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+            pending_ask = _pending_ask(state)
+
+        yield _sse("start", {
+            "conversation_id": row.id,
+            "thread_id": thread_id,
+            "resume": pending_ask is not None,
+        })
+
+        if pending_ask is not None:
+            pending_store.clear(row.id)
+            config = {**base_config, "configurable": {
+                **base_config["configurable"], "skill_trigger": "answer",
+            }}
+            async for event in _stream_graph(graph, Command(resume=content), config, skills):
+                yield event
+            yield _finish(db, row, None, persona)
+            return
+
         if replay:
             config = {**base_config, "configurable": {**base_config["configurable"], "skill_trigger": "model"}}
             async for event in _stream_graph(graph, {"messages": []}, config, skills):

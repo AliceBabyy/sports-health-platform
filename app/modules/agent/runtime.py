@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.agent.graph import build_graph, default_capabilities
 from app.modules.agent.skills.registry import ResolvedSkill, available_skills, skill_capabilities
-from app.modules.agent.tools import ALL_TOOLS
+from app.modules.agent.tools import ALL_TOOLS, ask_user
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
 from app.modules.agent.tools.policy import persona_graph_fingerprint, tools_for_persona
 from app.modules.agent.tools.skill_definitions import build_skill_tool
@@ -43,6 +43,7 @@ def _capabilities(skills: list[ResolvedSkill], tools=None) -> str:
 def build_user_graph(saver, skills: list[ResolvedSkill], persona=None):
     tools = [
         *ALL_TOOLS,
+        ask_user,
         *ACTION_TOOLS,
         *(build_skill_tool(skill) for skill in skills),
     ]

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}AI 助手 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261117b">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261118d">{% endblock %}
 {% block content %}
 <div class="agent-workbench" id="agentWorkbench">
   <!-- 会话列表 -->
@@ -17,7 +17,7 @@
           <circle cx="8" cy="5" r="2.2" stroke="currentColor" stroke-width="1.3" fill="none"/>
           <path d="M3.6 13c.4-2.3 2.1-3.4 4.4-3.4s4 1.1 4.4 3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/>
         </svg>
-        新建角色对话
+        新建角色会话
       </button>
     </div>
     <div class="session-list" id="sessionList"></div>
@@ -68,6 +68,18 @@
     </div>
   </section>
 </div>
+
+<!-- 角色选择弹窗：角色在创建时固定，整个会话内不可切换 -->
+<div class="modal-mask" id="personaModal">
+  <div class="modal persona-modal">
+    <div class="modal-title">选择角色</div>
+    <div class="modal-desc">角色决定这个会话的回答视角；创建后整段会话固定使用该角色，不可切换。</div>
+    <div class="persona-pick-list" id="personaPickList"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn" data-close="personaModal">取消</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block extra_js %}
 <script>
@@ -76,5 +88,5 @@ window.INIT_PERSONAS = {{ personas | tojson }};
 window.MODEL_OPTIONS = {{ model_options | tojson }};
 window.DEFAULT_MODEL = {{ default_model | tojson }};
 </script>
-<script src="/static/js/agent.js?v=20261118b"></script>
+<script src="/static/js/agent.js?v=20261118g"></script>
 {% endblock %}

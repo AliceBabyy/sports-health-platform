@@ -19,6 +19,7 @@ from app.ai.prompts.loader import load_system_prompt
 from app.modules.agent.personas.runtime import DEFAULT_PERSONA_BLOCK
 from app.modules.agent.tools import ALL_TOOLS
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
+from app.modules.agent.tools.interaction import ASK_TOOL_NAME
 
 MAX_HISTORY_MESSAGES = 20
 
@@ -34,23 +35,29 @@ ACTION_TOOL_NAMES = {tool.name for tool in ACTION_TOOLS}
 
 
 def default_capabilities(tools=None) -> str:
-    """只读工具与受控写工具分组；技能由 runtime 另行追加。"""
+    """交互工具、只读工具与受控写工具分组；技能由 runtime 另行追加。"""
     tools = tools or ALL_TOOLS
-    lines = ["## 只读数据工具"]
-    action_lines: list[str] = []
+    interaction: list[str] = []
+    readonly: list[str] = []
+    actions: list[str] = []
     for tool in tools:
         if tool.name.startswith("skill_"):
             continue
         entry = f"- {tool.name}：{(tool.description or '').splitlines()[0]}"
-        if tool.name in ACTION_TOOL_NAMES:
-            action_lines.append(entry)
+        if tool.name == ASK_TOOL_NAME:
+            interaction.append(entry)
+        elif tool.name in ACTION_TOOL_NAMES:
+            actions.append(entry)
         else:
-            lines.append(entry)
-    if action_lines:
-        lines.append("")
-        lines.append("## 计划操作（写入，需用户确认后调用）")
-        lines.extend(action_lines)
-    return "\n".join(lines)
+            readonly.append(entry)
+    sections: list[str] = []
+    if interaction:
+        sections.append("## 与用户交互（调用后会暂停等待回答）\n" + "\n".join(interaction))
+    if readonly:
+        sections.append("## 只读数据工具\n" + "\n".join(readonly))
+    if actions:
+        sections.append("## 计划操作（写入，需用户确认后调用）\n" + "\n".join(actions))
+    return "\n\n".join(sections)
 
 
 def make_agent_node(tools, capabilities: str):
@@ -62,7 +69,7 @@ def make_agent_node(tools, capabilities: str):
         configurable = config["configurable"]
         persona_block = configurable.get("persona_block") or DEFAULT_PERSONA_BLOCK
         system_text = load_system_prompt(
-            "agent_chat.v6",
+            "agent_chat.v7",
             today=now.date().isoformat(),
             weekday="周" + "一二三四五六日"[now.weekday()],
             now_time=now.strftime("%H:%M"),

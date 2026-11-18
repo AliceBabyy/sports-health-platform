@@ -221,10 +221,10 @@ def test_tool_policy_is_noop_now_and_seam_works(monkeypatch):
     assert policy.persona_graph_fingerprint(type("P", (), {"key": "e_trainer"})) == ""
 
 
-def test_prompt_v6_persona_block_and_v5_removed():
-    assert "agent_chat.v5" not in PROMPTS
+def test_prompt_v7_persona_block_and_v6_removed():
+    assert "agent_chat.v6" not in PROMPTS
     text = load_system_prompt(
-        "agent_chat.v6", today="2026-11-18", weekday="周三", now_time="09:00",
+        "agent_chat.v7", today="2026-11-18", weekday="周三", now_time="09:00",
         capabilities="只读工具", persona_block="当前角色：营养师（v1）。",
     )
     assert "角色设定" in text and "当前角色：营养师（v1）" in text

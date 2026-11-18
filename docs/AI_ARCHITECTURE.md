@@ -54,21 +54,23 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 页面路径为 `/agent`，API 前缀为 `/api/agent`，模块为 `app/modules/agent/`；技能管理页为 `/agent/skills`，角色管理页为 `/agent/personas`。
 - 当前数据问答图为 `START → agent ⇄ tools → END`；模型通过 `bind_tools` 选择是否进入 `ToolNode`，工具结果以 `ToolMessage` 返回 Agent。
 - 图按用户技能集装配：启动时用系统技能构建常驻 `system_graph`；存在用户私有技能时，按 `(user_id, 技能版本指纹)` 编译独立图并缓存（上限 32）。角色只影响 system prompt，不参与图装配；仅当角色被授予专用工具时，角色指纹才进入缓存 key。系统技能版本变化需重启服务或清缓存。
-- `agent_chat.v6` 提示词的变量为 `today/weekday/now_time/capabilities/persona_block`；日期、星期与当前时刻由 `graph.py` 在每次模型调用时用本机时间注入（`%H:%M`，24 小时制），随会话实时变化；`capabilities` 由基础只读工具、受控写工具（单独分组）与当前用户可用技能共同生成，不再在提示词里硬编码工具数量；`persona_block` 由会话绑定的角色版本渲染，普通会话为固定默认句。
+- `agent_chat.v7` 提示词的变量为 `today/weekday/now_time/capabilities/persona_block`；日期、星期与当前时刻由 `graph.py` 在每次模型调用时用本机时间注入（`%H:%M`，24 小时制），随会话实时变化；`capabilities` 由交互工具（`ask_user` 单独成组）、基础只读工具、受控写工具（单独分组）与当前用户可用技能共同生成，不再在提示词里硬编码工具数量；`persona_block` 由会话绑定的角色版本渲染，普通会话为固定默认句。
 - `recursion_limit=10` 限制循环轮数，`MessagesState` 不扩展。
 - 会话元数据存放在 `agent_conversations`（含角色会话的 `persona_id` 与创建时版本号）；消息由独立 `langgraph` schema 的 4 张 checkpointer 表按 `thread_id` 持久化；角色定义存放在 `agent_personas` / `agent_persona_versions`。
 - 前端使用 `fetch` + `ReadableStream` 手动解析 SSE，不使用 EventSource。
 
 ### 4.2 会话与流式协议
 
-- SSE 事件包括 `start`、`delta`、`tool_start`、`tool_result`、`done`、`error`；工具事件携带 `tool/label/kind/origin/version/skill`，`kind` 区分 `base`（查询）、`action`（写入）、`skill`（技能），`tool_result` 额外携带结构化 `data`。
+- SSE 事件包括 `start`、`delta`、`tool_start`、`tool_result`、`ask`、`done`、`error`；`start` 带 `resume` 表示本次是从等待回答的 interrupt 恢复；工具事件携带 `tool/label/kind/origin/version/skill/call_id`，`kind` 区分 `base`（查询）、`action`（写入）、`skill`（技能），`call_id` 用于把结果精确配回调用，`tool_result` 额外携带结构化 `data`。工具展示标签（`label`）与类别由服务端下发，前端只保留 `kind → 正在查询/已查询` 等文案映射，不再维护工具名表。
 - 首条消息发送时惰性创建会话；会话支持列表、新建、重命名、硬删除和模型选择。
 - 用户可使用 `/技能名 自由文本` 直接触发技能；服务端同时接受技能键、技能名和斜杠别名。对话页输入 `/` 时前端读取 `GET /api/agent/skills` 的 active 技能并浮出建议，按名称/键/别名过滤，支持键盘选择与插入；参数齐全时注入一次 `AIMessage(tool_calls)` 并以 `aupdate_state(..., as_node="agent")` 续跑工具循环；缺参数时先追问，下一条普通文本自动并入原命令继续解析，不要求重新输入斜杠。
 - `user_id`、会话归属和权限由服务端校验；模型不得指定或伪造用户身份。
 - 工具调用期间前端按类型显示查询/保存/运行状态；技能结果显示技能名、版本、期间、输出表和 caveats，普通工具明细折叠展示，最多渲染 50 行。
+- 前端把一条 AI 回答建模为一个 turn（`blocks` 正文段 + `toolRuns` + `meta`）：发送、重新生成与历史恢复共用 `runStream → applyEvent → finalizeTurn` 一条链路，`delta` 只在下一个动画帧合并渲染，不再各写一套事件分支。
+- 中途提问（HITL）：`ask_user` 工具内调用 LangGraph `interrupt()` 挂起，Postgres checkpointer 保存执行位置；前端收到 `ask` 事件在同一 turn 里插入问答卡片。用户作答走后端同一条 `POST .../messages`，服务端先读图状态，识别到挂起的 interrupt 就用 `Command(resume=答案)` 从同一 thread 继续，不新增 HumanMessage——问答与后续正文留在原来那一轮。`GET .../messages` 会把 ask 段还原并把当前问题标记为 `pending`，刷新后仍可作答；等待回答期间 `regenerate` 返回 409。工具回答后以 ToolMessage 回到模型，历史里由 ask 段的 `answer` 承载，不额外显示工具行。
 - 模型失败返回 `error`，前端保留输入内容以便重试。
 - 重新生成：`POST /api/agent/conversations/{id}/messages/regenerate` 复用同一套 SSE 事件；服务端经 `aupdate_state` + `RemoveMessage` 移除最后一条用户消息之后的工具中转与上一条 AI 回答（保留该用户消息），再以空输入续跑覆盖本次回答，不追加重复的用户消息；仅最近一轮可重新生成。
-- 历史消息读取（`GET .../messages`）：按一轮问答聚合为 `turns`，把带 `tool_calls` 的中转 AIMessage 与 ToolMessage 归并到对应轮次的 `tool_runs`（含工具名、入参、结构化结果），前端据此重建工具状态与明细折叠，切换会话后与当次流式视图一致；按 `tool_call_id` 精确匹配、顺序兜底。兼容早期无 ToolMessage 的历史数据（对应工具结果为空，仅显示“已查询”、不渲染明细），并合并工具调用后重插的重复用户消息。
+- 历史消息读取（`GET .../messages`）：按一轮问答聚合为 `turns`，每轮含 `blocks`（按出现顺序排列的正文段，含带 `tool_calls` 的中转 AIMessage 正文）与 `tool_runs`（`tool/label/kind/call_id/args/data`），工具结果按 `call_id` 精确匹配、缺失时顺序兜底。前端把流式事件与历史结构灌进同一个 turn 对象并用同一套渲染器收口，切换会话后与当次流式视图一致；兼容早期无 ToolMessage 的历史数据（对应工具结果为空，仅显示“已查询”、不渲染明细），并合并工具调用后重插的重复用户消息。
 
 ### 4.3 多角色 Persona
 
@@ -77,10 +79,10 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 角色会话在 `POST /api/agent/conversations` 传入 `persona_id` 创建，同时写入 `persona_version_no`；创建后整段会话固定该角色，**不提供切换接口**。普通会话两列为空，行为与未上线前完全一致。
 - 角色版本只增不改：用户角色保存即生成新版本并立即生效（无草稿/发布两步）；平台角色文案变化由种子脚本新增版本。历史角色会话按创建时版本读取，不随角色改版漂移。
 - 角色停用只禁止新建角色会话，已绑定会话仍按快照继续；删除角色前必须删除引用它的会话，否则 409。
-- 提示词分层：`agent_chat.v6` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。
+- 提示词分层：`agent_chat.v7` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。
 - 工具可见性预留：`app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 当前为空，所有角色与普通会话装配全量工具（只读 + 受控写 + 用户技能）。未来专用工具按「工具名 → 允许的角色 key 集合」登记，装配阶段过滤，未登记的工具仍对所有角色可用；过滤后 `capabilities` 只列当前角色可用项。只有角色被授予专用工具时，角色指纹才进入图缓存 key。
-- 页面为 `/agent/personas`（侧栏「AI助手」→「角色」）：左侧平台角色/我的角色，右侧提示词编辑；平台只读，用户角色可保存、启停、删除。对话页「新建角色对话」从 `INIT_PERSONAS` 选择启用且已发布的角色，侧栏角色会话显示角色名徽标。
-- 相关 API：角色列表/详情/创建/保存/启停/删除 6 个接口；会话创建与列表、历史消息、SSE `done` 均携带角色信息。平台角色编辑 403、非本人用户角色 403、被会话引用删除 409。
+- 页面为 `/agent/personas`（侧栏「AI助手」→「角色」）：左侧平台角色/我的角色，右侧提示词编辑；平台只读，用户角色可保存、启停、删除。对话页「新建角色会话」点击后弹出角色选择弹窗，从 `INIT_PERSONAS` 选择启用且已发布的角色；侧栏角色会话带「人形图标 + 角色名」徽标。
+- 相关 API：角色列表/详情/创建/保存/启停/删除 6 个接口；会话创建与列表、SSE `done` 携带角色信息（历史消息只返回正文段与工具轨迹，不重复返回角色快照）。平台角色编辑 403、非本人用户角色 403、被会话引用删除 409。
 - `tests/test_agent_personas.py` 覆盖定义字段/长度、创建与版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束。
 
 ## 五、技能系统

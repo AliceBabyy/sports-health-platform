@@ -6,7 +6,7 @@
 
 ## AI 子模块概述
 
-项目 AI 能力由模型注册与调用、提示词管理、结构化 AI 导入、AI Agent 会话、只读数据工具和技能系统组成。相关能力位于 `app/ai/`、`app/modules/electronic_trainer/` 和 `app/modules/agent/`，使用独立的 AI 运行时与 LangGraph checkpointer；详细实现见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。AI 功能不改动既有业务表字段；Agent 消息由 `langgraph` schema 中的 checkpointer 表持久化，会话元数据由 `agent_conversations` 保存，技能定义与审计由 `agent_skills` / `agent_skill_versions` / `agent_skill_runs` 保存，多角色定义与版本由 `agent_personas` / `agent_persona_versions` 保存。
+项目 AI 能力由模型注册与调用、提示词管理、结构化 AI 导入、AI Agent 会话、只读数据工具、受控写工具、对话中途提问和技能系统组成。相关能力位于 `app/ai/`、`app/modules/electronic_trainer/` 和 `app/modules/agent/`，使用独立的 AI 运行时与 LangGraph checkpointer；详细实现见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。AI 功能不改动既有业务表字段；Agent 消息由 `langgraph` schema 中的 checkpointer 表持久化，会话元数据由 `agent_conversations` 保存，技能定义与审计由 `agent_skills` / `agent_skill_versions` / `agent_skill_runs` 保存，多角色定义与版本由 `agent_personas` / `agent_persona_versions` 保存。
 ## 1. 技术栈
 
 - **后端**：FastAPI（SSR 单体）+ SQLAlchemy 2.0（Mapped 声明式）+ PostgreSQL；ORM 用 psycopg2，AI Agent checkpointer 用 psycopg3 异步 + LangGraph
@@ -123,7 +123,7 @@
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 - 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
 - 个人信息：侧栏「个人信息」为分组，子项「账号资料」（`/profile`）与「健康/运动档案」（`/profile/health-profile`）。账号资料页保持左栏只读概览 + 右栏基本资料/修改密码；健康/运动档案页未填写时直接展示问卷（按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组卡片逐题文本框），已填写时展示只读答案卡，提供「编辑档案 / 清空档案」，编辑态可「清空重写」；保存为合并语义（未传的题保留、空串清空），全部清空即删除档案行回到问卷态。题目 key 与文案由 `app/modules/profile/questions.py` 单一维护，页面渲染与后端校验同源；页级脚本 `health_profile.js`、样式 `pages/health_profile.css`。
-- AI 助手页 `/agent`：提供多会话、多轮问答、工具/技能调用和 SSE 流式交互；顶部「新建会话」与「新建角色对话」，后者从启用且已发布的角色中选择，创建后整段会话固定该角色、不可切换，侧栏会话显示角色名徽标；输入框支持 `/技能名 自然语言`，输入 `/` 会浮出可用技能建议并支持键盘选择；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
+- AI 助手页 `/agent`：提供多会话、多轮问答、工具/技能调用和 SSE 流式交互；顶部「新建会话」与「新建角色会话」，后者点击弹出角色选择弹窗，创建后整段会话固定该角色、不可切换，侧栏会话显示「人形图标 + 角色名」徽标；输入框支持 `/技能名 自然语言`，输入 `/` 会浮出可用技能建议并支持键盘选择；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
 - 技能管理页 `/agent/skills`：整页白底铺满、左侧平台/我的技能列表 + 右侧编辑区；用户技能只提供提示词文本域，平台代码/声明式技能只读展示；校验/保存/发布/停用/删除/试运行/运行记录；平台技能只读。页面挂在侧栏「AI助手」分组下，`active=agent_skills`。
 - 角色管理页 `/agent/personas`：挂在侧栏「AI助手 → 角色」（`active=agent_personas`），布局与技能页一致；左侧平台角色/我的角色，右侧角色名、角色键、定位与提示词编辑区；平台角色只读，用户角色保存即生成新版本并生效，支持启停与删除（被会话引用时提示先删会话）。
 - 报告页 `/reports`：周报/月报单页（`?type=weekly|monthly&anchor=YYYY-MM-DD`），侧栏「运动训练/计划」第四项；顶部周期步进 + 进行中标记 + 生成/重新生成；4 张事实卡 → 叙事（亮点/留意/建议/周期视角/数据说明）→ 判断依据（运动/身体/状态/周期/完整度）→ 历史报告（软删除）。总览页顶部提供「周报」「月报」入口。页级脚本 `app/static/js/report.js`，样式 `css/pages/report.css`。

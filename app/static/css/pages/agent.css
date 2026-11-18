@@ -57,17 +57,76 @@
 .session-new-persona { color: var(--color-text-secondary); }
 .session-new-persona:hover { color: var(--color-text); }
 .session-item .s-persona {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   flex: none;
-  max-width: 76px;
+  max-width: 96px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--color-accent-strong);
+}
+.s-persona-icon { flex: none; }
+.s-persona-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 1px 6px;
+}
+.session-item.persona-session.active .s-persona {
+  background: var(--bg-card);
+}
+.persona-modal { width: 520px; max-width: 92vw; }
+.persona-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+.persona-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 11px 12px;
   border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--bg-section);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.persona-pick:hover {
+  border-color: var(--color-accent);
+  background: var(--bg-card);
+}
+.persona-pick .p-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.persona-pick .p-name { font-size: 14px; font-weight: 600; }
+.persona-pick .p-tag {
+  padding: 0 6px;
+  border: 1px solid var(--color-border-strong);
   border-radius: 999px;
   font-size: 11px;
+  line-height: 18px;
   color: var(--color-text-secondary);
 }
+.persona-pick .p-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
 .s-menu-tag {
   margin-left: auto;
   padding-left: 10px;
@@ -283,6 +342,80 @@
   animation: agent-blink 1s steps(2) infinite;
 }
 @keyframes agent-blink { 50% { opacity: 0; } }
+
+/* ---------- 正文分段与中途提问卡片 ---------- */
+.msg-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  white-space: normal;
+}
+.ask-card {
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--bg-section);
+  padding: 12px 14px;
+  white-space: normal;
+}
+.ask-card.is-pending { border-color: var(--color-accent); }
+.ask-label {
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  letter-spacing: .3px;
+  color: var(--color-text-tertiary);
+}
+.ask-card.is-pending .ask-label { color: var(--color-accent-strong); }
+.ask-question {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--color-primary);
+}
+.ask-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ask-opt {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.ask-opt:hover { border-color: var(--color-accent); color: var(--color-accent-strong); }
+.ask-opt.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+.ask-reply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ask-reply .ask-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+}
+.ask-send {
+  flex: none;
+  height: 34px;
+  padding: 0 16px;
+}
+.ask-answer {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+}
 
 /* ---------- 欢迎页（空会话居中） ---------- */
 .chat-welcome {

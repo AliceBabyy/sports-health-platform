@@ -79,15 +79,21 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出表已在 `/agent` 页面接通，
 提示词技能折叠区只显示指令已加载。
 
-**V2.4 多角色（2026-11-18）**：对话页「新建会话」旁新增「新建角色对话」，从启用且已发布的角色中
+**V2.4 多角色（2026-11-18）**：对话页「新建会话」旁新增「新建角色会话」，点击弹出角色选择弹窗（显示名称、来源与定位），从启用且已发布的角色中
 选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`，以及用户自定义角色）。角色会话创建时把
 `persona_id + persona_version_no` 一并落库，整段会话固定该角色、不提供切换；侧栏显示角色名徽标，
-历史消息与 SSE `done` 均携带角色快照。角色只影响 system prompt（`agent_chat.v6` 末尾「角色设定」+
+历史消息与 SSE `done` 均携带角色快照。角色只影响 system prompt（`agent_chat.v7` 末尾「角色设定」+
 「规则优先级（最高）」），默认装配全部工具与技能；角色改版后老会话仍读创建时版本。角色管理页
 `/agent/personas` 挂在「AI助手 → 角色」，平台角色只读，用户角色只写名称、定位与提示词，保存即
 生成新版本并生效，支持启停与删除（被会话引用时先删会话）。数据层新增 `agent_personas` /
 `agent_persona_versions`，会话表增加两列。迁移 `python scripts/migrate_agent_personas.py`，
 种子 `python scripts/seed_agent_personas.py`。
+
+**V2.9 对话中途提问（2026-11-18）**：AI 可在回答中途调用 `ask_user` 停下来提问（问题 + 最多 4 个选项，
+可多选），用户作答后从同一轮继续，不必重新解释请求。停点由 LangGraph `interrupt()` 与 Postgres
+checkpointer 承载；作答仍走 `POST .../messages`，服务端识别到挂起后以 `Command(resume=答案)` 恢复，
+问答与后续正文留在原轮次，刷新页面后卡片仍可继续作答。等待回答期间不可重新生成。提示词升到
+`agent_chat.v7`，新增 SSE `ask` 事件。
 
 **V2.5 AI 运动报告（2026-11-17）**：新增 `/reports` 单页（周报/月报 tab 切换），侧栏挂在
 「运动训练/计划」第四项，总览页顶部提供周报/月报入口。三层结构：事实层由代码确定性计算

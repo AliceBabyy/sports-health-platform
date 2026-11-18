@@ -52,3 +52,9 @@ class PeriodUpdateIn(BaseModel):
 
 class PainIn(BaseModel):
     pain_level: int = Field(ge=0, le=3)
+
+
+class NoteIn(BaseModel):
+    """当日 note：最多 255 字，空串表示清空。"""
+
+    note: str = Field(default="", max_length=255)

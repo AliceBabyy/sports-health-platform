@@ -9,7 +9,7 @@ from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.cycle import service
 from app.modules.cycle.models import PeriodRecord
-from app.modules.cycle.schemas import PainIn, PeriodIn, PeriodUpdateIn, SettingsIn
+from app.modules.cycle.schemas import NoteIn, PainIn, PeriodIn, PeriodUpdateIn, SettingsIn
 from database import get_db
 
 router = APIRouter(prefix="/api/cycle", tags=["cycle"])
@@ -97,6 +97,16 @@ def delete_period(
     return {"ok": True}
 
 
+@router.get("/logs")
+def list_logs(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(_female_only),
+):
+    return service.list_logs(db, user.id, page=page, page_size=page_size)
+
+
 @router.put("/pain/{log_date}")
 def set_pain(
     log_date: date,
@@ -104,8 +114,25 @@ def set_pain(
     db: Session = Depends(get_db),
     user: User = Depends(_female_only),
 ):
-    service.set_pain(db, user.id, log_date, payload.pain_level)
-    return {"ok": True, "log_date": log_date.isoformat(), "pain_level": payload.pain_level}
+    row = service.set_pain(db, user.id, log_date, payload.pain_level)
+    return {"ok": True, "log_date": log_date.isoformat(), "pain_level": row.pain_level, "period_id": row.period_id}
+
+
+@router.put("/note/{log_date}")
+def set_note(
+    log_date: date,
+    payload: NoteIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(_female_only),
+):
+    row = service.set_note(db, user.id, log_date, payload.note)
+    return {
+        "ok": True,
+        "log_date": log_date.isoformat(),
+        "note": row.note,
+        "pain_level": row.pain_level,
+        "period_id": row.period_id,
+    }
 
 
 @router.get("/calendar")

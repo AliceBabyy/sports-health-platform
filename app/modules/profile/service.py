@@ -1,15 +1,20 @@
-"""个人信息 service：基本资料更新（昵称/性别/年龄）与密码修改。
+"""个人信息 service：基本资料更新（昵称/性别/年龄）、密码修改与健康/运动档案。
 
 users 表已含 display_name/gender/age（注册基础信息），本模块只更新既有列，不改表结构。
 校验口径与注册（auth.router_pages）完全一致。
+健康/运动档案存 health_profile（1:1 用户，开放式文本答案），题目 key 见 questions.py。
 """
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
 from app.core.security import hash_password, verify_password
 from app.modules.auth.models import User
 from app.modules.body.models import BodyBasicRecord, BodyBasicGoalRecord, BodyDimensionsRecord, BodyDimensionsGoalRecord
-from app.modules.cycle.models import CycleSetting, PeriodRecord, DailyPainLog
+from app.modules.cycle.models import PeriodLog, PeriodRecord, PeriodSetting
+from app.modules.profile.models import HealthProfile
+from app.modules.profile.questions import COMPLETION_MIN_ANSWERS, QUESTION_MAP
 from app.modules.training.models import TrainingRecord, TrainingRecordItem, TrainingNote
 from app.modules.swim.models import SwimRecord, SwimNote
 from app.modules.dance.models import DanceRecord, DanceNote
@@ -85,7 +90,8 @@ def delete_account(db: Session, user: User, mode: str, current_password: str) ->
                 db.query(child).filter(getattr(child, key).in_(ids)).delete(synchronize_session=False)
             for model in (
                 BodyBasicRecord, BodyBasicGoalRecord, BodyDimensionsRecord, BodyDimensionsGoalRecord,
-                CycleSetting, PeriodRecord, DailyPainLog, TrainingRecord, SwimRecord, DanceRecord,
+                PeriodSetting, PeriodRecord, PeriodLog, TrainingRecord, SwimRecord, DanceRecord,
+                HealthProfile,
             ):
                 db.query(model).filter(model.user_id == user.id).delete(synchronize_session=False)
             db.delete(user)
@@ -93,3 +99,71 @@ def delete_account(db: Session, user: User, mode: str, current_password: str) ->
     except Exception:
         db.rollback()
         raise
+
+
+def get_health_profile(db: Session, user_id: int) -> HealthProfile | None:
+    """读取档案（1:1 单行），未填写返回 None。"""
+    return db.query(HealthProfile).filter(HealthProfile.user_id == user_id).first()
+
+
+def get_health_answers(db: Session, user_id: int) -> dict[str, str]:
+    """读取档案答案字典；未填写返回空字典。"""
+    row = get_health_profile(db, user_id)
+    return dict(row.answers or {}) if row else {}
+
+
+def save_health_profile(db: Session, user: User, answers: dict[str, str]) -> HealthProfile | None:
+    """保存档案：逐题校验后合并写入。
+
+    - 未出现在请求里的题目保持原值；显式传空串表示清空该题。
+    - 未知 key、非文本、超长答案一律 400，不接受前端自行编造的题目。
+    - 答案达到 COMPLETION_MIN_ANSWERS 项才记 completed_at，低于则清空（不阻断保存）。
+    - 合并后一项不剩时删除整行，页面回到问卷态。
+    """
+    row = get_health_profile(db, user.id)
+    merged: dict[str, str] = dict(row.answers or {}) if row else {}
+
+    for key, raw in answers.items():
+        question = QUESTION_MAP.get(key)
+        if question is None:
+            raise AppError(400, f"未知题目：{key}")
+        if not isinstance(raw, str):
+            raise AppError(400, f"「{question['label']}」的答案须为文本")
+        text = raw.strip()
+        if not text:
+            merged.pop(key, None)
+            continue
+        if len(text) > question["max_length"]:
+            raise AppError(400, f"「{question['label']}」最多 {question['max_length']} 字")
+        merged[key] = text
+
+    if not merged:
+        if row is not None:
+            db.delete(row)
+            db.commit()
+        return None
+
+    if row is None:
+        row = HealthProfile(user_id=user.id, answers=merged)
+        db.add(row)
+    else:
+        row.answers = merged
+
+    if len(merged) >= COMPLETION_MIN_ANSWERS:
+        if row.completed_at is None:
+            row.completed_at = datetime.now()
+    else:
+        row.completed_at = None
+
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def clear_health_profile(db: Session, user: User) -> None:
+    """清空档案：直接删除该行，页面回到问卷态。"""
+    row = get_health_profile(db, user.id)
+    if row is None:
+        return
+    db.delete(row)
+    db.commit()

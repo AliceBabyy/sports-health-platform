@@ -26,8 +26,9 @@ from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.body.service import GROUP_MODELS, all_group_rows
 from app.modules.cycle import service as cycle_service
-from app.modules.cycle.models import CycleSetting, DailyPainLog
+from app.modules.cycle.models import PeriodLog, PeriodSetting
 from app.modules.dance.models import DanceRecord
+from app.modules.profile.models import HealthProfile
 from app.modules.dance.service import to_dict as dance_to_dict
 from app.modules.overview.service import SPORT_LABELS, _fitness_minutes
 from app.modules.state_record.models import STATE_MODELS, STATE_TYPES, STATE_TYPE_LABELS
@@ -349,7 +350,7 @@ def cycle_records(
     end: date | None,
 ) -> dict:
     """生理周期数据：参考值 + 月经记录 + 每日疼痛 + 今日所在阶段（全部只读）。"""
-    setting = db.get(CycleSetting, user_id)
+    setting = db.get(PeriodSetting, user_id)
     cycle_length = setting.cycle_length if setting else DEFAULT_CYCLE_LENGTH
     period_length = setting.period_length if setting else DEFAULT_PERIOD_LENGTH
 
@@ -359,17 +360,18 @@ def cycle_records(
     if end is not None:
         periods = [p for p in periods if date.fromisoformat(p["start_date"]) <= end]
 
-    q = db.query(DailyPainLog).filter(DailyPainLog.user_id == user_id)
-    q = _apply_date_range(q, DailyPainLog.log_date, start, end)
+    q = db.query(PeriodLog).filter(PeriodLog.user_id == user_id, PeriodLog.pain_level.is_not(None))
+    q = _apply_date_range(q, PeriodLog.log_date, start, end)
     pains = [
-        {"date": row.log_date.isoformat(), "pain_level": row.pain_level}
-        for row in q.order_by(DailyPainLog.log_date.asc()).all()
+        {"date": row.log_date.isoformat(), "pain_level": row.pain_level, "note": row.note}
+        for row in q.order_by(PeriodLog.log_date.asc()).all()
     ]
 
     today = today_local()
     pain_map = {date.fromisoformat(p["date"]): p["pain_level"] for p in pains}
+    today_log = db.query(PeriodLog).filter(PeriodLog.user_id == user_id, PeriodLog.log_date == today).first()
     # build_segments 需要 setting 对象；用内存对象避免 get_settings 落库（工具只读）
-    in_memory_setting = setting or CycleSetting(
+    in_memory_setting = setting or PeriodSetting(
         user_id=user_id, cycle_length=cycle_length, period_length=period_length
     )
     segments = cycle_service.build_segments(db, user_id, setting=in_memory_setting, today=today)
@@ -385,7 +387,8 @@ def cycle_records(
             "segment_source": segment.source,
             "phase_key": phase,
             "phase_label": PHASE_LABELS.get(phase) if phase else None,
-            "pain_level": pain_map.get(today, 0),
+            "pain_level": pain_map.get(today) or 0,
+            "note": today_log.note if today_log else None,
         }
 
     return {
@@ -409,15 +412,21 @@ def cycle_records(
 # ---------- 个人信息 ----------
 
 def profile_info(db: Session, user_id: int) -> dict:
-    """个人基本信息（昵称 / 性别 / 年龄 / 注册时间）；不含密码等敏感字段。"""
+    """个人基本信息（昵称 / 性别 / 年龄 / 注册时间 + 健康运动档案文本）；不含密码等敏感字段。"""
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise AppError(404, "用户不存在")
+    health = db.query(HealthProfile).filter(HealthProfile.user_id == user_id).first()
     return {
         "display_name": user.display_name,
         "gender": user.gender,
         "age": user.age,
         "status": user.status,
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        "note": "身高、体重等身体数据在身材数据中，不在基本资料里；本工具不返回密码等敏感字段。",
+        "health_profile": dict(health.answers or {}) if health else {},
+        "note": (
+            "身高、体重等身体数据在身材数据中，不在基本资料里；"
+            "health_profile 是用户自己写的目标与习惯（开放式文本，未填写为空对象），"
+            "只作参考，不要当作诊断结论；本工具不返回密码等敏感字段。"
+        ),
     }

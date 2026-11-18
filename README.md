@@ -8,8 +8,9 @@ V2 路线以 `docs/AIplan.md` 为准。已完成模型骨架、三运动的一�
 checkpointer，支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久化、登录用户隔离。
 V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用 8 个**只读工具**查询现有
 业务表后基于事实回答，不新建表、不写数据。**V2.4 技能系统**已实现平台代码/声明式技能、用户私有
-提示词技能、斜杠自然语言触发、参数解析与追问续接、技能管理页和运行审计；多角色 Persona
-暂未实现。后续建设 LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6）。
+提示词技能、斜杠自然语言触发、参数解析与追问续接、技能管理页和运行审计；**V2.4 多角色**已实现
+2 个平台内置角色（营养师、电子私教）与用户自定义提示词角色，按「一整个会话归属一种角色」创建，
+会话内不可切换。后续建设 LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6）。
 
 AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 `deepseek-v4.1-flash`、`qwen3.8-flash`、`qwen3.8-2.4t-a95b`、`qwen3-vl-plus`。
@@ -57,7 +58,7 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 `get_fitness_records`（健身明细含动作与容量）、`get_swim_records`（游泳明细含配速/划频）、
 `get_dance_records`（舞蹈明细）、`get_body_measurements`（身材 4 组，`metric=all` 取整表或单指标趋势，
 未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪）、`get_cycle_records`
-（参考值 + 月经记录 + 每日疼痛 + 今日阶段）、`get_profile_info`（昵称/性别/年龄，不含密码）。
+（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段）、`get_profile_info`（昵称/性别/年龄 + 健康运动档案文本，不含密码）。
 取数范围由模型按用户意图决定：`days_back`、`start_date + end_date`、`limit` 均可选，
 **不传任何范围参数即取全部历史**，已移除原 366 天 / 20 条硬上限；一次拉全量或只拉最近几次
 都由意图决定。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具内部用独立短 session；
@@ -78,22 +79,51 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出表已在 `/agent` 页面接通，
 提示词技能折叠区只显示指令已加载。
 
+**V2.4 多角色（2026-11-18）**：对话页「新建会话」旁新增「新建角色对话」，从启用且已发布的角色中
+选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`，以及用户自定义角色）。角色会话创建时把
+`persona_id + persona_version_no` 一并落库，整段会话固定该角色、不提供切换；侧栏显示角色名徽标，
+历史消息与 SSE `done` 均携带角色快照。角色只影响 system prompt（`agent_chat.v6` 末尾「角色设定」+
+「规则优先级（最高）」），默认装配全部工具与技能；角色改版后老会话仍读创建时版本。角色管理页
+`/agent/personas` 挂在「AI助手 → 角色」，平台角色只读，用户角色只写名称、定位与提示词，保存即
+生成新版本并生效，支持启停与删除（被会话引用时先删会话）。数据层新增 `agent_personas` /
+`agent_persona_versions`，会话表增加两列。迁移 `python scripts/migrate_agent_personas.py`，
+种子 `python scripts/seed_agent_personas.py`。
+
 **V2.5 AI 运动报告（2026-11-17）**：新增 `/reports` 单页（周报/月报 tab 切换），侧栏挂在
 「运动训练/计划」第四项，总览页顶部提供周报/月报入口。三层结构：事实层由代码确定性计算
 （三运动次数/时长/热量、身材实测变化、状态记录、生理周期阶段，月报另有周节奏与环比），
 叙事层由一次结构化模型调用写 headline/summary/亮点/留意/建议/周期视角，依据层直接展示
 事实快照，叙事的 `evidence` 只能引用真实指标 key。统一 `reports` 表（`period_type` 区分周/月），
 `(user_id, period_type, period_start)` 唯一，`data_hash` 做过期检测，删除为软删除。周报=周一~周日，
-月报=自然月；未结束周期标「进行中（截至 X）」。空数据不调模型、走规则文案。自动生成不在应用内
-起常驻循环：Windows 任务计划程序每 30 分钟执行 `scripts/generate_reports.py --scan`，周一命中上周
-周报、每月 1 日命中上月月报；迁移 `python scripts/migrate_reports.py`，任务注册
-`scripts/register_report_task.ps1`（需手动执行），日志 `logs/report_task.log`。
+月报=自然月；未结束周期标「进行中（截至 X）」。空数据不调模型、走规则文案。迁移
+`python scripts/migrate_reports.py`。
+
+**V2.7 应用内定时任务（2026-11-17）**：新增 `app/modules/scheduler/` 与 `/system/scheduler` 管理页
+（侧栏「系统设置 → 定时任务」），用
+APScheduler 后台线程替代原「Windows 任务计划程序每 30 分钟跑 CLI」方案。任务定义存 `scheduled_jobs`
+（唯一事实源，启动按表 reconcile 重建内存作业），支持 cron / date / interval 三种触发（cron 为标准
+五段式，星期只写 mon~sun）；执行记录写 `job_runs`（定时 / 手动 / 命令行三种来源）。默认任务
+`report.weekly`（周一 08:00 生成上周周报）与 `report.monthly`（每月 1 日 08:00 生成上月月报），
+`report.scan` 不排期、供手动兜底。错过执行窗口不补跑（宽限 300 秒记 skipped），在页面「立即执行」
+手动补齐。迁移 `python scripts/migrate_scheduler.py`。
+
+**V2.8 侧栏每日训练建议（2026-11-17）**：左侧菜单栏「今天」卡内、周期四档标签上方常驻三段由默认模型
+生成的要点（今日建议 ≤20 字 / 健身建议 ≤20 字 / 依据 ≤40 字，每行以 `- ` 开头、句末不带句号）——今天
+是否适合运动、有氧还是无氧、建议强度、健身练什么部位。事实层全部由代码算（基础信息、身材、
+昨日三运动、近 3/7 天负荷、状态记录、当天计划、女性当天周期），模型只负责解释；今日疼痛、周期
+休息档、炎症、昨日负荷、今日已练力量、情绪等硬约束由代码判定并在模型输出后强制降档（`sanitize`）。
+每天 00:01 由应用内调度器 `advice.daily`（cron `1 0 * * *`）生成当天一份，启动后按
+`ADVICE_STARTUP_CATCHUP_SECONDS` 补跑缺失行；「今天」标题行右侧刷新按钮可手动重算（60 秒防连点）。一天一条，
+`(user_id, advice_date)` 唯一，无软删除；空账号走 `mode=rule` 固定要点不调模型。接口
+`GET /api/daily-advice`、`POST /api/daily-advice/regenerate`；迁移 `python scripts/migrate_daily_advice.py`。
 
 安装依赖：`uv sync --extra dev`。
 
 SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **8010**（避开 8000）。
 
 V1 范围：注册/登录认证 + 模块（身材数据 BD / 状态记录 SR / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC / 个人信息 PR）。
+
+健康/运动档案（2026-11-17）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，与账号资料页并列。按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组开放式文本框收集目标、每周可练次数、场地器材、习惯偏好与伤病限制，答案存 `health_profile.answers`（题目 key → 文本，题目定义在 `app/modules/profile/questions.py`）；未填写时整页即问卷，已填写展示答案并支持编辑、清空与清空重写。文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile.py` 建表。
 
 账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。当前无管理员角色或管理员接口；管理员恢复需通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。
@@ -166,15 +196,19 @@ SECRET_KEY=<随机生成，勿提交仓库>
 .\.venv\Scripts\python.exe scripts\init_db.py
 # 可选参数：--username <名> --password <密码> --display-name <昵称>，默认 admin / admin123
 # 已有库补结构：python scripts\migrate_reports.py（AI 运动报告表）
+#              python scripts\migrate_scheduler.py（定时任务两表 + 默认周报/月报任务）
+#              python scripts\migrate_daily_advice.py（每日训练建议表）
 ```
 
 ### 3.1 AI 运动报告自动生成（可选）
 
+周报/月报由应用内调度器自动触发（服务启动即注册，无需操作系统计划任务）；`/system/scheduler` 管理页可改表达式、启停与立即执行。手动补跑：
+
 ```powershell
-# 注册 Windows 任务计划：每 30 分钟扫描上周周报与上月月报（需管理员 PowerShell 手动执行）
-powershell -ExecutionPolicy Bypass -File scripts\register_report_task.ps1
 # 试运行（只列出到期周期，不调模型）
 .\.venv\Scripts\python.exe scripts\generate_reports.py --scan --dry-run
+# 补跑上周周报与上月月报（与页面「立即执行」同一路径，写 job_runs 留痕）
+.\.venv\Scripts\python.exe scripts\generate_reports.py --scan
 ```
 
 ### 4. 启动
@@ -191,7 +225,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_report_task.ps1
 ### 5. 测试
 
 ```powershell
-# 单元测试（趋势聚合 / 配速划频 / 周期阶段 / 训练状态机 / 总览聚合 / 个人信息 / Excel 导入 / 状态记录 / AI 运动报告）
+# 单元测试（趋势聚合 / 配速划频 / 周期阶段 / 训练状态机 / 总览聚合 / 个人信息 / 健康运动档案 / Excel 导入 / 状态记录 / AI 运动报告 / 每日训练建议）
 .\.venv\Scripts\python.exe -m pytest tests\ -q
 ```
 
@@ -214,10 +248,12 @@ sports-health-platform/
 │  │  ├─ swim/             # 游泳记录/计划 + 配速/划频计算 + 单日视图 + Excel/JSON 导入
 │  │  ├─ dance/            # 舞蹈记录/计划 + 舞种汇总 + 单日视图 + Excel/JSON 导入
 │  │  ├─ overview/         # 运动训练/计划总览：日/周/月聚合 + 单日详情（2026-11 新增）
-│  │  ├─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 + 运动等级
+│  │  ├─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 / note + 全部记录
 │  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症/情绪四表按天记录 + 月历阶段归并 + 跨表批量删除
 │  │  ├─ report/           # AI 运动报告：周/月事实快照 + 叙事 + 软删除 + 自动生成（页面 /reports）
-│  │  ├─ profile/          # 个人信息：基本资料（昵称/性别/年龄）+ 修改密码（复用 users 表）
+│  │  ├─ daily_advice/     # 每日训练建议：今天卡内要点判断 + 硬约束降档 + 00:01 定时生成（/api/daily-advice）
+│  │  ├─ scheduler/        # 应用内定时任务：APScheduler + scheduled_jobs/job_runs（页面 /system/scheduler）
+│  │  ├─ profile/          # 个人信息：基本资料 + 修改密码（复用 users）+ 健康/运动档案（health_profile）
 │  │  └─ agent/            # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE（页面 /agent）
 │  ├─ templates/           # Jinja2（base/侧栏/各模块页面 + auth/register + profile）
 │  ├─ static/              # css / js / vendor(echarts) / img
@@ -229,10 +265,12 @@ sports-health-platform/
 │  ├─ migrate_remark.py       # 2026-11：三表加 remark、swim/dance 移除 plan_text（幂等）
 │  ├─ migrate_notes.py        # 2026-11：training_notes 扩四字段心得 + 新建 swim_notes/dance_notes
 │  ├─ migrate_swim_avg_stroke_rate.py # 2026-11：swim_records 加 avg_stroke_rate（幂等）
-│  ├─ migrate_state_record.py   # 2026-11：状态记录四表（食欲/肌肉疼痛/炎症/情绪）建表 + 注释（幂等）
+│  ├─ migrate_state_record.py   # 2026-11：状态记录四表（state_ 前缀，食欲/肌肉疼痛/炎症/情绪）建表 + 注释（幂等）
+│  ├─ migrate_state_table_prefix.py # 2026-11-17：状态记录四表旧名加 state_ 前缀，同步约束/索引/序列改名（幂等）
 │  ├─ migrate_reports.py        # 2026-11：AI 运动报告 reports 表 + 注释（幂等）
-│  ├─ generate_reports.py       # 报告生成 CLI：--scan 扫描上周周报/上月月报（任务计划程序调用）
-│  ├─ register_report_task.ps1  # 注册/卸载 Windows 任务计划 SH-Report-Auto（手动执行）
+│  ├─ migrate_scheduler.py      # 2026-11：定时任务 scheduled_jobs/job_runs 两表 + 注释 + 默认任务（幂等）
+│  ├─ migrate_daily_advice.py   # 2026-11：每日训练建议 daily_advice 表 + 注释（幂等）
+│  ├─ generate_reports.py       # 报告生成 CLI：--scan 手动补跑上周周报/上月月报（与页面「立即执行」同路径）
 │  └─ schema.sql           # 全量建表 DDL（整改后结构，含中文 COMMENT 段）
 └─ tests/                  # pytest 单测（含运动契约、总览聚合与 AI 运动报告）
 ```
@@ -253,9 +291,10 @@ sports-health-platform/
 - 运动四档：排卵期前期/排卵日/排卵后期为精力旺盛；黄体前期及黄体中期前 2 天为状态良好；黄体中期余下日期及黄体后期前 2 天为状态一般；黄体后期余下日期及经期前 3 天为适合休息；经期第 4 天状态一般、第 5 天起状态良好。疼痛 ≥2 优先覆盖为适合休息
 - 段长规则：相邻首日间隔 < max(22, 参考周期 + 15) 拒绝保存并提示疑似同一次月经；22~45 天为真实段；46~90 天判为漏记，按参考周期等分成 k 段补推（k 取使每段最接近参考周期且落在技术下限~45，余数摊到前面几段）；>90 天不补推，两段之间留白并提示漏记超过 3 个月
 - 预测边界：只推最新记录后的当前段与一个预测段，再往后留白；最新段逾期 7 天内仍标「预测经期」，超过 7 天转「未推算 + 建议补录」；0 条记录完全不推，1 条记录按参考值铺当前段 + 预测段
-- 周期参考值：`cycle_settings` 单行，只用于当前段、预测段、补推段和未填结束日的记录；参考周期 22~45（默认 28）、参考经期 2~8（默认 5），且需满足 经期 + 15 ≤ 参考周期；页面「周期参数」按钮单独修改，记录变动不再改写它
+- 周期参考值：`period_setting` 单行，只用于当前段、预测段、补推段和未填结束日的记录；参考周期 22~45（默认 28）、参考经期 2~8（默认 5），且需满足 经期 + 15 ≤ 参考周期；页面「周期参数」按钮单独修改，记录变动不再改写它
 - 经期三态：recorded 经期（真实记录窗口）、inferred 推算经期（漏记补推段）、predicted 预测经期（未来段），月历以边框样式区分，详情注明「本段无记录，阶段按参考周期推算」
-- 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录（表单只收起止日期）；疼痛独立记录，填写入口只在经期 / 推算经期 / 预测经期三态出现，保存后同步刷新运动等级；侧栏「今日」小卡保留，今天无段显示「未推算」；三运动页周期联动已移除
+- 周期页面：月历标识真实记录首日，可新增、编辑、删除月经记录（表单只收起止日期）；「全部记录」用分段控件在月经记录 / 周期日志间切换，日志分页展示日期、疼痛、所属经期与 note；疼痛独立记录，填写入口只在 recorded 经期出现（推算经期、预测经期不填），保存后同步刷新运动等级；侧栏「今日」小卡保留，今天无段显示「未推算」；三运动页周期联动已移除
+- 周期日志（2026-11-17）：`period_logs` 一天一行；`pain_level` 可空且仅 recorded 经期可写，写入时归属 `period_id`（对应 `period_records.id`）；`note` 每天可写，非经期日写 note 时 `pain_level` / `period_id` 置 null；页面右侧详情下方新增「今日 note」小卡，读写该表 `note` 字段
 - 阶段激素文案（2026-11-17）：七阶段各两份，按阶段天数 n 取前 floor(n/2) 天用前段、其余用后段（n=1 只用前段）；单份 ≤70 字、两句话各占一行（上行客观激素状态，下行对心情 / 食欲 / 运动表现的影响）；详情只展示「激素水平」，「运动建议」已移除
 - 字体与渲染（2026-11-11）：全局字体逐字照搬 GitHub 原栈（`-apple-system → Segoe UI → Noto Sans → Helvetica/Arial → sans-serif → emoji`），中文走系统默认兜底（本机实测即微软雅黑，与显式雅黑差约 1.5%）；全局 `letter-spacing: .03em` 放宽字距（中文在雅黑下偏挤显扁）；同时不使用 `-webkit-font-smoothing: antialiased`，避免 Windows 关闭 ClearType 导致小字发虚
 - 周期配色：日历格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；阶段保留文字标签，图例与详情使用同一状态配色；窄屏月历保留两字状态名（旺盛/良好/一般/休息）；四档底色（2026-11-11）统一向白混合 50% 再浅一档，圆点与文字深阶保持不变

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}定时任务 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/scheduler.css?v=20261117a">{% endblock %}
+{% block content %}
+<div class="sch-page">
+  <header class="sch-head">
+    <div class="sch-head-main">
+      <div class="sch-kicker">应用内调度</div>
+      <h1 class="sch-title">定时任务</h1>
+      <p class="sch-sub">服务启动即重建任务，不需要操作系统计划程序。错过执行窗口不补跑，可直接「立即执行」。</p>
+    </div>
+    <div class="sch-head-side">
+      <span class="sch-state {{ 'on' if scheduler_enabled else 'off' }}">
+        {{ '调度器运行中' if scheduler_enabled else '调度器已关闭' }}
+      </span>
+      <span class="sch-tz">时区 {{ default_timezone }}</span>
+      <button class="btn btn-primary btn-sm" id="btnNewJob" type="button">新建任务</button>
+    </div>
+  </header>
+
+  <section class="sch-list" id="jobList" aria-live="polite"></section>
+  <div class="sch-empty" id="jobEmpty" hidden>
+    <div class="sch-empty-title">还没有定时任务</div>
+    <div class="sch-empty-sub">新建一条，或在注册表里补默认任务。</div>
+  </div>
+
+  <section class="sch-history">
+    <div class="sch-history-head">
+      <span class="sch-history-title">执行记录</span>
+      <span class="sch-history-note">宽限 {{ grace_seconds }} 秒，超时记为已跳过</span>
+      <button class="btn btn-ghost btn-sm" id="btnReloadRuns" type="button">刷新</button>
+    </div>
+    <div class="table-wrap">
+      <table class="sch-table">
+        <colgroup>
+          <col style="width:160px"><col><col style="width:70px"><col style="width:80px">
+          <col style="width:76px"><col style="width:38%">
+        </colgroup>
+        <thead>
+          <tr><th>时间</th><th>任务</th><th>来源</th><th>结果</th><th>耗时</th><th>说明</th></tr>
+        </thead>
+        <tbody id="runBody"></tbody>
+      </table>
+    </div>
+    <div class="sch-history-foot" id="runFoot"></div>
+  </section>
+</div>
+
+<div class="modal-mask" id="modalJob">
+  <div class="modal" style="width:600px">
+    <div class="modal-title" id="modalJobTitle">新建定时任务</div>
+    <div class="modal-desc">任务本身由代码注册表提供，这里只配置「何时执行」。</div>
+    <form id="jobForm" autocomplete="off">
+      <div class="field-grid">
+        <label class="field field-wide">
+          <span>任务</span>
+          <select class="select" id="fJobKey">
+            {% for item in catalog %}
+            <option value="{{ item.key }}" data-name="{{ item.name }}"
+                    data-tt="{{ item.default_trigger_type or 'cron' }}"
+                    data-texpr="{{ item.default_trigger_expr or '' }}">{{ item.name }} · {{ item.key }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">
+          <span>触发类型</span>
+          <select class="select" id="fTriggerType">
+            <option value="cron">cron（日历时间点）</option>
+            <option value="date">date（某时刻只跑一次）</option>
+            <option value="interval">interval（固定间隔）</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>时区</span>
+          <input class="input mono" id="fTimezone" maxlength="48" value="{{ default_timezone }}">
+        </label>
+        <label class="field field-wide">
+          <span>触发表达式</span>
+          <input class="input mono" id="fTriggerExpr" maxlength="128" placeholder="0 8 * * mon" required>
+        </label>
+        <div class="sch-hint" id="triggerHint"></div>
+        <label class="field">
+          <span>显示名（可空）</span>
+          <input class="input" id="fName" maxlength="64" placeholder="留空用任务默认名称">
+        </label>
+        <label class="field">
+          <span>错过宽限秒数（可空）</span>
+          <input class="input mono" id="fGrace" type="number" min="0" max="86400" placeholder="留空用全局 {{ grace_seconds }}">
+        </label>
+        <label class="field sch-switch-field">
+          <span>启用</span>
+          <input type="checkbox" id="fEnabled" checked>
+        </label>
+      </div>
+      <div class="sch-form-msg" id="jobFormMsg"></div>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-close="modalJob">取消</button>
+        <button class="btn btn-primary" type="submit" id="btnSaveJob">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.SCHEDULER_BOOT = {
+  jobs: {{ jobs | tojson }},
+  catalog: {{ catalog | tojson }},
+  runs: {{ runs | tojson }},
+  graceDefault: {{ grace_seconds }},
+  timezone: {{ default_timezone | tojson }}
+};
+</script>
+<script src="/static/js/scheduler.js?v=20261117a"></script>
+{% endblock %}

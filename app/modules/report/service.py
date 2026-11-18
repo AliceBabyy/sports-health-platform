@@ -290,21 +290,31 @@ def history(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-def scan_due(db: Session, today: date | None = None, limit: int = 100) -> list[dict]:
-    """扫描到期未生成的周期：上周周报 + 上月月报。
+def scan_due(
+    db: Session,
+    today: date | None = None,
+    limit: int = 100,
+    period_types: tuple[str, ...] = (REPORT_WEEKLY, REPORT_MONTHLY),
+    check_switch: bool = True,
+) -> list[dict]:
+    """扫描到期未生成的周期：上周周报 + 上月月报（period_types 可限定类型）。
 
     跳过：已 ready、已软删除、生成中未超时、失败但 attempts 已达上限、注册前的周期。
+    check_switch=False 时忽略 report_auto_enabled（页面手动补跑用）。
     """
-    if not settings.report_auto_enabled:
+    if check_switch and not settings.report_auto_enabled:
         return []
     today = today or date.today()
     weekly_anchor = today - timedelta(days=7)
     monthly_anchor = today.replace(day=1) - timedelta(days=1)
+    candidates = ((REPORT_WEEKLY, weekly_anchor), (REPORT_MONTHLY, monthly_anchor))
     users = db.query(User).filter(User.status == "启用").all()
 
     tasks = []
     for user in users:
-        for period_type, anchor in ((REPORT_WEEKLY, weekly_anchor), (REPORT_MONTHLY, monthly_anchor)):
+        for period_type, anchor in candidates:
+            if period_type not in period_types:
+                continue
             period = resolve_period(period_type, anchor, today)
             if period.end > today:
                 continue
@@ -341,3 +351,49 @@ def scan_due(db: Session, today: date | None = None, limit: int = 100) -> list[d
             if len(tasks) >= limit:
                 return tasks
     return tasks
+
+
+def generate_due(
+    db: Session,
+    period_types: tuple[str, ...] = (REPORT_WEEKLY, REPORT_MONTHLY),
+    today: date | None = None,
+    limit: int = 100,
+    check_switch: bool = True,
+) -> dict:
+    """按周期类型生成到期报告：调度器定时触发与命令行补跑共用入口。
+
+    返回可 JSON 序列化的摘要（写进 job_runs.detail）：scanned / generated / failed / items。
+    """
+    tasks = scan_due(
+        db, today=today, limit=limit, period_types=period_types, check_switch=check_switch
+    )
+    items: list[dict] = []
+    failed = 0
+    for task in tasks:
+        user = db.query(User).filter(User.id == task["user_id"]).first()
+        if user is None:
+            continue
+        base = {
+            "user_id": task["user_id"],
+            "period_type": task["period_type"],
+            "period_label": task["period_label"],
+        }
+        try:
+            generate(
+                db,
+                user,
+                task["period_type"],
+                date.fromisoformat(task["anchor"]),
+                force=bool(task.get("refresh")),
+            )
+            items.append({**base, "status": "success"})
+        except AppError as exc:
+            db.rollback()
+            failed += 1
+            items.append({**base, "status": "failed", "error": exc.message})
+        except Exception as exc:  # 单个周期失败不阻断其余周期
+            db.rollback()
+            failed += 1
+            logger.exception("报告生成异常 user_id=%s %s", task["user_id"], task["period_label"])
+            items.append({**base, "status": "failed", "error": type(exc).__name__})
+    return {"scanned": len(tasks), "generated": len(items) - failed, "failed": failed, "items": items}

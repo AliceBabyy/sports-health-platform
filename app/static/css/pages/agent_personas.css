@@ -1,0 +1,13 @@
+/* 角色管理页补充：复用技能管理页布局，仅补角色提示词与只读态 */
+.personas-page .work-hint {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+.personas-page .persona-prompt {
+  min-height: 320px;
+  line-height: 1.75;
+}
+.personas-page .persona-prompt.is-readonly {
+  color: var(--color-text-secondary);
+  background: var(--bg-section);
+}

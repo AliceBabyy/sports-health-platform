@@ -37,14 +37,16 @@
 | 健身训练 training | `/training`、`/api/training` | 1 | 15 | 16 |
 | 游泳 swim | `/swim`、`/api/swim-records` | 1 | 13 | 14 |
 | 舞蹈 dance | `/dance`、`/api/dance-records` | 1 | 13 | 14 |
-| 生理周期 cycle | `/cycle`、`/api/cycle` | 1 | 8 | 9 |
+| 生理周期 cycle | `/cycle`、`/api/cycle` | 1 | 10 | 11 |
 | 状态记录 state_record | `/state-record`、`/api/state-record` | 1 | 7 | 8 |
-| 个人信息 profile | `/profile`、`/api/profile` | 1 | 3 | 4 |
+| 个人信息 profile | `/profile`、`/api/profile` | 2 | 6 | 8 |
 | 总览 overview | `/overview`、`/api/overview` | 1 | 2 | 3 |
 | 电子教练 electronic_trainer | `/api/electronic-trainer` | 0 | 2 | 2 |
-| AI 助手 agent | `/agent`、`/api/agent` | 2 | 19 | 21 |
+| AI 助手 agent | `/agent`、`/api/agent` | 3 | 25 | 28 |
 | AI 运动报告 report | `/reports`、`/api/reports` | 1 | 4 | 5 |
-| **合计** | — | **17** | **95** | **112** |
+| 每日训练建议 daily_advice | `/api/daily-advice` | 0 | 2 | 2 |
+| 定时任务 scheduler | `/system/scheduler`、`/api/scheduler` | 1 | 6 | 7 |
+| **合计** | — | **19** | **106** | **125** |
 
 ## 2. 全局与认证
 
@@ -162,8 +164,10 @@
 | `POST /api/cycle/periods` | JSON | `start_date`、`end_date`（可空） | `{id, start_date, end_date}` | 新建月经记录；同日重复 409，段长越界 422 |
 | `PUT /api/cycle/periods/{record_id}` | 路径参数 + JSON | 路径 `record_id`；体 `start_date`（可空）、`end_date`（可空，显式 `null` 可清空） | `{id, start_date, end_date}` | 修改；日期冲突 409，不存在 404 |
 | `DELETE /api/cycle/periods/{record_id}` | 路径参数 | 路径 `record_id` | `{ok}` | 删除月经记录；不存在 404 |
-| `PUT /api/cycle/pain/{log_date}` | 路径参数 + JSON | 路径 `log_date`；体 `pain_level`（0~3） | `{ok, log_date, pain_level}` | 按日写入/覆盖疼痛等级 |
-| `GET /api/cycle/calendar` | Query | `month`（`YYYY-MM`） | 周期月历（A.10） | 逐日阶段、双份激素文案、四档状态、三态经期、疼痛与今日概览 |
+| `GET /api/cycle/logs` | Query | `page`、`page_size` | 分页包（A.1），`list` 为 `{id, date, pain_level, note, period_id}` | 周期日志分页；仅疼痛或 note 有值的行，日期与 id 倒序 |
+| `PUT /api/cycle/pain/{log_date}` | 路径参数 + JSON | 路径 `log_date`；体 `pain_level`（0~3） | `{ok, log_date, pain_level, period_id}` | 按日写入/覆盖疼痛等级；仅 recorded 经期可写，返回归属的 `period_records.id` |
+| `PUT /api/cycle/note/{log_date}` | 路径参数 + JSON | 路径 `log_date`；体 `note`（≤255，可空串清空） | `{ok, log_date, note, pain_level, period_id}` | 写入/覆盖当日 note；非经期日保存时 `pain_level`、`period_id` 置 null |
+| `GET /api/cycle/calendar` | Query | `month`（`YYYY-MM`） | 周期月历（A.10） | 逐日阶段、双份激素文案、四档状态、三态经期、疼痛 / note 与今日概览 |
 
 > 男性账号访问本模块全部 API 返回 403 `{code:"FORBIDDEN", error:"男性账号不开放生理周期模块"}`。
 
@@ -186,10 +190,14 @@
 
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
-| `GET /profile` | 无 | 无 | HTML 页面 | 个人信息页（账号创建/更新时间） |
+| `GET /profile` | 无 | 无 | HTML 页面 | 账号资料页（基本资料、密码、注销；显示账号创建/更新时间） |
+| `GET /profile/health-profile` | 无 | 无 | HTML 页面 | 健康/运动档案页：未填写直接展示问卷，已填写展示答案并支持编辑/清空 |
 | `POST /api/profile` | JSON | `display_name`（≤32，必填）、`gender`（`男`/`女`/空）、`age`（字符串，空或 1~120） | `{ok, display_name, gender, age}` | 更新基本资料，返回最新值供顶栏同步 |
 | `POST /api/profile/password` | JSON | `current_password`、`new_password`、`confirm_password` | `{ok}` | 修改密码：校验当前密码、两次新密码一致、新密码 ≥6 且不得与旧密码相同 |
 | `DELETE /api/profile/account` | JSON | `mode`（`retain`/`purge`）、`current_password` | `{ok}` | 注销账号：`retain` 停用保留数据，`purge` 删除用户及全部关联数据；成功后清会话 |
+| `GET /api/profile/health-profile` | 无 | 无 | `{ok, filled, completed_at, answers{题目key: 文本}}` | 读取健康/运动档案；未填写时 `filled=false`、`answers={}` |
+| `PUT /api/profile/health-profile` | JSON | `answers{题目key: 文本}`（key 须为 `questions.py` 定义的题目；未传的题保持原值，空串清空该题；单题长度按题目上限） | `{ok, filled, completed_at, answers}` | 保存档案；全部答案清空时删除档案行并返回 `filled=false`；未知 key 或超长 400 |
+| `DELETE /api/profile/health-profile` | 无 | 无 | `{ok}` | 清空档案（删除档案行），页面回到问卷态 |
 
 ## 10. 总览 overview
 
@@ -216,13 +224,20 @@
 | --- | --- | --- | --- | --- |
 | `GET /agent` | 无 | 无 | HTML 页面 | AI 助手页（会话列表 + 对话区 + 模型下拉） |
 | `GET /agent/skills` | 无 | 无 | HTML 页面 | 技能管理页（平台/我的技能列表 + 用户提示词编辑/平台只读展示） |
-| `GET /api/agent/conversations` | 无 | 无 | `{list:[会话对象]}` | 当前用户会话列表，按最近消息时间倒序 |
-| `POST /api/agent/conversations` | JSON | `model_name`（可选，≤64） | 会话对象（A.11） | 新建会话（分配 `thread_id`）；模型不支持 400 |
+| `GET /agent/personas` | 无 | 无 | HTML 页面 | 角色管理页（平台角色只读 + 用户角色提示词编辑，保存即生效） |
+| `GET /api/agent/conversations` | 无 | 无 | `{list:[会话对象（A.11）]}` | 当前用户会话列表，按最近消息时间倒序；含角色会话标识与角色名 |
+| `POST /api/agent/conversations` | JSON | `model_name`（可选，≤64）、`persona_id`（可选，角色 id） | 会话对象（A.11） | 新建会话（分配 `thread_id`）；传 `persona_id` 即创建角色会话并固定该角色版本，之后不可切换；模型不支持 400，角色不可用 400/403 |
 | `PUT /api/agent/conversations/{conversation_id}` | 路径参数 + JSON | 路径 `conversation_id`；体 `title`（1~64） | 会话对象（A.11） | 重命名会话；不存在 404 |
 | `DELETE /api/agent/conversations/{conversation_id}` | 路径参数 | 路径 `conversation_id` | `{ok}` | 硬删除会话与 checkpointer 线程；生成中 409，不存在 404 |
-| `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, turns:[{user, assistant（可空）, tool_runs:[{tool, args, data（可空）}]}]}` | 按一轮问答聚合读取历史，含工具调用轨迹，供前端重建工具状态与明细折叠 |
+| `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, persona:{id,key,name,version_no}（可空）, turns:[{user, assistant（可空）, tool_runs:[{tool, args, data（可空）}]}]}` | 按一轮问答聚合读取历史，含工具调用轨迹与当前角色快照，供前端重建工具状态与明细折叠 |
 | `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；前置校验失败以 JSON 返回 400/404/409 |
 | `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；前置校验失败以 JSON 返回 400/404/409 |
+| `GET /api/agent/personas` | 无 | 无 | `{list:[角色对象（A.20）]}` | 平台内置角色（2 个）+ 当前用户私有角色 |
+| `GET /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | 角色对象（A.20） | 角色详情；不存在 404，非本人用户角色 403 |
+| `POST /api/agent/personas` | JSON | `name`（1~48）、`key`（1~48）、`description`（≤200）、`definition{schema_version,prompt}` | 角色对象（A.20） | 创建用户私有角色，保存即生成 v1 并生效；定义或键/名冲突 400 |
+| `PUT /api/agent/personas/{persona_id}` | 路径参数 + JSON | 路径 `persona_id`；体同 `POST` | 角色对象（A.20） | 保存用户角色：定义变化才新增版本并立即生效，已有角色会话仍用旧版本；平台角色 403 |
+| `POST /api/agent/personas/{persona_id}/status` | 路径参数 + JSON | 路径 `persona_id`；体 `status`（`active`/`disabled`） | 角色对象（A.20） | 启用/停用角色；停用只禁止新建角色会话，已绑定会话仍可继续；平台角色 403 |
+| `DELETE /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | `{ok}` | 删除用户角色及其版本；被角色会话引用时 409，平台角色 403 |
 | `GET /api/agent/skills` | 无 | 无 | `{list:[技能对象（A.14）]}` | 当前用户可见的平台技能与自己的私有技能 |
 | `GET /api/agent/skills/runs` | Query | `limit`（默认 20，最大 100） | `{list:[技能运行记录（A.15）]}` | 当前用户全部技能运行记录；此路由必须位于 `/{skill_id}` 之前 |
 | `POST /api/agent/skills/validate` | JSON | `kind`（仅 `prompt`，默认 `prompt`）、`definition`（可空，定义对象） | `{ok, errors[], warnings[]}` | 校验用户提示词定义，不落库 |
@@ -244,7 +259,7 @@
 | `delta` | `content` | 正文增量 token |
 | `tool_start` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`args` | 模型或斜杠链路发起工具/技能调用 |
 | `tool_result` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`data` | 工具/技能返回结果（对象或 `{text}`）；技能结果含 `outputs/caveats/meta` |
-| `done` | `conversation_id`、`title`、`last_message_at` | 生成完成；首条消息自动取前 12 字作标题 |
+| `done` | `conversation_id`、`title`、`last_message_at`、`persona`（可空，`{id,key,name,version_no}`） | 生成完成；首条消息自动取前 12 字作标题 |
 | `error` | `message` | 生成失败（固定文案） |
 
 > 同一会话同时只允许一个生成；重复 `client_msg_id` 返回 409。`X-Accel-Buffering: no`、`Cache-Control: no-cache`。消息内容以 `/技能名 自由文本` 开头时走技能解析；缺参数先返回一条追问 delta 并写入历史，下一条普通文本自动合并原命令继续解析。
@@ -261,7 +276,30 @@
 
 > 报告只统计 `recorded` 记录；计划单独计数、不计入训练量。热量沿用总览口径只汇总游泳+舞蹈。未结束周期仍返回 `period_end`（周日/月末），事实截至 `as_of` 并标 `partial`；未来周期读取/生成返回 400。
 
-## 14. 响应对象字典
+## 14. 每日训练建议 daily_advice
+
+| 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
+| --- | --- | --- | --- | --- |
+| `GET /api/daily-advice` | Query | `date`（可选，`YYYY-MM-DD`，默认今天） | 每日建议视图（A.19） | 读取某天的建议；无行 `status="none"`，其余字段为 `null` |
+| `POST /api/daily-advice/regenerate` | JSON | `date`（可选，仅允许今天）、`force`（bool，默认 `false`） | 每日建议视图（A.19） | 生成或复用当天建议；跨天 400，生成中 409，模型失败 502 |
+
+> 只读本人当天一行，返回体不含 `facts` 与 `data_hash`。侧栏刷新按钮发送 `force=true`；同一行 60 秒内重复刷新直接返回已有结果，避免连点刷模型。`text` 为三段要点（今日建议 ≤20 字 / 健身建议 ≤20 字 / 依据 ≤40 字，每行 `- ` 开头、`\n` 分隔、句末无句号），前端用 `pre-line` 原样换行。
+
+## 15. 定时任务 scheduler
+
+| 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
+| --- | --- | --- | --- | --- |
+| `GET /system/scheduler` | 无 | 无 | HTML 页面 | 任务卡列表、新建/编辑弹窗与执行历史 |
+| `GET /api/scheduler/jobs` | 无 | 无 | `{list[], total}`，元素为 `scheduled_job`（A.17） | 任务列表：表达式、下次执行、上次结果与累计次数 |
+| `POST /api/scheduler/jobs` | JSON | `job_key`（必填，须存在于代码注册表）、`trigger_type`（`cron`/`date`/`interval`）、`trigger_expr`（必填）、`timezone`（可空，默认 Asia/Shanghai）、`params`（对象，默认 `{}`）、`enabled`（默认 true）、`misfire_grace_seconds`（可空，0~86400） | `scheduled_job`（201） | 新建任务；表达式与参数在此校验，保存即注册内存作业 |
+| `PATCH /api/scheduler/jobs/{job_id}` | JSON | 上述字段均可选且可空（`job_key` 不可改） | `scheduled_job` | 改表达式 / 启停 / 改名；停用即移除内存作业 |
+| `DELETE /api/scheduler/jobs/{job_id}` | 路径参数 | 无 | `{ok: true}` | 删除任务定义与其执行记录 |
+| `POST /api/scheduler/jobs/{job_id}/run` | 路径参数 | 无 | `{status, message, duration_ms, detail}` | 立即执行一次（线程池内同步跑，写入 `job_runs`） |
+| `GET /api/scheduler/runs` | Query | `job_id`（可选）、`page`、`page_size`（默认 20） | 分页包，`list[]` 为 `job_run`（A.18） | 执行历史，按开始时间倒序 |
+
+> 表达式口径：cron 为标准五段式（分 时 日 月 星期），**星期字段只接受 mon~sun 英文缩写**，数字写法返回 400；interval 形如 `10m`/`2h`/`1d`（最小 60 秒）；date 形如 `2026-11-20 15:40` 且必须晚于当前时间。任务参数结构由代码注册表约束，多余字段返回 422。任务为实例级配置，不按用户隔离。「立即执行」为同步执行，耗时较长时请求会等待。
+
+## 16. 响应对象字典
 
 ### A.1 分页包
 
@@ -354,9 +392,9 @@
 | 字段 | 说明 |
 | --- | --- |
 | `year`、`month`、`days[]` | 年月与逐日数据 |
-| `days` 单项 | `{date, phase_key, phase_label, phase_source, sport_level, sport_label, hormone_text, is_period, period_state, period_label, pain_level, pain_recorded, is_recorded_start, cycle_day, segment_source}`；`hormone_text` 为当前阶段双份文案中的一份（含换行，70 字内），无阶段为 `null` |
+| `days` 单项 | `{date, phase_key, phase_label, phase_source, sport_level, sport_label, hormone_text, is_period, period_state, period_label, pain_level, pain_recorded, note, is_recorded_start, cycle_day, segment_source}`；`hormone_text` 为当前阶段双份文案中的一份（含换行，70 字内）；`pain_level` 可空（仅经期可写）；`note` 为当日 note 或 null |
 | `overview` | `{has_records, reference_cycle_length, reference_period_length, latest_cycle_length, latest_period_length, next_period, overdue_days, ovulation_date, cycle_day_today, cycle_length_today, today_source, progress}` |
-| `today` | `{date, phase_key, phase_label, sport_level, sport_label}` |
+| `today` | `{date, phase_key, phase_label, sport_level, sport_label, note}` |
 
 ### A.11 会话对象 Conversation
 
@@ -364,6 +402,8 @@
 | --- | --- |
 | `id`、`title`、`model_name` | 主键、标题、会话级模型（可空） |
 | `thread_id` | LangGraph 线程 UUID（checkpointer 键） |
+| `kind` | `default` 普通会话 / `persona` 角色会话；由 `persona_id` 派生，不落库 |
+| `persona_id` / `persona_name` / `persona_version_no` / `persona_status` | 角色会话绑定的角色、显示名、创建时版本号、角色当前状态；普通会话均为 `null` |
 | `last_message_at`、`created_at` | 最近消息时间、创建时间 |
 
 ### A.12 AI 导入结果
@@ -425,12 +465,65 @@
 | `report.narrative` | `{headline,summary,highlights[]{title,detail,evidence[]},watchouts[]{...},next_actions[]{...},caveats[],cycle_note}`；`evidence` 为 `facts.metrics` 的真实 key |
 | `status` / `stale` / `auto_enabled` | 页面状态（`none` / `generating` / `ready` / `failed` / `deleted`）、数据是否已过期、自动生成是否启用 |
 
+### A.17 定时任务对象 ScheduledJob
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` / `job_key` / `name` | 主键、代码注册表任务键、显示名 |
+| `job_desc` / `available` | 注册表里的任务说明；`available=false` 表示该任务键已从代码中移除 |
+| `trigger_type` / `trigger_expr` | `cron` / `date` / `interval` 与原始表达式 |
+| `trigger_display` | 中文描述，如「每周一 08:00」「每月 1 日 08:00」「每 10 分钟」 |
+| `timezone` | 触发时区 |
+| `params` | 任务参数对象（结构由注册表 schema 约束） |
+| `enabled` | 是否启用（停用时不注册内存作业） |
+| `misfire_grace_seconds` | 错过宽限秒数；`null` 表示用全局默认 |
+| `next_run_at` | 下次触发时间；调度器未运行时为 `null` |
+| `last_run_at` / `last_status` / `last_status_label` | 上次执行时间与结果（`success` 成功 / `failed` 失败 / `skipped` 已跳过 / `running` 执行中） |
+| `last_message` / `last_duration_ms` / `run_count` | 上次结果摘要、耗时、累计执行次数（含手动） |
+
+### A.18 执行记录对象 JobRun
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` / `job_id` / `job_key` / `job_name` | 记录主键、所属任务（可空）、任务键与显示名 |
+| `source` / `source_label` | `schedule` 定时 / `manual` 手动 / `cli` 命令行 |
+| `status` / `status_label` | `running` / `success` / `failed` / `skipped` 与中文标签 |
+| `started_at` / `duration_ms` | 开始时间与耗时 |
+| `message` | 结果摘要或失败原因 |
+
 > 导入语义：失败行/计划只记录错误，不阻断其他行；健身、游泳、舞蹈导入一律落 `recorded`，不覆盖已有数据。
 
-## 15. 维护
+### A.19 每日训练建议 DailyAdviceView
+
+| 字段 | 说明 |
+| --- | --- |
+| `date` | 建议所属日 |
+| `status` / `mode` | `none`（未生成）/ `generating` / `ready` / `failed`；`ai`（模型生成）/ `rule`（无数据规则文案） |
+| `verdict` / `focus` / `intensity` | 适合 / 克制 / 休息；有氧 / 无氧 / 有氧+无氧 / 恢复；低 / 中 / 高（未生成时为 `null`） |
+| `body_parts` | 建议的健身部位数组，最多 2 个；休息与纯有氧日为空数组 |
+| `text` | 侧栏三段要点：今日建议 ≤20 字 / 健身建议 ≤20 字 / 依据 ≤40 字，每行以 `- ` 开头、行间用 `\n` 分隔、句末不带句号 |
+| `tag` | 标签色语义 `good` / `average` / `rest`，对应页面 `tag-good` / `tag-average` / `tag-rest` |
+| `generated_at` | 生成完成时间；未生成为 `null` |
+| `error` | 失败时 `{code, message}`，否则为 `null` |
+
+### A.20 角色对象 Persona
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` / `scope` / `key` | 主键、`system` 平台内置 / `user` 用户私有、稳定角色键 |
+| `name` / `description` | 角色显示名、角色定位 |
+| `status` | `active` / `disabled` |
+| `sort_order` | 平台角色排序；用户角色为 0 |
+| `current_version_no` / `version_no` | 当前生效版本 / 本次返回版本 |
+| `published` | 返回版本是否已发布 |
+| `can_edit` / `can_delete` | 当前用户是否可编辑/删除；平台角色均为否 |
+| `definition` | 角色定义 `{schema_version:1, prompt}`；平台角色只读展示 |
+| `updated_at` | 更新时间 |
+
+## 17. 维护
 
 - 本文件人工维护，不由代码自动生成；只增删改与代码一致的内容。
 - 新增、删除、改方法、改路径、改入参/出参、改权限或改返回形态时，同步修改对应模块表格与 1.3 的计数。
-- 复用度高的响应对象只在第 13 节定义一次，表格引用对象名，不重复展开。
+- 复用度高的响应对象只在第 16 节定义一次，表格引用对象名，不重复展开。
 - 本文件只写接口契约；业务规则、算法口径和实现细节见 `docs/ARCHITECTURE.md` 与各专项文档。
 - 完整维护契约见根目录 `AGENTS.md` 第六节。

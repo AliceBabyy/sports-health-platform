@@ -1,7 +1,7 @@
-"""AI Agent 会话表：会话元数据与 LangGraph 线程映射。
+"""AI Agent 会话与角色表：会话元数据、LangGraph 线程映射、多角色 Persona。
 
 消息不建独立表，由 PostgresSaver checkpointer 持久化在框架表（schema langgraph）；
-本表只存会话归属、标题、模型与 thread_id（对应 LangGraph 线程）。
+会话表只存归属、标题、模型、thread_id 与角色绑定（普通会话 persona 两列为空）。
 """
 from datetime import datetime
 from uuid import UUID
@@ -30,8 +30,12 @@ AUTO_TITLE_LEN = 12
 class AgentConversation(Base):
     __tablename__ = "agent_conversations"
     __table_args__ = (
+        CheckConstraint(
+            "((persona_id IS NULL) = (persona_version_no IS NULL))",
+            name="ck_agent_conversations_persona",
+        ),
         Index("ix_agent_conversations_user_last", "user_id", text("last_message_at DESC")),
-        {"comment": "AI Agent 会话（元数据 + LangGraph thread_id；消息由 checkpointer 管理）"},
+        {"comment": "AI Agent 会话（元数据 + LangGraph thread_id + 角色绑定；消息由 checkpointer 管理）"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
@@ -46,6 +50,13 @@ class AgentConversation(Base):
     model_name: Mapped[str | None] = mapped_column(
         String(64), nullable=True, comment="会话级模型（可空，用默认模型）",
     )
+    persona_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("agent_personas.id"), nullable=True,
+        comment="角色会话绑定的角色 FK；普通会话为空，创建后不可切换",
+    )
+    persona_version_no: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="创建会话时绑定的角色版本号，保证历史会话不随角色改版漂移",
+    )
     thread_id: Mapped[UUID] = mapped_column(
         Uuid, nullable=False, unique=True, comment="LangGraph 线程 ID（checkpointer 键）",
     )
@@ -57,6 +68,78 @@ class AgentConversation(Base):
         DateTime, server_default=func.now(), onupdate=func.now(),
         comment="更新时间（ORM onupdate 自动刷新）",
     )
+
+
+PERSONA_SCOPES = ("system", "user")
+PERSONA_STATUSES = ("active", "disabled")
+
+
+class AgentPersona(Base):
+    """角色主表：平台内置角色（scope=system）与用户自定义角色（scope=user）。
+
+    角色只提供一段人设提示词；可用工具与技能由服务端代码统一装配，不因角色差异而改变。
+    """
+    __tablename__ = "agent_personas"
+    __table_args__ = (
+        CheckConstraint("scope IN ('system', 'user')", name="ck_agent_personas_scope"),
+        CheckConstraint(
+            "(scope = 'system' AND owner_user_id IS NULL) "
+            "OR (scope = 'user' AND owner_user_id IS NOT NULL)",
+            name="ck_agent_personas_owner",
+        ),
+        CheckConstraint("status IN ('active', 'disabled')", name="ck_agent_personas_status"),
+        Index("uq_agent_personas_system_key", "persona_key", unique=True,
+              postgresql_where=text("scope = 'system'"), sqlite_where=text("scope = 'system'")),
+        Index("uq_agent_personas_user_key", "owner_user_id", "persona_key", unique=True,
+              postgresql_where=text("scope = 'user'"), sqlite_where=text("scope = 'user'")),
+        Index("ix_agent_personas_list", "scope", "status", "sort_order"),
+        {"comment": "AI 角色（平台内置只读 + 用户私有自定义提示词角色）"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, comment="归属：system / user")
+    owner_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True,
+        comment="用户角色归属；平台内置角色为空",
+    )
+    persona_key: Mapped[str] = mapped_column(String(48), nullable=False, comment="稳定键，供种子幂等与后续工具授权使用")
+    name: Mapped[str] = mapped_column(String(48), nullable=False, comment="角色显示名")
+    description: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="", comment="角色定位，供列表展示与人设段渲染",
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active", server_default="active",
+        comment="状态：active / disabled（停用后不可新建角色会话，已有会话仍可继续）",
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0", comment="平台角色排序；用户角色不参与",
+    )
+    current_version_no: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="当前生效版本号；未发布为空",
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")
+
+
+class AgentPersonaVersion(Base):
+    """角色版本：定义固定为 {schema_version, prompt}；保存即生成新版本并立即生效。"""
+    __tablename__ = "agent_persona_versions"
+    __table_args__ = (
+        Index("uq_agent_persona_versions_no", "persona_id", "version_no", unique=True),
+        {"comment": "AI 角色版本（人设提示词定义与发布快照）"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
+    persona_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("agent_personas.id", ondelete="CASCADE"), nullable=False, comment="角色 FK",
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="版本号，从 1 递增")
+    definition: Mapped[dict] = mapped_column(JSON, nullable=False, comment="角色定义 JSON：{schema_version, prompt}")
+    definition_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="", comment="定义 SHA-256，便于审计")
+    validation: Mapped[dict | None] = mapped_column(JSON, nullable=True, comment="最近一次校验结果（errors/warnings）")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="创建人 user_id")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, comment="生效时间；NULL 表示草稿")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
 
 
 SKILL_SCOPES = ("system", "user")

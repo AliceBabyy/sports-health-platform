@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.modules.agent.models import AgentSkill, AgentSkillVersion
 from app.modules.agent.skills.definition import DefinitionInvalid, parse_definition
 from app.modules.agent.skills.platform import CODE_SKILLS
+from app.modules.agent.tools.policy import tool_visible
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,8 @@ def resolve_row(db: Session, row: AgentSkill) -> ResolvedSkill | None:
     )
 
 
-def available_skills(db: Session, user_id: int) -> list[ResolvedSkill]:
+def available_skills(db: Session, user_id: int, persona_key: str | None = None) -> list[ResolvedSkill]:
+    """当前用户可用技能；persona_key 用于角色级技能过滤（当前注册表为空，等价于不过滤）。"""
     rows = (
         db.query(AgentSkill)
         .filter(AgentSkill.status == "active")
@@ -76,14 +78,17 @@ def available_skills(db: Session, user_id: int) -> list[ResolvedSkill]:
     resolved = []
     for row in rows:
         skill = resolve_row(db, row)
-        if skill is not None:
-            resolved.append(skill)
+        if skill is None:
+            continue
+        if not tool_visible(skill.tool_name, persona_key):
+            continue
+        resolved.append(skill)
     return resolved
 
 
-def find_by_slash(db: Session, user_id: int, token: str) -> ResolvedSkill | None:
+def find_by_slash(db: Session, user_id: int, token: str, persona_key: str | None = None) -> ResolvedSkill | None:
     token = token.strip().lower()
-    for skill in available_skills(db, user_id):
+    for skill in available_skills(db, user_id, persona_key):
         if skill.key.lower() == token or skill.name.lower() == token:
             return skill
         row = db.get(AgentSkill, skill.id)

@@ -91,7 +91,7 @@ DEFAULT_CYCLE_LENGTH = 28
 DEFAULT_PERIOD_LENGTH = 5
 # 排卵日 = 段长 - 该偏移（黄体期固定 14 天，锚定下一次月经首日）
 OVULATION_OFFSET = 14
-# cycle_settings 仅作参考值：用于当前段、预测段与补推段，不参与真实段推算
+# period_setting 仅作参考值：用于当前段、预测段与补推段，不参与真实段推算
 REFERENCE_CYCLE_MIN = 22
 REFERENCE_CYCLE_MAX = 45
 REFERENCE_PERIOD_MIN = 2

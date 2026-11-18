@@ -9,6 +9,7 @@ from config import settings
 
 class ConversationIn(BaseModel):
     model_name: str | None = Field(default=None, max_length=64)
+    persona_id: int | None = Field(default=None, ge=1)
 
 
 class ConversationRenameIn(BaseModel):
@@ -47,3 +48,14 @@ class SkillTestIn(BaseModel):
 class SkillValidateIn(BaseModel):
     kind: Literal["prompt"] | None = None
     definition: dict[str, Any] | None = None
+
+
+class PersonaIn(BaseModel):
+    name: str = Field(min_length=1, max_length=48)
+    key: str = Field(min_length=1, max_length=48)
+    description: str = Field(default="", max_length=200)
+    definition: dict[str, Any]
+
+
+class PersonaStatusIn(BaseModel):
+    status: Literal["active", "disabled"]

@@ -6,7 +6,7 @@
 - 条件边：agent 最后一条消息带 tool_calls 则继续工具循环，否则结束。
 身份（user_id）由服务端经 config 注入，工具从 config 读取，模型不可填。
 """
-from datetime import date
+from datetime import datetime
 
 from langchain_core.messages import SystemMessage, convert_to_openai_messages
 from langchain_core.messages.utils import trim_messages
@@ -16,6 +16,7 @@ from langgraph.prebuilt import ToolNode
 
 from app.ai.models.registry import get_model
 from app.ai.prompts.loader import load_system_prompt
+from app.modules.agent.personas.runtime import DEFAULT_PERSONA_BLOCK
 from app.modules.agent.tools import ALL_TOOLS
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
 
@@ -57,12 +58,16 @@ def make_agent_node(tools, capabilities: str):
         model_name = config["configurable"].get("model_name")
         model = get_model(model_name, required="tools").bind_tools(tools)
 
-        today = date.today()
+        now = datetime.now()
+        configurable = config["configurable"]
+        persona_block = configurable.get("persona_block") or DEFAULT_PERSONA_BLOCK
         system_text = load_system_prompt(
-            "agent_chat.v4",
-            today=today.isoformat(),
-            weekday="周" + "一二三四五六日"[today.weekday()],
+            "agent_chat.v6",
+            today=now.date().isoformat(),
+            weekday="周" + "一二三四五六日"[now.weekday()],
+            now_time=now.strftime("%H:%M"),
             capabilities=capabilities,
+            persona_block=persona_block,
         )
 
         trimmed = trim_messages(

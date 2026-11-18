@@ -48,7 +48,32 @@
   padding: 8px 10px;
   color: var(--color-text);
 }
+.session-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .session-new svg { flex: none; }
+.session-new-persona { color: var(--color-text-secondary); }
+.session-new-persona:hover { color: var(--color-text); }
+.session-item .s-persona {
+  flex: none;
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+.s-menu-tag {
+  margin-left: auto;
+  padding-left: 10px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
 
 .session-list {
   display: flex;

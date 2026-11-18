@@ -1,6 +1,7 @@
 /* AI Agent 前端：会话管理、消息渲染、fetch + ReadableStream 手动解析 SSE（EventSource 不支持 POST） */
 (function () {
   const conversations = [...window.INIT_CONVERSATIONS];
+  const personas = [...(window.INIT_PERSONAS || [])];
   // 进入页面默认停留在一个新会话窗口，不自动选中历史会话；首条消息发送时才惰性创建后端会话
   let currentId = null;
   let streaming = false;
@@ -28,6 +29,7 @@
     workbench: document.getElementById("agentWorkbench"),
     sessionList: document.getElementById("sessionList"),
     btnNewChat: document.getElementById("btnNewChat"),
+    btnNewPersona: document.getElementById("btnNewPersona"),
     btnToggleSessions: document.getElementById("btnToggleSessions"),
     chatTitle: document.getElementById("chatTitle"),
     chatBody: document.getElementById("chatBody"),
@@ -41,6 +43,21 @@
     skillSuggest: document.getElementById("skillSuggest"),
     suggestList: document.getElementById("suggestList"),
   };
+
+  /* 局域网 IP + HTTP 属非安全上下文，crypto.randomUUID 不存在；按 getRandomValues/Math.random 降级 */
+  function newClientMsgId() {
+    const c = window.crypto;
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+    if (c && typeof c.getRandomValues === "function") {
+      const bytes = c.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+      return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) +
+        "-" + hex.slice(16, 20) + "-" + hex.slice(20);
+    }
+    return "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
 
   /* ---------- 欢迎语 ---------- */
   function greeting() {
@@ -71,6 +88,9 @@
     els.sessionList.innerHTML = conversations.map(c =>
       '<div class="session-item' + (c.id === currentId ? ' active' : '') + '" data-id="' + c.id + '">' +
         '<span class="s-title">' + App.escapeHtml(c.title) + '</span>' +
+        (c.kind === "persona" && c.persona_name
+          ? '<span class="s-persona">' + App.escapeHtml(c.persona_name) + '</span>'
+          : '') +
         '<span class="s-actions">' +
           '<button class="s-more" data-act="menu" type="button" title="更多" aria-label="更多">' + ICON_MORE + '</button>' +
         '</span>' +
@@ -80,8 +100,10 @@
 
   /* 会话操作菜单：body 级固定定位弹层，避免被侧栏滚动容器裁剪 */
   function closeMenus() {
-    const m = document.getElementById("sessionMenu");
-    if (m) m.classList.remove("open");
+    ["sessionMenu", "personaMenu"].forEach(id => {
+      const m = document.getElementById(id);
+      if (m) m.classList.remove("open");
+    });
   }
 
   function openSessionMenu(id, anchorBtn) {
@@ -221,18 +243,19 @@
     closeSkillSuggest();
     currentId = id;
     const conv = current();
-    els.chatTitle.textContent = conv ? conv.title : "";
+    els.chatTitle.textContent = conv
+      ? (conv.persona_name ? conv.title + " · " + conv.persona_name : conv.title)
+      : "";
     syncModelSelect(conv);
     renderSessions();
     await loadMessages(conv);
   }
 
   /* ---------- 新建 / 重命名 / 删除 ---------- */
-  async function createConversation() {
-    const conv = await App.api("/api/agent/conversations", {
-      method: "POST",
-      body: { model_name: els.chatModel.value || null },
-    });
+  async function createConversation(personaId) {
+    const body = { model_name: els.chatModel.value || null };
+    if (personaId) body.persona_id = personaId;
+    const conv = await App.api("/api/agent/conversations", { method: "POST", body });
     conversations.push(conv);
     renderSessions();
     return conv;
@@ -254,6 +277,48 @@
     } catch (err) {
       App.toast(err.message, true);
     }
+  }
+
+  async function newPersonaChat(personaId) {
+    if (streaming) return;
+    try {
+      const conv = await createConversation(personaId);
+      await selectConversation(conv.id);
+    } catch (err) {
+      App.toast(err.message, true);
+    }
+  }
+
+  /* 角色选择弹层：与「新建会话」并排，创建后整个会话固定该角色，不可切换 */
+  function openPersonaMenu(anchorBtn) {
+    if (streaming) return;
+    if (!personas.length) { App.toast("暂无可用角色"); return; }
+    closeMenus();
+    let menu = document.getElementById("personaMenu");
+    if (!menu) {
+      menu = document.createElement("div");
+      menu.id = "personaMenu";
+      menu.className = "s-menu";
+      document.body.appendChild(menu);
+      menu.addEventListener("click", e => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        closeMenus();
+        newPersonaChat(Number(b.dataset.personaId));
+      });
+    }
+    menu.innerHTML = personas.map(p =>
+      '<button type="button" data-persona-id="' + p.id + '">' +
+        App.escapeHtml(p.name) +
+        (p.scope === "system" ? '<span class="s-menu-tag">内置</span>' : '') +
+      '</button>'
+    ).join("");
+    const r = anchorBtn.getBoundingClientRect();
+    menu.classList.add("open");
+    menu.style.right = "auto";
+    menu.style.left = r.left + "px";
+    menu.style.bottom = "auto";
+    menu.style.top = Math.min(r.bottom + 4, window.innerHeight - 12 - personas.length * 34) + "px";
   }
 
   function startRename(id) {
@@ -620,6 +685,7 @@
     streaming = on;
     els.btnSend.disabled = on;
     els.btnNewChat.disabled = on;
+    els.btnNewPersona.disabled = on;
   }
 
   async function send() {
@@ -651,7 +717,7 @@
 
     const payload = {
       content: text,
-      client_msg_id: crypto.randomUUID(),
+      client_msg_id: newClientMsgId(),
     };
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
@@ -741,12 +807,12 @@
     const toolRuns = [];
     setStreamingUI(true);
 
-    const payload = { client_msg_id: crypto.randomUUID() };
-    if (els.chatModel.value) payload.model_name = els.chatModel.value;
-
     let failure = null;
     let acc = "";
     try {
+      const payload = { client_msg_id: newClientMsgId() };
+      if (els.chatModel.value) payload.model_name = els.chatModel.value;
+
       const res = await fetch("/api/agent/conversations/" + conv.id + "/messages/regenerate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -964,6 +1030,7 @@
     loadSkillOptions();
 
     els.btnNewChat.addEventListener("click", newChat);
+    els.btnNewPersona.addEventListener("click", () => openPersonaMenu(els.btnNewPersona));
     els.btnToggleSessions.addEventListener("click", () => {
       const collapsed = els.workbench.classList.contains("sessions-collapsed");
       localStorage.setItem(SIDEBAR_KEY, collapsed ? "0" : "1");

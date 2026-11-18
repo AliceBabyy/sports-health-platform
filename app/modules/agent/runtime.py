@@ -5,6 +5,7 @@
 建表迁移即落到该 schema。
 
 V2.4：系统图常驻；用户有私有技能时，按 (user_id, 技能版本指纹) 编译并缓存独立图。
+多角色只影响 system prompt，不参与图装配；仅当角色被授予专用工具时，角色指纹才进入缓存 key。
 """
 import re
 
@@ -17,6 +18,7 @@ from app.modules.agent.graph import build_graph, default_capabilities
 from app.modules.agent.skills.registry import ResolvedSkill, available_skills, skill_capabilities
 from app.modules.agent.tools import ALL_TOOLS
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
+from app.modules.agent.tools.policy import persona_graph_fingerprint, tools_for_persona
 from app.modules.agent.tools.skill_definitions import build_skill_tool
 from config import settings
 from database import SessionLocal
@@ -29,8 +31,8 @@ def _pg_conn_string() -> str:
     return re.sub(r"^postgresql\+\w+://", "postgresql://", settings.database_url)
 
 
-def _capabilities(skills: list[ResolvedSkill]) -> str:
-    text = default_capabilities(ALL_TOOLS)
+def _capabilities(skills: list[ResolvedSkill], tools=None) -> str:
+    text = default_capabilities(tools or ALL_TOOLS)
     if skills:
         text += "\n\n## 技能（可通过自然语言或 /技能名 触发）\n" + skill_capabilities(skills)
     else:
@@ -38,13 +40,14 @@ def _capabilities(skills: list[ResolvedSkill]) -> str:
     return text
 
 
-def build_user_graph(saver, skills: list[ResolvedSkill]):
+def build_user_graph(saver, skills: list[ResolvedSkill], persona=None):
     tools = [
         *ALL_TOOLS,
         *ACTION_TOOLS,
         *(build_skill_tool(skill) for skill in skills),
     ]
-    return build_graph(saver, tools, _capabilities(skills))
+    tools = tools_for_persona(tools, persona.key if persona is not None else None)
+    return build_graph(saver, tools, _capabilities(skills, tools))
 
 
 async def init_agent_runtime() -> dict:
@@ -81,19 +84,20 @@ async def init_agent_runtime() -> dict:
     }
 
 
-def graph_for_user(db: Session, user_id: int, runtime: dict):
-    """返回该用户当前技能集对应的编译图；无私有技能时复用系统图。"""
-    skills = available_skills(db, user_id)
+def graph_for_user(db: Session, user_id: int, runtime: dict, persona=None):
+    """返回该用户当前技能集（及角色工具范围）对应的编译图；无差异时复用系统图。"""
+    skills = available_skills(db, user_id, persona.key if persona is not None else None)
     user_skills = [s for s in skills if s.scope == "user"]
-    if not user_skills:
+    persona_fp = persona_graph_fingerprint(persona)
+    if not user_skills and not persona_fp:
         return runtime["system_graph"]
 
     fingerprint = ",".join(f"{s.id}:{s.version_no}:{s.kind}" for s in skills)
-    key = (user_id, fingerprint)
+    key = (user_id, fingerprint, persona_fp)
     cached = runtime["graphs"].get(key)
     if cached is not None:
         return cached
-    graph = build_user_graph(runtime["saver"], skills)
+    graph = build_user_graph(runtime["saver"], skills, persona)
     if len(runtime["graphs"]) >= MAX_CACHED_GRAPHS:
         runtime["graphs"].pop(next(iter(runtime["graphs"])))
     runtime["graphs"][key] = graph

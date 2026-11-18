@@ -32,12 +32,26 @@ class Settings(BaseSettings):
     agent_max_input_chars: int = 2000
     agent_pool_min_size: int = 1
     agent_pool_max_size: int = 10
+    # 多角色（V2.4）：用户私有角色配额与人设提示词长度上限
+    agent_persona_max_per_user: int = 10
+    agent_persona_max_chars: int = 2000
     # AI 运动报告（2026-11-17）：周报周一生成上周、月报每月 1 日生成上月；
-    # 自动生成不在应用进程内，由系统计划任务调用 scripts/generate_reports.py --scan。
+    # 自动触发由应用内调度器完成（见下方 scheduler_*），不再依赖操作系统计划任务。
     report_auto_enabled: bool = True
     report_model: str = ""  # 留空用 ai_default_model
     report_timeout_seconds: float = 60.0
     report_max_attempts: int = 3
+    # 侧栏每日训练建议（V2.8）：00:01 生成当天一份；启动后补跑当天缺失的行
+    advice_auto_enabled: bool = True
+    advice_timeout_seconds: float = 30.0
+    advice_max_attempts: int = 3
+    # 启动补跑延迟秒数；0 表示不补跑（错过仍可手动刷新）
+    advice_startup_catchup_seconds: int = 60
+    # 应用内定时任务（2026-11-17）：APScheduler 后台线程 + scheduled_jobs 表
+    scheduler_enabled: bool = True
+    scheduler_timezone: str = "Asia/Shanghai"
+    # 错过宽限：超过该秒数仍未执行则跳过并记 skipped，由页面手动补跑
+    scheduler_misfire_grace_seconds: int = 300
 
 
 settings = Settings()

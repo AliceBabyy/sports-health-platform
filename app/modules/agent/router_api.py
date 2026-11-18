@@ -1,4 +1,4 @@
-"""AI Agent API 路由（/api/agent 系列）：会话 CRUD、消息流式 SSE、技能管理。"""
+"""AI Agent API 路由（/api/agent 系列）：会话 CRUD、消息流式 SSE、技能管理、角色管理。"""
 from datetime import date
 
 from fastapi import APIRouter, Depends, Request
@@ -9,6 +9,15 @@ from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.agent import schemas, service
 from app.modules.agent.models import AgentSkill
+from app.modules.agent.personas.management import (
+    PersonaValidationError,
+    create_persona,
+    delete_persona,
+    get_persona,
+    list_personas,
+    save_persona,
+    set_status as set_persona_status,
+)
 from app.modules.agent.skills.argument import validate_args
 from app.modules.agent.skills.execution import test_skill
 from app.modules.agent.skills.management import (
@@ -49,7 +58,7 @@ def create_conversation(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return service.create_conversation(db, user.id, payload.model_name)
+    return service.create_conversation(db, user.id, payload.model_name, payload.persona_id)
 
 
 @router.put("/conversations/{conversation_id}")
@@ -340,3 +349,99 @@ def skill_runs_api(
         "error_message": r.error_message,
         "created_at": r.created_at.isoformat() if r.created_at else None,
     } for r in runs]}
+
+
+# ---------- 角色管理 ----------
+
+def _persona_dict(row, version, user_id: int) -> dict:
+    can_edit = row.scope == "user" and row.owner_user_id == user_id
+    return {
+        "id": row.id,
+        "scope": row.scope,
+        "key": row.persona_key,
+        "name": row.name,
+        "description": row.description,
+        "status": row.status,
+        "sort_order": row.sort_order,
+        "current_version_no": row.current_version_no,
+        "version_no": version.version_no if version else None,
+        "published": bool(version and version.published_at),
+        "can_edit": can_edit,
+        "can_delete": can_edit,
+        "definition": version.definition if version else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def _persona_validation_response(exc: PersonaValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={"code": "PERSONA_INVALID", "error": "角色定义或基本信息不合法",
+                 "errors": exc.errors, "warnings": exc.warnings},
+    )
+
+
+@router.get("/personas")
+def list_personas_api(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return {"list": [_persona_dict(row, version, user.id) for row, version in list_personas(db, user.id)]}
+
+
+@router.get("/personas/{persona_id}")
+def get_persona_api(
+    persona_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row, version = get_persona(db, user.id, persona_id)
+    return _persona_dict(row, version, user.id)
+
+
+@router.post("/personas")
+def create_persona_api(
+    payload: schemas.PersonaIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        row = create_persona(db, user.id, payload.model_dump())
+    except PersonaValidationError as exc:
+        return _persona_validation_response(exc)
+    return _persona_dict(row, get_persona(db, user.id, row.id)[1], user.id)
+
+
+@router.put("/personas/{persona_id}")
+def update_persona_api(
+    persona_id: int,
+    payload: schemas.PersonaIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        row = save_persona(db, user.id, persona_id, payload.model_dump())
+    except PersonaValidationError as exc:
+        return _persona_validation_response(exc)
+    return _persona_dict(row, get_persona(db, user.id, row.id)[1], user.id)
+
+
+@router.post("/personas/{persona_id}/status")
+def set_persona_status_api(
+    persona_id: int,
+    payload: schemas.PersonaStatusIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = set_persona_status(db, user.id, persona_id, payload.status)
+    return _persona_dict(row, get_persona(db, user.id, row.id)[1], user.id)
+
+
+@router.delete("/personas/{persona_id}")
+def delete_persona_api(
+    persona_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    delete_persona(db, user.id, persona_id)
+    return {"ok": True}

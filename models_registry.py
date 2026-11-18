@@ -9,7 +9,7 @@ from app.modules.body.models import (  # noqa: F401
 from app.modules.training.models import TrainingNote, TrainingRecord, TrainingRecordItem  # noqa: F401
 from app.modules.swim.models import SwimNote, SwimRecord  # noqa: F401
 from app.modules.dance.models import DanceNote, DanceRecord  # noqa: F401
-from app.modules.cycle.models import CycleSetting, DailyPainLog, PeriodRecord  # noqa: F401
+from app.modules.cycle.models import PeriodLog, PeriodRecord, PeriodSetting  # noqa: F401
 from app.modules.state_record.models import (  # noqa: F401
     AppetiteRecord,
     InflammationRecord,
@@ -18,8 +18,13 @@ from app.modules.state_record.models import (  # noqa: F401
 )
 from app.modules.agent.models import (  # noqa: F401
     AgentConversation,
+    AgentPersona,
+    AgentPersonaVersion,
     AgentSkill,
     AgentSkillRun,
     AgentSkillVersion,
 )
+from app.modules.profile.models import HealthProfile  # noqa: F401
 from app.modules.report.models import Report  # noqa: F401
+from app.modules.daily_advice.models import DailyAdvice  # noqa: F401
+from app.modules.scheduler.models import JobRun, ScheduledJob  # noqa: F401

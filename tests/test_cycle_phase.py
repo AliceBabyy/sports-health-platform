@@ -22,6 +22,7 @@ from app.core.constants import (
 )
 from app.core.exceptions import AppError
 from app.modules.cycle import service
+from app.modules.cycle.models import PeriodLog
 
 TODAY = date(2026, 11, 12)
 ANCHOR = date(2026, 10, 16)
@@ -122,8 +123,76 @@ def test_sport_level_daily(db, day, expected):
 
 def test_sport_level_pain_priority(db):
     service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
-    service.set_pain(db, 1, date(2026, 10, 29), 3)
-    assert _cal(db, 2026, 10)["2026-10-29"]["sport_level"] == SPORT_REST
+    service.set_pain(db, 1, date(2026, 10, 19), 3)  # 经期第 4 天，默认状态一般
+    assert _cal(db, 2026, 10)["2026-10-19"]["sport_level"] == SPORT_REST
+
+
+def test_pain_only_writable_in_recorded_period(db):
+    record = service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    with pytest.raises(AppError):
+        service.set_pain(db, 1, date(2026, 10, 29), 2)  # 排卵日不可记疼痛
+    log = service.set_pain(db, 1, date(2026, 10, 18), 2)
+    assert log.pain_level == 2
+    assert log.period_id == record.id
+    assert log.note is None
+
+
+def test_note_on_period_and_non_period_day(db):
+    record = service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+
+    # 经期日：note 正常存，并归属该条月经记录；未填疼痛为 null
+    log = service.set_note(db, 1, ANCHOR, "经期第一天")
+    assert (log.note, log.period_id, log.pain_level) == ("经期第一天", record.id, None)
+
+    # 非经期日：note 正常存，pain_level / period_id 为 null
+    log2 = service.set_note(db, 1, date(2026, 10, 29), "排卵日记录")
+    assert (log2.note, log2.pain_level, log2.period_id) == ("排卵日记录", None, None)
+
+    # 经期先记疼痛再写 note：疼痛与归属保留
+    service.set_pain(db, 1, date(2026, 10, 19), 3)
+    log3 = service.set_note(db, 1, date(2026, 10, 19), "第四天")
+    assert (log3.note, log3.pain_level, log3.period_id) == ("第四天", 3, record.id)
+
+    # 历史遗留的非经期疼痛，在写 note 时被清空
+    db.add(PeriodLog(user_id=1, log_date=date(2026, 10, 28), pain_level=2))
+    db.commit()
+    log4 = service.set_note(db, 1, date(2026, 10, 28), "写记事")
+    assert (log4.note, log4.pain_level, log4.period_id) == ("写记事", None, None)
+
+
+def test_calendar_returns_note_and_null_pain(db):
+    service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    service.set_note(db, 1, ANCHOR, "经期第一天")
+    service.set_note(db, 1, date(2026, 10, 29), "排卵日记录")
+    october = _cal(db, 2026, 10)
+
+    assert october["2026-10-16"]["note"] == "经期第一天"
+    assert october["2026-10-16"]["pain_level"] is None
+    assert october["2026-10-16"]["pain_recorded"] is False
+    assert october["2026-10-29"]["note"] == "排卵日记录"
+
+
+def test_list_logs_only_content_and_paginated(db):
+    record = service.create_period(db, 1, ANCHOR, date(2026, 10, 20))
+    service.set_pain(db, 1, date(2026, 10, 17), 2)
+    service.set_note(db, 1, date(2026, 10, 29), "排卵日记录")
+    service.set_note(db, 1, date(2026, 10, 30), "")  # 空 note 不产生有效列表行
+
+    res = service.list_logs(db, 1, page=1, page_size=1)
+    assert (res["total"], res["pages"], res["page_size"]) == (2, 2, 1)
+    assert res["list"][0] == {
+        "id": res["list"][0]["id"],
+        "date": "2026-10-29",
+        "pain_level": None,
+        "note": "排卵日记录",
+        "period_id": None,
+    }
+
+    second = service.list_logs(db, 1, page=2, page_size=1)["list"]
+    assert len(second) == 1
+    assert second[0]["date"] == "2026-10-17"
+    assert second[0]["pain_level"] == 2
+    assert second[0]["period_id"] == record.id
 
 
 # ---------- 激素文案 ----------

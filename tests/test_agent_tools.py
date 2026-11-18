@@ -12,7 +12,7 @@ from app.modules.agent.tools import queries
 from app.modules.agent.tools.definitions import _resolve_limit, _resolve_range
 from app.modules.auth.models import User
 from app.modules.body import service as body_service
-from app.modules.cycle.models import CycleSetting, DailyPainLog, PeriodRecord
+from app.modules.cycle.models import PeriodLog, PeriodRecord, PeriodSetting
 from app.modules.dance.models import DanceRecord
 from app.modules.state_record import service as state_service
 from app.modules.state_record.schemas import StateRecordIn
@@ -227,18 +227,18 @@ def test_cycle_records_is_read_only_and_returns_defaults(db):
     result = queries.cycle_records(db, U1, None, None)
     assert result["settings"]["is_default"] is True
     assert result["period_count"] == 0
-    # 只读：未设置参考值时不落库 cycle_settings
-    assert db.query(CycleSetting).count() == 0
+    # 只读：未设置参考值时不落库 period_setting
+    assert db.query(PeriodSetting).count() == 0
 
 
 def test_cycle_records_returns_records_pain_and_today(db):
     today = today_local()
     start = today - timedelta(days=4)
     db.add_all([
-        CycleSetting(user_id=U1, cycle_length=28, period_length=5),
+        PeriodSetting(user_id=U1, cycle_length=28, period_length=5),
         PeriodRecord(user_id=U1, start_date=start, end_date=start + timedelta(days=4)),
-        DailyPainLog(user_id=U1, log_date=today, pain_level=2),
-        DailyPainLog(user_id=U1, log_date=today - timedelta(days=1), pain_level=1),
+        PeriodLog(user_id=U1, log_date=today, pain_level=2, note="今天腰酸"),
+        PeriodLog(user_id=U1, log_date=today - timedelta(days=1), pain_level=1),
     ])
     db.commit()
 
@@ -248,6 +248,7 @@ def test_cycle_records_returns_records_pain_and_today(db):
     assert result["periods"][0]["period_length"] == 5
     assert result["pain_count"] == 2
     assert result["today"]["pain_level"] == 2
+    assert result["today"]["note"] == "今天腰酸"
     assert result["today"]["cycle_day"] == 5
     assert result["today"]["phase_label"] == "月经期"
 

@@ -1,16 +1,16 @@
-"""生理周期三表（需求 9.1）：cycle_settings / period_records / daily_pain_logs。"""
+"""生理周期三表（需求 9.1）：period_setting / period_records / period_logs。"""
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, SmallInteger, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, SmallInteger, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
 
 
-class CycleSetting(Base):
+class PeriodSetting(Base):
     """周期参考值（单用户单行）：不随记录变化，只由页面「周期参数」写入。"""
 
-    __tablename__ = "cycle_settings"
+    __tablename__ = "period_setting"
     __table_args__ = {"comment": "生理周期参考值（单用户单行）"}
 
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), primary_key=True, comment="主键 + FK → users.id")
@@ -32,17 +32,25 @@ class PeriodRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
 
 
-class DailyPainLog(Base):
-    """每日疼痛（0~3），user+date 唯一。"""
+class PeriodLog(Base):
+    """每日周期日志：疼痛（仅经期可填，可空）+ 当日 note + 归属月经记录，user+date 唯一。"""
 
-    __tablename__ = "daily_pain_logs"
+    __tablename__ = "period_logs"
     __table_args__ = (
-        UniqueConstraint("user_id", "log_date", name="uq_pain_user_date"),
-        {"comment": "每日疼痛记录（0~3，一天一行）"},
+        UniqueConstraint("user_id", "log_date", name="uq_period_log_user_date"),
+        {"comment": "生理周期每日日志（疼痛 / note，一天一行）"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True, comment="用户（逻辑外键，归属校验在应用层）")
     log_date: Mapped[date] = mapped_column(Date, nullable=False, comment="记录日期（一天一行）")
-    pain_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, comment="疼痛等级 0无/1轻/2中/3重")
+    pain_level: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, comment="疼痛等级 0无/1轻/2中/3重；仅经期可填，非经期为 NULL")
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True, comment="当日 note（可空）")
+    period_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("period_records.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="归属月经记录 id；非经期为 NULL",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")

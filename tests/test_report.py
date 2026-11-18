@@ -197,6 +197,32 @@ def test_scan_due_skips_ready_and_deleted(db, monkeypatch):
     assert all(t["period_type"] != "weekly" for t in after_delete)
 
 
+def test_scan_due_period_types_filter(db):
+    """调度器把周报/月报拆成两条定时任务，扫描必须能按周期类型限定。"""
+    db.add(User(id=1, username="u", password_hash="x", display_name="U", gender="女",
+                status="启用", created_at=datetime(2026, 1, 1)))
+    db.commit()
+    weekly = service.scan_due(db, today=TODAY, period_types=("weekly",))
+    assert [t["period_type"] for t in weekly] == ["weekly"]
+    monthly = service.scan_due(db, today=TODAY, period_types=("monthly",))
+    assert [t["period_type"] for t in monthly] == ["monthly"]
+
+
+def test_generate_due_returns_summary(db, monkeypatch):
+    """定时任务与 CLI 共用入口：返回值要能直接写进 job_runs.detail。"""
+    db.add(User(id=1, username="u", password_hash="x", display_name="U", gender="女",
+                status="启用", created_at=datetime(2026, 1, 1)))
+    db.commit()
+    monkeypatch.setattr(
+        service.ai, "generate_narrative",
+        lambda *a, **kw: (_narrative(), {"model": "fake", "prompt_version": "weekly_report.v1", "warnings": []}),
+    )
+    result = service.generate_due(db, period_types=("weekly",), today=TODAY)
+    assert result["scanned"] == 1 and result["generated"] == 1 and result["failed"] == 0
+    assert result["items"][0]["status"] == "success"
+    assert set(result) == {"scanned", "generated", "failed", "items"}
+
+
 def test_scan_refreshes_partial_report_after_period_end(db, monkeypatch):
     """周期内手动生成的「进行中」报告，周期结束后必须被扫描重写，否则数据停在半程。"""
     db.add(User(id=1, username="u", password_hash="x", display_name="U", gender="女",

@@ -1,4 +1,4 @@
-"""AI 运动报告生成 CLI：系统计划任务每 30 分钟 --scan，周一生成上周、每月 1 日生成上月。
+"""运动报告生成 CLI：自动触发由应用内调度器完成，本脚本是手动补跑入口。
 
 用法：
     python scripts/generate_reports.py --scan --dry-run
@@ -7,9 +7,9 @@
     python scripts/generate_reports.py --type monthly --user 1 --force
 
 说明：
-- 应用进程内不跑常驻循环；由 Windows 任务计划程序按计划调用本脚本。
-- --scan 用 PostgreSQL advisory lock 防重入；单实例串行生成，日志写 logs/report_task.log。
-- 已 ready / 已软删除的周期跳过；failed 且 attempts >= REPORT_MAX_ATTEMPTS 不再自动重试。
+- `--scan` 走 `app.modules.scheduler.runner.run_task("report.scan")`，与页面「立即执行」同一路径：
+  PostgreSQL advisory lock 与后台定时任务互斥，执行结果写入 `job_runs` 表留痕，日志写 logs/scheduler.log。
+- `--type` 模式直接调用 report.service.generate，用于单用户、单周期重跑与排查。
 """
 import argparse
 import json
@@ -20,17 +20,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import text
-
-from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.report import service
 from app.modules.report.facts import build_facts, resolve_period
+from app.modules.scheduler.runner import run_task
 from config import settings
-from database import SessionLocal, engine
+from database import SessionLocal
 
-LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "report_task.log"
-LOCK_KEY = 2026111701  # 报告扫描互斥锁（任意固定整数，确保全项目唯一）
+LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "scheduler.log"
 
 
 def setup_logging() -> None:
@@ -49,60 +46,26 @@ def setup_logging() -> None:
 
 
 def run_scan(dry_run: bool, limit: int) -> int:
-    db = SessionLocal()
-    lock_conn = engine.connect()
-    locked = False
-    try:
-        locked = bool(
-            lock_conn.execute(text("SELECT pg_try_advisory_lock(:key)"), {"key": LOCK_KEY}).scalar()
-        )
-        if not locked:
-            logging.info("已有报告任务在运行，本次跳过")
-            return 0
-
-        tasks = service.scan_due(db, limit=limit)
-        logging.info("到期任务 %d 个", len(tasks))
-        if dry_run:
+    """补跑上周周报与上月月报；dry_run 只打印将处理的周期，不调模型。"""
+    if dry_run:
+        db = SessionLocal()
+        try:
+            tasks = service.scan_due(db, limit=limit, check_switch=False)
             for task in tasks:
                 print(json.dumps(task, ensure_ascii=False))
+            logging.info("试运行：到期任务 %d 个", len(tasks))
             return 0
+        finally:
+            db.close()
 
-        failed = 0
-        for task in tasks:
-            user = db.query(User).filter(User.id == task["user_id"]).first()
-            if user is None:
-                logging.warning("用户不存在，跳过 user_id=%s", task["user_id"])
-                continue
-            try:
-                service.generate(
-                    db,
-                    user,
-                    task["period_type"],
-                    date.fromisoformat(task["anchor"]),
-                    force=bool(task.get("refresh")),
-                )
-                logging.info(
-                    "已生成 user_id=%s %s %s", task["user_id"], task["period_type"], task["period_label"]
-                )
-            except AppError as exc:
-                failed += 1
-                logging.warning(
-                    "生成失败 user_id=%s %s %s：%s",
-                    task["user_id"], task["period_type"], task["period_label"], exc.message,
-                )
-            except Exception:
-                failed += 1
-                logging.exception(
-                    "生成异常 user_id=%s %s %s",
-                    task["user_id"], task["period_type"], task["period_label"],
-                )
-        logging.info("本次完成，失败 %d 个", failed)
-        return 0
-    finally:
-        if locked:
-            lock_conn.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": LOCK_KEY})
-        lock_conn.close()
-        db.close()
+    result = run_task("report.scan", {"limit": limit}, source="cli")
+    logging.info("扫描完成：%s（%dms）", result["message"], result["duration_ms"])
+    for item in (result.get("detail") or {}).get("items", []):
+        logging.info(
+            "  %s user_id=%s %s %s",
+            item.get("status"), item.get("user_id"), item.get("period_label"), item.get("error") or "",
+        )
+    return 0 if result["status"] == "success" else 1
 
 
 def run_one(args) -> int:
@@ -142,7 +105,7 @@ def run_one(args) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="AI 运动报告生成（周报/月报）")
-    parser.add_argument("--scan", action="store_true", help="扫描到期周期（上周周报 + 上月月报）")
+    parser.add_argument("--scan", action="store_true", help="补跑到期周期（上周周报 + 上月月报）")
     parser.add_argument("--type", choices=["weekly", "monthly"], help="直接生成指定类型")
     parser.add_argument("--anchor", help="周期锚点日 YYYY-MM-DD（缺省今天）")
     parser.add_argument("--user", type=int, help="用户 ID（直接生成时必填）")

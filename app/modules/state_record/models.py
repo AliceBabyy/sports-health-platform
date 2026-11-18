@@ -45,10 +45,10 @@ class _StateRecordMixin:
 class AppetiteRecord(_StateRecordMixin, Base):
     """食欲记录（user + date 唯一）。"""
 
-    __tablename__ = "appetite_record"
+    __tablename__ = "state_appetite_record"
     __table_args__ = (
-        UniqueConstraint("user_id", "date", name="uq_appetite_user_date"),
-        Index("ix_appetite_record_user_date_id", "user_id", "date", "id"),
+        UniqueConstraint("user_id", "date", name="uq_state_appetite_user_date"),
+        Index("ix_state_appetite_record_user_date_id", "user_id", "date", "id"),
         {"comment": "食欲状态记录（按天，每类每天一行）"},
     )
 
@@ -56,10 +56,10 @@ class AppetiteRecord(_StateRecordMixin, Base):
 class MyalgiaRecord(_StateRecordMixin, Base):
     """肌肉疼痛记录（user + date 唯一）。"""
 
-    __tablename__ = "myalgia_record"
+    __tablename__ = "state_myalgia_record"
     __table_args__ = (
-        UniqueConstraint("user_id", "date", name="uq_myalgia_user_date"),
-        Index("ix_myalgia_record_user_date_id", "user_id", "date", "id"),
+        UniqueConstraint("user_id", "date", name="uq_state_myalgia_user_date"),
+        Index("ix_state_myalgia_record_user_date_id", "user_id", "date", "id"),
         {"comment": "肌肉疼痛状态记录（按天，每类每天一行）"},
     )
 
@@ -67,10 +67,10 @@ class MyalgiaRecord(_StateRecordMixin, Base):
 class InflammationRecord(_StateRecordMixin, Base):
     """炎症记录（user + date 唯一）。"""
 
-    __tablename__ = "inflammation_record"
+    __tablename__ = "state_inflammation_record"
     __table_args__ = (
-        UniqueConstraint("user_id", "date", name="uq_inflammation_user_date"),
-        Index("ix_inflammation_record_user_date_id", "user_id", "date", "id"),
+        UniqueConstraint("user_id", "date", name="uq_state_inflammation_user_date"),
+        Index("ix_state_inflammation_record_user_date_id", "user_id", "date", "id"),
         {"comment": "炎症状态记录（按天，每类每天一行）"},
     )
 
@@ -78,10 +78,10 @@ class InflammationRecord(_StateRecordMixin, Base):
 class MoodRecord(_StateRecordMixin, Base):
     """情绪记录（user + date 唯一）。"""
 
-    __tablename__ = "mood_record"
+    __tablename__ = "state_mood_record"
     __table_args__ = (
-        UniqueConstraint("user_id", "date", name="uq_mood_user_date"),
-        Index("ix_mood_record_user_date_id", "user_id", "date", "id"),
+        UniqueConstraint("user_id", "date", name="uq_state_mood_user_date"),
+        Index("ix_state_mood_record_user_date_id", "user_id", "date", "id"),
         {"comment": "情绪状态记录（按天，每类每天一行）"},
     )
 

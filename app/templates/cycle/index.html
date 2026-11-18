@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}生理周期 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css?v=20261117a">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/cycle.css?v=20261117c">{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>生理周期</h1>
@@ -42,14 +42,33 @@
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">月经记录</div>
-      <div id="periodList" class="period-list"></div>
+    <div class="card archive-card">
+      <div class="card-title record-title">
+        <span>全部记录</span>
+        <span class="record-tools">
+          <span class="seg" id="recordSeg">
+            <button type="button" data-kind="period" class="active">月经记录</button>
+            <button type="button" data-kind="log">周期日志</button>
+          </span>
+        </span>
+      </div>
+      <div id="recordTableWrap"></div>
+      <div id="recordPagination"></div>
     </div>
   </div>
 
-  <div>
+  <div class="cycle-side">
     <div class="card day-detail" id="dayDetail"></div>
+    <div class="card today-note-card">
+      <div class="note-head">
+        <div class="dd-title">今日 note</div>
+        <span class="note-date num" id="todayNoteDate"></span>
+      </div>
+      <textarea class="input note-input" id="todayNoteInput" rows="3" maxlength="255" placeholder="记录今天的状态、感受或想记的事"></textarea>
+      <div class="note-actions">
+        <button class="btn btn-primary btn-sm" id="btnSaveTodayNote">保存</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -102,5 +121,5 @@
 <script>window.INIT_CAL = {{ calendar | tojson }};
 window.INIT_SETTINGS = {{ settings | tojson }};
 window.TODAY_STR = '{{ today.isoformat() }}';</script>
-<script src="/static/js/cycle.js?v=20261117a"></script>
+<script src="/static/js/cycle.js?v=20261117c"></script>
 {% endblock %}

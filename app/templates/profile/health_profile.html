@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}健康/运动档案 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/health_profile.css?v=20261117b">{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>健康/运动档案</h1>
+  <div class="page-desc">写几句目标和习惯，每日训练建议会参考，随时可改。</div>
+  <div class="page-head-actions" id="hpReadActions" {% if not filled %}hidden{% endif %}>
+    <button class="btn" id="hpClear" type="button">清空档案</button>
+    <button class="btn btn-primary" id="hpEdit" type="button">编辑档案</button>
+  </div>
+</div>
+
+<div class="hp-stack" id="hpRead" {% if not filled %}hidden{% endif %}>
+  {% for g in groups %}
+  <section class="card">
+    <div class="card-title">{{ g.name }}</div>
+    {% for q in g["items"] %}
+    <div class="hp-row">
+      <div class="hp-label">{{ q.label }}</div>
+      <div class="hp-value{{ ' is-empty' if not answers.get(q.key) }}">{{ answers.get(q.key) or '—' }}</div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+
+<form class="hp-stack" id="hpForm" {% if filled %}hidden{% endif %}>
+  <div class="hp-edit-note" id="hpEditNote" {% if not filled %}hidden{% endif %}>逐题可改，保存后覆盖当前答案。</div>
+  {% for g in groups %}
+  <section class="card">
+    <div class="card-title">{{ g.name }}</div>
+    {% for q in g["items"] %}
+    <div class="hp-field">
+      <label class="field-label" for="hp-{{ q.key }}">{{ q.label }}</label>
+      <div class="hp-hint">{{ q.hint }}</div>
+      <textarea class="input hp-textarea" id="hp-{{ q.key }}" name="{{ q.key }}" rows="3" maxlength="{{ q.max_length }}" placeholder="{{ q.placeholder }}">{{ answers.get(q.key, '') }}</textarea>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+  <div class="card hp-form-foot">
+    <div class="hp-foot-hint">可以只填一部分，保存即生效。</div>
+    <div class="hp-foot-actions">
+      <button class="btn" id="hpResetAll" type="button">清空重写</button>
+      <button class="btn" id="hpCancel" type="button" {% if not filled %}hidden{% endif %}>取消</button>
+      <button class="btn btn-primary" type="submit">保存</button>
+    </div>
+  </div>
+</form>
+{% endblock %}
+{% block extra_js %}
+<script src="/static/js/health_profile.js?v=20261117b"></script>
+{% endblock %}

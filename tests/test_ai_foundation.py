@@ -15,7 +15,13 @@ from main import app
 def test_model_registry_and_capability(monkeypatch):
     monkeypatch.setattr("app.ai.models.registry.settings.ai_api_key", "test-key")
     assert set(MODELS) == {
-        "deepseek-v4.1-flash", "qwen3.8-flash", "qwen3.8-2.4t-a95b", "qwen3-vl-plus"
+        "deepseek-v4.1-flash",
+        "qwen3.8-flash",
+        "qwen3.8-2.4t-a95b",
+        "qwen4-max",
+        "kimi-k3.1-pro",
+        "gkm-5.3",
+        "qwen3-vl-plus",
     }
     assert get_model("qwen3.8-flash").model_name == "qwen3.8-flash"
     assert get_model("qwen3-vl-plus", required="vision").model_name == "qwen3-vl-plus"

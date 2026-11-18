@@ -20,8 +20,15 @@ from app.modules.agent.models import (
     AUTO_TITLE_LEN,
     DEFAULT_TITLE,
     AgentConversation,
+    AgentPersona,
     AgentSkill,
     AgentSkillVersion,
+)
+from app.modules.agent.personas.management import bindable_persona
+from app.modules.agent.personas.runtime import (
+    persona_summary,
+    render_persona_block,
+    resolve_for_conversation,
 )
 from app.modules.agent.runtime import graph_for_user
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
@@ -47,12 +54,17 @@ def _validate_model(model_name: str | None) -> None:
         raise AppError(400, "不支持该模型")
 
 
-def conversation_to_dict(row: AgentConversation) -> dict:
+def conversation_to_dict(row: AgentConversation, persona: AgentPersona | None = None) -> dict:
     return {
         "id": row.id,
         "title": row.title,
         "model_name": row.model_name,
         "thread_id": str(row.thread_id),
+        "kind": "persona" if row.persona_id else "default",
+        "persona_id": row.persona_id,
+        "persona_name": persona.name if persona else None,
+        "persona_status": persona.status if persona else None,
+        "persona_version_no": row.persona_version_no,
         "last_message_at": row.last_message_at.isoformat() if row.last_message_at else None,
         "created_at": row.created_at.isoformat(),
     }
@@ -68,7 +80,11 @@ def list_conversations(db: Session, user_id: int) -> list[dict]:
         )
         .all()
     )
-    return [conversation_to_dict(r) for r in rows]
+    persona_ids = {r.persona_id for r in rows if r.persona_id}
+    personas = {
+        p.id: p for p in db.query(AgentPersona).filter(AgentPersona.id.in_(persona_ids)).all()
+    } if persona_ids else {}
+    return [conversation_to_dict(r, personas.get(r.persona_id)) for r in rows]
 
 
 def get_conversation(db: Session, user_id: int, conversation_id: int) -> AgentConversation:
@@ -85,13 +101,22 @@ def get_conversation(db: Session, user_id: int, conversation_id: int) -> AgentCo
     return row
 
 
-def create_conversation(db: Session, user_id: int, model_name: str | None) -> dict:
+def create_conversation(db: Session, user_id: int, model_name: str | None, persona_id: int | None = None) -> dict:
     _validate_model(model_name)
-    row = AgentConversation(user_id=user_id, thread_id=uuid4(), model_name=model_name)
+    persona = None
+    persona_version_no = None
+    if persona_id is not None:
+        persona = bindable_persona(db, user_id, persona_id)
+        persona_version_no = persona.current_version_no
+    row = AgentConversation(
+        user_id=user_id, thread_id=uuid4(), model_name=model_name,
+        persona_id=persona.id if persona else None,
+        persona_version_no=persona_version_no,
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
-    return conversation_to_dict(row)
+    return conversation_to_dict(row, persona)
 
 
 def rename_conversation(db: Session, user_id: int, conversation_id: int, title: str) -> dict:
@@ -121,8 +146,9 @@ async def get_messages(db: Session, user_id: int, conversation_id: int, runtime:
     供前端重建“工具状态 + 明细折叠”，与当次流式视图保持一致。
     """
     row = get_conversation(db, user_id, conversation_id)
+    persona = resolve_for_conversation(db, row, user_id)
     config = {"configurable": {"thread_id": str(row.thread_id)}}
-    state = await graph_for_user(db, user_id, runtime).aget_state(config)
+    state = await graph_for_user(db, user_id, runtime, persona).aget_state(config)
 
     turns: list[dict] = []
     turn: dict | None = None
@@ -232,9 +258,10 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
     _validate_model(payload.model_name)
     row = get_conversation(db, user_id, conversation_id)
     thread_id = str(row.thread_id)
+    persona = resolve_for_conversation(db, row, user_id)
     await _acquire_slot(thread_id, payload.client_msg_id)
     config = {"configurable": {"thread_id": thread_id}}
-    state = await graph_for_user(db, user_id, runtime).aget_state(config)
+    state = await graph_for_user(db, user_id, runtime, persona).aget_state(config)
     msgs = state.values.get("messages", [])
 
     human_idx = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].type == "human"), None)
@@ -250,7 +277,7 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
         raise AppError(400, "暂无可重新生成的回答")
 
     try:
-        await graph_for_user(db, user_id, runtime).aupdate_state(
+        await graph_for_user(db, user_id, runtime, persona).aupdate_state(
             config,
             {"messages": [RemoveMessage(id=m.id) for m in removed if getattr(m, "id", None)]},
         )
@@ -371,7 +398,7 @@ async def _persist(graph, config, human: str, assistant: str) -> None:
     )
 
 
-def _finish(db: Session, row: AgentConversation, content: str) -> str:
+def _finish(db: Session, row: AgentConversation, content: str, persona) -> str:
     now = datetime.now()
     row.last_message_at = now
     if row.title == DEFAULT_TITLE:
@@ -381,18 +408,24 @@ def _finish(db: Session, row: AgentConversation, content: str) -> str:
         "conversation_id": row.id,
         "title": row.title,
         "last_message_at": now.isoformat(),
+        "persona": persona_summary(persona),
     })
 
 
 async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload, human_content: str | None = None, replay: bool = False):
-    graph = graph_for_user(db, row.user_id, runtime)
-    skills = available_skills(db, row.user_id)
+    persona = resolve_for_conversation(db, row, row.user_id)
+    skill_scope = persona.key if persona is not None else None
+    graph = graph_for_user(db, row.user_id, runtime, persona)
+    skills = available_skills(db, row.user_id, skill_scope)
     base_config = {
         "configurable": {
             "thread_id": thread_id,
             "model_name": row.model_name,
             "user_id": row.user_id,
             "conversation_id": row.id,
+            "persona_id": persona.id if persona else None,
+            "persona_version_no": persona.version_no if persona else None,
+            "persona_block": render_persona_block(persona),
         },
         "recursion_limit": 10,
     }
@@ -417,7 +450,7 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
                     await _persist(graph, base_config, content, reply)
                     yield _sse("delta", {"content": reply})
                 else:
-                    skill = find_by_slash(db, row.user_id, token)
+                    skill = find_by_slash(db, row.user_id, token, skill_scope)
                     if skill is None:
                         reply = f"没有找到 `/{token}` 技能。可用技能：" + _commands_text(skills)
                         await _persist(graph, base_config, content, reply)
@@ -507,7 +540,7 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
                 ):
                     yield event
 
-        yield _finish(db, row, content)
+        yield _finish(db, row, content, persona)
     except Exception as exc:
         logger.warning("agent stream failed: conv=%s err=%r", row.id, exc)
         db.rollback()

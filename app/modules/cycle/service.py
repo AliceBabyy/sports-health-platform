@@ -1,6 +1,6 @@
 """生理周期 service：按记录分段推算七阶段、四档运动判定、月历、预测与参考值设置。
 
-口径（2026-11-12 定稿）：
+口径（2026-11-12 定稿，2026-11-17 表重构）：
 - 事实源只有 period_records 的起止日；经期长度 / 周期长度全部派生，不落库。
 - 相邻两条记录划成一段：
     实际间隔在 [技术下限, 45] 天 → 真实段，段长 = 实际间隔；
@@ -9,12 +9,15 @@
 - 段内阶段：经期 1~P；排卵日 = 段长 - 14（黄体固定 14 天，锚定下一次月经首日）；
   排卵后 1~2 / 3~6 / 7~10 / 11~14 天依次为排卵期后期 / 黄体前 / 中 / 后期。
 - 只向未来延伸「最新记录后的当前段 + 一个预测段」，超过逾期宽限则不给预测段。
-- cycle_settings 仅作参考值：当前段、预测段、补推段使用；真实段不参与。
+- period_setting 仅作参考值：当前段、预测段、补推段使用；真实段不参与。
+- period_logs 一天一行：pain_level 仅 recorded 经期可写并归属 period_records.id；
+  note 每天可写，非经期日写入时清空 pain_level 与 period_id。
 """
 import calendar as _calendar
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.constants import (
@@ -54,7 +57,8 @@ from app.core.constants import (
     today_local,
 )
 from app.core.exceptions import AppError
-from app.modules.cycle.models import CycleSetting, DailyPainLog, PeriodRecord
+from app.core.pagination import paginate
+from app.modules.cycle.models import PeriodLog, PeriodRecord, PeriodSetting
 
 
 @dataclass(frozen=True)
@@ -73,17 +77,17 @@ class Segment:
 
 
 # ---------- 设置（仅参考值） ----------
-def get_settings(db: Session, user_id: int) -> CycleSetting:
-    setting = db.get(CycleSetting, user_id)
+def get_settings(db: Session, user_id: int) -> PeriodSetting:
+    setting = db.get(PeriodSetting, user_id)
     if setting is None:
-        setting = CycleSetting(user_id=user_id, cycle_length=DEFAULT_CYCLE_LENGTH, period_length=DEFAULT_PERIOD_LENGTH)
+        setting = PeriodSetting(user_id=user_id, cycle_length=DEFAULT_CYCLE_LENGTH, period_length=DEFAULT_PERIOD_LENGTH)
         db.add(setting)
         db.commit()
         db.refresh(setting)
     return setting
 
 
-def update_settings(db: Session, user_id: int, cycle_length: int, period_length: int) -> CycleSetting:
+def update_settings(db: Session, user_id: int, cycle_length: int, period_length: int) -> PeriodSetting:
     """参考值只由页面「周期参数」写入，记录月经不会改动它。"""
     setting = get_settings(db, user_id)
     setting.cycle_length = cycle_length
@@ -127,6 +131,26 @@ def list_periods(db: Session, user_id: int) -> list[dict]:
     return result
 
 
+def list_logs(db: Session, user_id: int, page: int = 1, page_size: int = 10) -> dict:
+    """周期日志分页：只列有内容（疼痛或 note）的行，日期与 id 倒序。"""
+    query = db.query(PeriodLog).filter(
+        PeriodLog.user_id == user_id,
+        or_(PeriodLog.pain_level.isnot(None), PeriodLog.note.isnot(None)),
+    )
+    result = paginate(query, page=page, page_size=page_size, order_by=(PeriodLog.log_date.desc(), PeriodLog.id.desc()))
+    result["list"] = [
+        {
+            "id": row.id,
+            "date": row.log_date.isoformat(),
+            "pain_level": row.pain_level,
+            "note": row.note,
+            "period_id": row.period_id,
+        }
+        for row in result["list"]
+    ]
+    return result
+
+
 def _tech_min(period_length: int) -> int:
     """段长技术下限：保证排卵日（段长 - 14）不落进经期。"""
     return max(MIN_SEGMENT_DAYS, period_length + OVULATION_OFFSET + 1)
@@ -161,7 +185,7 @@ def _split_gap(gap: int, ref_cycle: int, period_length: int) -> list[int] | None
     return [base + 1 if i < rem else base for i in range(k)]
 
 
-def build_segments(db: Session, user_id: int, setting: CycleSetting | None = None, today: date | None = None) -> list[Segment]:
+def build_segments(db: Session, user_id: int, setting: PeriodSetting | None = None, today: date | None = None) -> list[Segment]:
     """按月记录构建连续段：真实段 / 补推段 / 当前段 / 预测段。"""
     setting = setting or get_settings(db, user_id)
     today = today or today_local()
@@ -321,7 +345,7 @@ def _period_state(day: date, phase: str | None, seg: Segment | None, windows: li
 
 
 # ---------- 预测 ----------
-def next_period_date(db: Session, user_id: int, setting: CycleSetting | None = None) -> date | None:
+def next_period_date(db: Session, user_id: int, setting: PeriodSetting | None = None) -> date | None:
     """只预测最新一次记录之后的下一段起点；无记录时返回 None。"""
     setting = setting or get_settings(db, user_id)
     row = (
@@ -411,18 +435,65 @@ def delete_period(db: Session, user_id: int, record_id: int) -> bool:
     return True
 
 
-# ---------- 疼痛 ----------
-def set_pain(db: Session, user_id: int, log_date: date, pain_level: int) -> DailyPainLog:
-    row = (
-        db.query(DailyPainLog)
-        .filter(DailyPainLog.user_id == user_id, DailyPainLog.log_date == log_date)
+# ---------- 每日日志（疼痛 / note） ----------
+def period_record_for_date(db: Session, user_id: int, day: date, setting: PeriodSetting | None = None) -> PeriodRecord | None:
+    """该日期所属的「经期」记录：只认真实记录窗口（未填结束日按参考经期推导），推算/预测段不算。"""
+    setting = setting or get_settings(db, user_id)
+    rows = (
+        db.query(PeriodRecord)
+        .filter(PeriodRecord.user_id == user_id)
+        .order_by(PeriodRecord.start_date.asc())
+        .all()
+    )
+    for row in rows:
+        start = row.start_date
+        end = row.end_date if row.end_date and row.end_date >= start else start + timedelta(days=setting.period_length - 1)
+        if start <= day <= end:
+            return row
+    return None
+
+
+def _get_log(db: Session, user_id: int, log_date: date) -> PeriodLog | None:
+    return (
+        db.query(PeriodLog)
+        .filter(PeriodLog.user_id == user_id, PeriodLog.log_date == log_date)
         .first()
     )
+
+
+def _ensure_log(db: Session, user_id: int, log_date: date) -> PeriodLog:
+    row = _get_log(db, user_id, log_date)
     if row is None:
-        row = DailyPainLog(user_id=user_id, log_date=log_date, pain_level=pain_level)
+        row = PeriodLog(user_id=user_id, log_date=log_date)
         db.add(row)
+    return row
+
+
+def set_pain(db: Session, user_id: int, log_date: date, pain_level: int) -> PeriodLog:
+    """疼痛只在 recorded 经期可写：入 pain_level + 所属 period_records.id，note 保持不变。"""
+    if not 0 <= pain_level <= 3:
+        raise AppError(422, "疼痛等级需在 0~3 之间")
+    record = period_record_for_date(db, user_id, log_date)
+    if record is None:
+        raise AppError(422, "仅在经期内可记录疼痛程度")
+    row = _ensure_log(db, user_id, log_date)
+    row.pain_level = pain_level
+    row.period_id = record.id
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+def set_note(db: Session, user_id: int, log_date: date, note: str | None) -> PeriodLog:
+    """当日 note 每天可写；经期日顺带归属记录，非经期日把疼痛等级与归属清空。"""
+    record = period_record_for_date(db, user_id, log_date)
+    row = _ensure_log(db, user_id, log_date)
+    row.note = note or None
+    if record is not None:
+        row.period_id = record.id
     else:
-        row.pain_level = pain_level
+        row.pain_level = None
+        row.period_id = None
     db.commit()
     db.refresh(row)
     return row
@@ -446,21 +517,22 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
     _, last_day = _calendar.monthrange(year, month)
     month_start = date(year, month, 1)
     month_end = date(year, month, last_day)
-    pain_rows = (
-        db.query(DailyPainLog)
-        .filter(DailyPainLog.user_id == user_id, DailyPainLog.log_date >= month_start, DailyPainLog.log_date <= month_end)
+    logs = (
+        db.query(PeriodLog)
+        .filter(PeriodLog.user_id == user_id, PeriodLog.log_date >= month_start, PeriodLog.log_date <= month_end)
         .all()
     )
-    pain_map = {r.log_date: r.pain_level for r in pain_rows}
+    log_map = {r.log_date: r for r in logs}
 
     days = []
     for day_num in range(1, last_day + 1):
         d = date(year, month, day_num)
         seg = segment_for_day(segments, d)
-        pain = pain_map.get(d, 0)
+        log = log_map.get(d)
+        pain = log.pain_level if log else None
         phase = phase_in_segment(d, seg) if seg else None
         cycle_day = (d - seg.start).days + 1 if seg else None
-        level = sport_level_for(phase, cycle_day, seg.length, seg.period_length, pain) if seg and phase else None
+        level = sport_level_for(phase, cycle_day, seg.length, seg.period_length, pain or 0) if seg and phase else None
         state = _period_state(d, phase, seg, windows)
         hormone_text = hormone_text_for(phase, cycle_day, seg) if seg and phase and cycle_day else None
         if state == PERIOD_STATE_RECORDED:
@@ -484,7 +556,8 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
                 "period_state": state,
                 "period_label": PERIOD_STATE_LABELS[state] if state else None,
                 "pain_level": pain,
-                "pain_recorded": d in pain_map,
+                "pain_recorded": pain is not None,
+                "note": log.note if log else None,
                 "is_recorded_start": d in recorded_starts,
                 "cycle_day": cycle_day,
                 "segment_source": seg.source if seg else None,
@@ -499,8 +572,10 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
     today_seg = segment_for_day(segments, today)
     today_phase = phase_in_segment(today, today_seg) if today_seg else None
     today_cycle_day = (today - today_seg.start).days + 1 if today_seg else None
+    today_log = _today_log(db, user_id, today, log_map)
+    today_pain = today_log.pain_level if today_log and today_log.pain_level is not None else 0
     today_level = (
-        sport_level_for(today_phase, today_cycle_day, today_seg.length, today_seg.period_length, _today_pain(db, user_id, today, pain_map))
+        sport_level_for(today_phase, today_cycle_day, today_seg.length, today_seg.period_length, today_pain)
         if today_seg and today_phase
         else None
     )
@@ -534,15 +609,15 @@ def calendar_month(db: Session, user_id: int, year: int, month: int) -> dict:
             "phase_label": PHASE_LABELS[today_phase] if today_phase else None,
             "sport_level": today_level,
             "sport_label": SPORT_LABELS[today_level] if today_level else None,
+            "note": today_log.note if today_log else None,
         },
     }
 
 
-def _today_pain(db: Session, user_id: int, today: date, pain_map: dict) -> int:
-    if today in pain_map:
-        return pain_map[today]
-    row = db.query(DailyPainLog).filter(DailyPainLog.user_id == user_id, DailyPainLog.log_date == today).first()
-    return row.pain_level if row else 0
+def _today_log(db: Session, user_id: int, today: date, log_map: dict) -> PeriodLog | None:
+    if today in log_map:
+        return log_map[today]
+    return _get_log(db, user_id, today)
 
 
 # ---------- 侧边栏今日摘要 ----------
@@ -566,8 +641,8 @@ def get_today_summary(user_id: int) -> dict:
                 "sport_level": None,
                 "sport_label": None,
             }
-        row = db.query(DailyPainLog).filter(DailyPainLog.user_id == user_id, DailyPainLog.log_date == today).first()
-        pain = row.pain_level if row else 0
+        log = _get_log(db, user_id, today)
+        pain = log.pain_level if log and log.pain_level is not None else 0
         cycle_day = (today - seg.start).days + 1
         phase = phase_in_segment(today, seg)
         level = sport_level_for(phase, cycle_day, seg.length, seg.period_length, pain) if phase else None

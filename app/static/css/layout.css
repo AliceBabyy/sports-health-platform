@@ -23,7 +23,7 @@
 
 .sidebar-section { padding: 14px 20px 6px; font-size: 11.5px; color: var(--color-text-secondary); letter-spacing: .5px; }
 
-.sidebar-nav { padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; }
+.sidebar-nav { padding: 4px 10px; display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--color-text); font-size: 13.5px; text-decoration: none; }
 .sidebar-nav a:hover { background: var(--bg-section); text-decoration: none; }
 .sidebar-nav a.active { background: var(--bg-section); font-weight: 400; color: var(--color-primary); }
@@ -66,10 +66,24 @@
   border-radius: var(--radius);
   padding: 12px 14px;
 }
-.today-card .d1 { font-size: 11px; color: var(--color-text-secondary); }
+.today-card .d1 { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--color-text-secondary); }
 .today-card .d2 { font-size: 16px; font-weight: 400; margin: 2px 0; }
 .today-card .d3 { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 6px; }
+.today-card .tag { margin-top: 8px; }
 .sidebar-hint { margin-top: 10px; font-size: 11px; color: var(--color-text-secondary); text-align: center; }
+
+/* 今日训练建议（V2.8）：并进今天卡，正文位于周期四档标签上方；每行一句、以「- 」开头 */
+.advice-refresh {
+  margin-left: auto; width: 18px; height: 18px; padding: 0; border: 0; background: transparent;
+  color: var(--color-text-secondary); opacity: .55; cursor: pointer; display: inline-flex;
+  align-items: center; justify-content: center; border-radius: 3px;
+}
+.advice-refresh:hover { opacity: 1; background: var(--bg-section); }
+.advice-refresh[disabled] { opacity: .35; cursor: default; background: transparent; }
+.advice-lines {
+  font-size: 12px; line-height: 1.6; color: var(--color-text);
+  white-space: pre-line; overflow-wrap: anywhere;
+}
 
 /* ---------- 主区 ---------- */
 .main { flex: 1; margin-left: var(--sidebar-w); display: flex; flex-direction: column; min-width: 0; transition: margin-left .18s ease; }

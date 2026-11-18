@@ -31,8 +31,21 @@ NAV_GROUPS = [
     {"key": "agent", "url": "/agent", "label": "AI助手", "short": "AI", "children": [
         {"key": "agent_chat", "url": "/agent", "label": "对话", "short": "对话"},
         {"key": "agent_skills", "url": "/agent/skills", "label": "技能", "short": "技能"},
+        {"key": "agent_personas", "url": "/agent/personas", "label": "角色", "short": "角色"},
     ]},
-    {"key": "profile", "url": "/profile", "label": "个人信息", "short": "我的", "children": []},
+    {"key": "profile", "url": "/profile", "label": "个人信息", "short": "我的", "children": [
+        {"key": "profile_basic", "url": "/profile", "label": "账号资料", "short": "资料"},
+        {"key": "health_profile", "url": "/profile/health-profile", "label": "健康/运动档案", "short": "档案"},
+    ]},
+    {
+        "key": "system",
+        "url": "/system/scheduler",
+        "label": "系统设置",
+        "short": "系统",
+        "children": [
+            {"key": "scheduler", "url": "/system/scheduler", "label": "定时任务", "short": "定时"},
+        ],
+    },
 ]
 
 PAGE_TITLE = {g["key"]: g["label"] for g in NAV_GROUPS}
@@ -47,6 +60,13 @@ def _sidebar_cycle_info(user_id: int):
     from app.modules.cycle.service import get_today_summary
 
     return get_today_summary(user_id)
+
+
+def _sidebar_daily_advice(user_id: int, today: date) -> dict:
+    """侧边栏「今日训练建议」轻量读取：一条索引查询，不调模型（延迟 import 防循环依赖）。"""
+    from app.modules.daily_advice.service import get_for_sidebar
+
+    return get_for_sidebar(user_id, today)
 
 
 def render_page(request: Request, template_name: str, ctx: dict | None = None) -> object:
@@ -65,6 +85,12 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
             cycle_info = _sidebar_cycle_info(user.id)
         except Exception:  # 周期数据异常不阻塞页面
             cycle_info = {}
+    advice_info = None
+    if user is not None:
+        try:
+            advice_info = _sidebar_daily_advice(user.id, today)
+        except Exception:  # 建议读取异常不阻塞页面，侧栏降级为缺失态
+            advice_info = None
     from app.core import constants as C
 
     ctx = dict(ctx or {})
@@ -86,6 +112,7 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
         "group_open": group_open,
         "page_title": ctx.get("page_title") or PAGE_TITLE.get(active, "主页"),
         "cycle_today": cycle_info,
+        "daily_advice": advice_info,
         "C": C,
     }
     base.update(ctx)

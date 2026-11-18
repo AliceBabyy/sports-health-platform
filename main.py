@@ -1,4 +1,5 @@
 """应用入口：app 创建、SessionMiddleware、静态/模板目录、路由注册、全局异常处理、启动端口 8010。"""
+import logging
 import sys
 from contextlib import asynccontextmanager
 
@@ -23,11 +24,17 @@ if sys.platform == "win32":
 async def lifespan(app: FastAPI):
     # 启动：建 checkpointer 连接池/框架表并编译图，挂到 app.state 供路由取用
     from app.modules.agent.runtime import close_agent_runtime, init_agent_runtime
+    from app.modules.scheduler.engine import shutdown_scheduler, start_scheduler
 
     app.state.agent_runtime = await init_agent_runtime()
     try:
+        start_scheduler()
+    except Exception:  # 调度器初始化失败不阻塞服务（如首次部署尚未执行迁移）
+        logging.getLogger("scheduler").exception("调度器启动失败，服务继续运行")
+    try:
         yield
     finally:
+        shutdown_scheduler()
         await close_agent_runtime(app.state.agent_runtime)
 
 
@@ -77,6 +84,9 @@ from app.modules.agent.router_pages import router as agent_pages
 from app.modules.agent.router_api import router as agent_api
 from app.modules.report.router_pages import router as report_pages
 from app.modules.report.router_api import router as report_api
+from app.modules.daily_advice.router_api import router as daily_advice_api
+from app.modules.scheduler.router_pages import router as scheduler_pages
+from app.modules.scheduler.router_api import router as scheduler_api
 
 _include(auth_pages)
 _include(auth_api)
@@ -101,6 +111,9 @@ _include(agent_pages)
 _include(agent_api)
 _include(report_pages)
 _include(report_api)
+_include(daily_advice_api)
+_include(scheduler_pages)
+_include(scheduler_api)
 
 
 @app.get("/", include_in_schema=False)

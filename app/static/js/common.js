@@ -62,7 +62,10 @@
       try { data = await res.json(); } catch (e) { /* 非 JSON 响应 */ }
       if (!res.ok) {
         const msg = (data && data.error) ? data.error : ('请求失败（' + res.status + '）');
-        const err = new Error(msg); err.status = res.status; throw err;
+        const err = new Error(msg); err.status = res.status;
+        if (data && data.errors) err.errors = data.errors;
+        if (data && data.warnings) err.warnings = data.warnings;
+        throw err;
       }
       return data;
     },

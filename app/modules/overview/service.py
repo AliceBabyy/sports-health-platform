@@ -68,6 +68,11 @@ def _fitness_minutes(plan) -> int:
     return 0
 
 
+def fitness_minutes(plan) -> int:
+    """公开别名：跨模块复用健身时长口径（如每日训练建议），只转发不另写规则。"""
+    return _fitness_minutes(plan)
+
+
 def _counts(rows: list, sport: str) -> dict:
     """单日单运动全部行 → {plans, records, minutes, kcal, remarks, items}。
 

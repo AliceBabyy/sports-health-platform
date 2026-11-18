@@ -8,10 +8,11 @@ AI 能力分为六个逻辑子模块：
 
 1. **模型与运行时**：模型注册、能力声明、提示词加载、LangChain 调用和结构化输出校验，位于 `app/ai/`。
 2. **AI 导入**：接收文字和图片，识别健身、游泳、舞蹈记录并复用现有校验和落库逻辑，位于 `app/modules/electronic_trainer/` 及各运动模块的 `ai_profile.py`。
-3. **AI Agent**：会话、多轮问答、SSE 流式输出和 checkpointer 持久化，位于 `app/modules/agent/`。
+3. **AI Agent**：会话、多轮问答、SSE 流式输出、checkpointer 持久化与多角色会话人设，位于 `app/modules/agent/`。
 4. **数据问答工具**：面向 Agent 的只读业务查询工具与受控写工具，位于 `app/modules/agent/tools/`。
 5. **技能系统**：平台只读技能（代码实现或声明式 DSL）与用户私有提示词技能，负责参数解析、校验、追问续接和执行审计，位于 `app/modules/agent/skills/`。
-6. **AI 运动报告**：离线单次结构化调用，事实快照由代码计算、模型只做解释，位于 `app/modules/report/`；由系统计划任务按周/月触发，不进入会话与 checkpointer。
+6. **AI 运动报告**：离线单次结构化调用，事实快照由代码计算、模型只做解释，位于 `app/modules/report/`；由 `app/modules/scheduler/` 的 cron 任务按周/月触发，不进入会话与 checkpointer。
+7. **每日训练建议**：侧栏「今天」卡内的要点判断，同样离线单次调用、事实由代码计算，位于 `app/modules/daily_advice/`；每天 00:01 由调度器生成一份，不进入会话与 checkpointer。
 
 AI 能力复用现有业务 service 和统计口径，不重复实现业务计算；Agent 消息由 `langgraph` schema 的 checkpointer 表持久化，技能定义与运行审计使用独立业务表。
 
@@ -50,12 +51,12 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 ### 4.1 会话与图
 
-- 页面路径为 `/agent`，API 前缀为 `/api/agent`，模块为 `app/modules/agent/`；技能管理页为 `/agent/skills`。
+- 页面路径为 `/agent`，API 前缀为 `/api/agent`，模块为 `app/modules/agent/`；技能管理页为 `/agent/skills`，角色管理页为 `/agent/personas`。
 - 当前数据问答图为 `START → agent ⇄ tools → END`；模型通过 `bind_tools` 选择是否进入 `ToolNode`，工具结果以 `ToolMessage` 返回 Agent。
-- 图按用户技能集装配：启动时用系统技能构建常驻 `system_graph`；存在用户私有技能时，按 `(user_id, 技能版本指纹)` 编译独立图并缓存（上限 32）。系统技能版本变化需重启服务或清缓存。
-- `agent_chat.v4` 提示词的变量为 `today/weekday/capabilities`；`capabilities` 由基础只读工具、受控写工具（单独分组）与当前用户可用技能共同生成，不再在提示词里硬编码工具数量。
+- 图按用户技能集装配：启动时用系统技能构建常驻 `system_graph`；存在用户私有技能时，按 `(user_id, 技能版本指纹)` 编译独立图并缓存（上限 32）。角色只影响 system prompt，不参与图装配；仅当角色被授予专用工具时，角色指纹才进入缓存 key。系统技能版本变化需重启服务或清缓存。
+- `agent_chat.v6` 提示词的变量为 `today/weekday/now_time/capabilities/persona_block`；日期、星期与当前时刻由 `graph.py` 在每次模型调用时用本机时间注入（`%H:%M`，24 小时制），随会话实时变化；`capabilities` 由基础只读工具、受控写工具（单独分组）与当前用户可用技能共同生成，不再在提示词里硬编码工具数量；`persona_block` 由会话绑定的角色版本渲染，普通会话为固定默认句。
 - `recursion_limit=10` 限制循环轮数，`MessagesState` 不扩展。
-- 会话元数据存放在 `agent_conversations`；消息由独立 `langgraph` schema 的 4 张 checkpointer 表按 `thread_id` 持久化。
+- 会话元数据存放在 `agent_conversations`（含角色会话的 `persona_id` 与创建时版本号）；消息由独立 `langgraph` schema 的 4 张 checkpointer 表按 `thread_id` 持久化；角色定义存放在 `agent_personas` / `agent_persona_versions`。
 - 前端使用 `fetch` + `ReadableStream` 手动解析 SSE，不使用 EventSource。
 
 ### 4.2 会话与流式协议
@@ -68,6 +69,19 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 模型失败返回 `error`，前端保留输入内容以便重试。
 - 重新生成：`POST /api/agent/conversations/{id}/messages/regenerate` 复用同一套 SSE 事件；服务端经 `aupdate_state` + `RemoveMessage` 移除最后一条用户消息之后的工具中转与上一条 AI 回答（保留该用户消息），再以空输入续跑覆盖本次回答，不追加重复的用户消息；仅最近一轮可重新生成。
 - 历史消息读取（`GET .../messages`）：按一轮问答聚合为 `turns`，把带 `tool_calls` 的中转 AIMessage 与 ToolMessage 归并到对应轮次的 `tool_runs`（含工具名、入参、结构化结果），前端据此重建工具状态与明细折叠，切换会话后与当次流式视图一致；按 `tool_call_id` 精确匹配、顺序兜底。兼容早期无 ToolMessage 的历史数据（对应工具结果为空，仅显示“已查询”、不渲染明细），并合并工具调用后重插的重复用户消息。
+
+### 4.3 多角色 Persona
+
+- 角色是会话级人设，只提供一段提示词，影响语气、关注重点与表达风格；不改变数据事实、工具边界、安全与免责规则，也不承载代码、SQL、数据源或用户可写的工具授权。
+- 平台内置角色为 `nutrition`（营养师）与 `e_trainer`（电子私教），`scope=system`、只读，由 `scripts/seed_agent_personas.py` 从 `persona_nutrition.v1` / `persona_e_trainer.v1` 幂等写入；用户角色 `scope=user`，只有名称、键、定位和提示词，仅创建者可见。
+- 角色会话在 `POST /api/agent/conversations` 传入 `persona_id` 创建，同时写入 `persona_version_no`；创建后整段会话固定该角色，**不提供切换接口**。普通会话两列为空，行为与未上线前完全一致。
+- 角色版本只增不改：用户角色保存即生成新版本并立即生效（无草稿/发布两步）；平台角色文案变化由种子脚本新增版本。历史角色会话按创建时版本读取，不随角色改版漂移。
+- 角色停用只禁止新建角色会话，已绑定会话仍按快照继续；删除角色前必须删除引用它的会话，否则 409。
+- 提示词分层：`agent_chat.v6` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。
+- 工具可见性预留：`app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 当前为空，所有角色与普通会话装配全量工具（只读 + 受控写 + 用户技能）。未来专用工具按「工具名 → 允许的角色 key 集合」登记，装配阶段过滤，未登记的工具仍对所有角色可用；过滤后 `capabilities` 只列当前角色可用项。只有角色被授予专用工具时，角色指纹才进入图缓存 key。
+- 页面为 `/agent/personas`（侧栏「AI助手」→「角色」）：左侧平台角色/我的角色，右侧提示词编辑；平台只读，用户角色可保存、启停、删除。对话页「新建角色对话」从 `INIT_PERSONAS` 选择启用且已发布的角色，侧栏角色会话显示角色名徽标。
+- 相关 API：角色列表/详情/创建/保存/启停/删除 6 个接口；会话创建与列表、历史消息、SSE `done` 均携带角色信息。平台角色编辑 403、非本人用户角色 403、被会话引用删除 409。
+- `tests/test_agent_personas.py` 覆盖定义字段/长度、创建与版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束。
 
 ## 五、技能系统
 
@@ -130,8 +144,8 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | `get_dance_records` | 舞蹈明细、舞种、老师、风格、评分、热量和心得 |
 | `get_body_measurements` | 基础、期望、围度、目标四组身材数据及指定指标趋势 |
 | `get_state_records` | 食欲、肌肉疼痛、炎症、情绪四类状态记录 |
-| `get_cycle_records` | 周期参考值、月经记录、派生长度、每日疼痛和当前阶段 |
-| `get_profile_info` | 昵称、性别、年龄、账号状态和注册时间，不含密码等敏感字段 |
+| `get_cycle_records` | 周期参考值、月经记录、派生长度、每日疼痛与 note、当前阶段 |
+| `get_profile_info` | 昵称、性别、年龄、账号状态、注册时间，以及健康/运动档案（用户自填的目标、每周训练次数、习惯偏好、伤病限制，开放式文本），不含密码等敏感字段 |
 
 工具时间范围支持 `days_back` 或 `start_date + end_date`，明细工具支持 `limit`；不传范围参数时查询全部历史。`user_id` 由 `RunnableConfig` 注入，模型不可填写；统计和派生值复用现有业务口径。
 
@@ -175,11 +189,13 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 ### 7.4 自动生成
 
-应用进程内**没有**常驻 asyncio 循环。由 Windows 任务计划程序每 30 分钟执行 `scripts/generate_reports.py --scan`：
+应用进程内不起 asyncio 循环，改由 `app/modules/scheduler/` 的 APScheduler 后台线程触发；任务定义存 `scheduled_jobs` 表，启动时按表重建内存作业：
 
-- 周一凌晨命中「上周周报」（`today - 7` 所在周），每月 1 日命中「上月月报」（`today.replace(day=1) - 1` 所在月）；
-- PostgreSQL `pg_try_advisory_lock` 防重入；单实例串行生成；日志 `logs/report_task.log`；
-- `ready`/`deleted` 跳过；`failed` 且 `attempts >= REPORT_MAX_ATTEMPTS` 不再自动重试；`generating` 超过 5 分钟视为卡死转 `failed`；
+- `report.weekly`（cron `0 8 * * mon`）生成上周周报（`today - 7` 所在周），`report.monthly`（cron `0 8 1 * *`）生成上月月报（`today.replace(day=1) - 1` 所在月），时区 `Asia/Shanghai`；
+- 两条任务都调 `report.service.generate_due`，复用 `scan_due` 的幂等判断（`ready`/`deleted` 跳过；`failed` 且 `attempts >= REPORT_MAX_ATTEMPTS` 不再重试；`generating` 超过 5 分钟视为卡死转 `failed`）；
+- **错过不补**：`misfire_grace_time` 默认 300 秒，超时记 `job_runs.status=skipped`；补跑由用户在 `/system/scheduler` 点「立即执行」，或跑不排期的 `report.scan`（忽略 `report_auto_enabled`）；
+- **同域互斥**：三条报告任务共用 `lock_scope="report"`，`runner.run_task` 用 `pg_try_advisory_lock(hashtext('report'))` 串行化，周报、月报、兜底扫描不会同时生成；
+- 每次执行写 `job_runs`（来源 schedule/manual/cli、结果、耗时、明细），并回写任务的上次结果与累计次数；命令行执行日志 `logs/scheduler.log`；
 - **半程报告重写**：若该周期已有 `ready` 报告，但快照里 `facts.partial=true` 而当前周期已结束，扫描仍会命中并带 `force=True` 重写，避免月报停留在月中数据；
 - `--dry-run` 只打印到期周期（含 `refresh` 标记）；`--type/--anchor/--user/--force` 可手动生成单个周期。
 
@@ -190,9 +206,67 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 ### 7.6 测试
 
-`tests/test_report.py` 覆盖周期归一（周/月/进行中）、空数据、热量口径、进行中同期对比、周期仅女性有记录、规则模式不调模型、ready 复用与 force、失败保留 facts、软删除与扫描跳过、半程报告周期结束后重写、evidence 清洗。
+`tests/test_report.py` 覆盖周期归一（周/月/进行中）、空数据、热量口径、进行中同期对比、周期仅女性有记录、规则模式不调模型、ready 复用与 force、失败保留 facts、软删除与扫描跳过、半程报告周期结束后重写、evidence 清洗、`period_types` 限定与 `generate_due` 摘要；调度器侧（表达式校验、任务 CRUD、执行记录、失败收敛）见 `tests/test_scheduler.py`。
 
-## 八、AI 开发契约
+## 八、每日训练建议（V2.8）
+
+并进侧栏「今天」卡（`.today-card`）内的要点判断，位于周期四档标签上方：今天是否适合运动、有氧还是无氧、建议强度、健身练什么部位。与报告同属**离线、单次、无工具、无会话**的结构化调用，区别是周期为一天、产物只有三段要点、每天自动生成一次并可手动刷新。
+
+### 8.1 三层结构
+
+1. **事实层**（`app/modules/daily_advice/facts.py`）：确定性计算，复用 body / overview / 三运动 / state_record / cycle 既有口径，输出 `date`、`profile`（性别、年龄、`health_profile` 文本档案）、`body`（体重/体脂/BMI/腰臀/近 30 天体重差）、`yesterday`、`today_records`、`plans_today`、`recent_load`（近 3/7 天与部位分布、距上次健身）、`state`（今天/昨天/近 3 天四类）、`cycle`（女性且有月经记录）、`hard_limits`、`completeness`。其中 `health_profile` 是用户自填的开放式文本，只作模型参考，**不做结构化解析、不参与 `hard_limits` 判定**。
+2. **约束层**（`facts._hard_limits`）：代码判定的上限，不依赖提示词；`sanitize` 在模型返回后二次降档，见 8.3。
+3. **表达层**（`app/modules/daily_advice/ai.py`）：一次 `invoke_structured`，schema `DailyAdvice`（`verdict` / `focus` / `intensity` / `body_parts` / `text`，`extra=forbid`），模型只解释事实。
+
+### 8.2 口径
+
+- 只计 `recorded` 为已发生；`planned` 只作为当天计划提供给模型，不做完成率、不说「已经练过」。
+- 健身时长复用 `overview.service.fitness_minutes(plan)`（`_fitness_minutes` 的公开别名，只转发不改逻辑）；游泳/舞蹈按 `duration_s`。
+- `recent_load.recent_parts_2d` 汇总昨天与今天已 `recorded` 的健身部位，作为「最近 2 天练过就今天不再安排」的事实依据；只作提示模型与约束依据，不改写用户当天计划。
+- 周期仅 `gender != 男` 且存在月经记录时计算；`build_segments(..., today=day)` 锚定传入日，段来源（真实/当前/补推/预测）写入 facts，预测段不得当事实。
+- 身材 30 天体重窗口锚定传入的 `day`，保证 `generate(day != 真实今天)` 与测试可复现。
+- 事实层不做任何模型调用；模型固定 `ai_default_model`，不接受页面覆盖。
+
+### 8.3 硬约束与输出清洗
+
+| key | 条件 | 上限 |
+| --- | --- | --- |
+| `pain_high` | 今日肌肉疼痛 ≥2 或经期疼痛 ≥2 | 结论 ≤ 克制、强度 ≤ 低、不留力量部位 |
+| `cycle_rest` | 周期四档 = 适合休息 | 结论 ≤ 克制、强度 ≤ 低、不留力量部位 |
+| `inflammation_low` | 今日炎症 ≤1 | 强度 ≤ 低 |
+| `yesterday_very_heavy` | 昨日健身容量 ≥8000 或总时长 ≥120 分钟 | 结论 ≤ 克制、强度 ≤ 低 |
+| `yesterday_heavy` | 昨日容量 ≥5000 或总时长 ≥90 分钟 | 强度 ≤ 中 |
+| `trained_today` | 今日已有 recorded 力量训练 | 结论 ≤ 克制、强度 ≤ 低、不留力量部位 |
+| `mood_low` | 今日情绪 ≤1 | 强度 ≤ 中 |
+
+`sanitize`：强度按 低<中<高、结论按 休息<克制<适合 取更保守值；结论为「休息」时 `focus=恢复` 并清空部位；`focus=恢复` 时清空部位；力量被禁（`block_parts`）时，纯无氧或混合降为有氧并清空部位，纯有氧保留。正文去 HTML，按换行拆行（整段时按句末标点拆），每行去前缀标点后统一加 `- `、去句末句号，并按段收口（今日建议 ≤20 字、健身建议 ≤20 字、依据 ≤40 字，最多 3 行），空正文按失败处理；部位去重、单项 ≤8 字、最多 2 个。
+
+### 8.4 生成流程与幂等
+
+`service.generate(db, user, day=None, force=False)`：算 facts 与 `data_hash` → 已有 `ready` 且 hash 相同且非 force 直接返回 → 写 `generating`（`attempts+1`；`UNIQUE (user_id, advice_date)` 冲突回滚并 409）→ 无任何可用记录走 `mode=rule` 固定文案不调模型 → 否则调模型并 `sanitize` → 写 `ready`（模型名、提示词版本、耗时、完成时间）。模型失败写 `failed` 并保留 facts，接口 502；`generating` 超过 5 分钟视为卡死可重入。
+
+`generate_due(db, day=None, limit=None, check_switch=True)`：只扫 `status=启用` 用户，跳过已 `ready`、`failed` 且达到 `advice_max_attempts`、生成中未超时的行；单用户异常只回滚自己；返回 `{day, scanned, generated, skipped, failed, items}`。
+
+手动刷新：侧栏按钮发 `force=true`，同一行 60 秒内重复请求直接返回已有结果（防连点），之后才真正重算。当天新建计划不触发重算。
+
+### 8.5 定时任务与启动补跑
+
+- `advice.daily`（cron `1 0 * * *`，`lock_scope="advice"`，`EmptyParams`）调 `generate_due`；`advice.scan` 不排期，手动补跑（忽略 `advice_auto_enabled`）。
+- 启动补跑：`engine.start_scheduler()` 在 `bootstrap()` 后注册内存一次性 `date` 作业 `advice-catchup`（`now + advice_startup_catchup_seconds`），直接调 `generate_due`，不写 `job_runs`；作业 id 不在注册表，事件回调自动忽略。
+- 配置：`advice_auto_enabled`、`advice_timeout_seconds`（默认 30s）、`advice_max_attempts`、`advice_startup_catchup_seconds`（0 表示不补跑）。
+
+### 8.6 接口与前端
+
+- `GET /api/daily-advice?date=`（缺省今天）、`POST /api/daily-advice/regenerate`（body `{date?, force?}`，只允许今天；跨天 400、生成中 409、模型失败 502）。
+- 返回 `{date, mode, status, verdict, focus, intensity, body_parts, text, tag, generated_at, error}`，不下发 `facts` / `data_hash`。
+- `render_page` 注入轻量对象 `daily_advice`（一次索引查询，异常降级 `None`）；正文并进 `.today-card`，位于 `.d3` 与周期四档标签之间（`.advice-lines`，`white-space: pre-line`），刷新图标在「今天」标题行右侧；`sidebar_advice.js` 只处理刷新与生成中态，不轮询。
+- 正文三段按「今日建议 / 健身建议 / 依据」顺序渲染，不写段名小标题；字段 `verdict` / `focus` / `intensity` / `body_parts` 仍随接口下发，供刷新与后续功能使用，但侧栏不再单独展示标签。
+
+### 8.7 测试与降级
+
+`tests/test_daily_advice.py` 覆盖事实组装（男性无 cycle、女性有、仅 recorded 计入、计划与记录分离）、各类硬约束、sanitize 降档（含力量被禁→有氧）与要点格式（整段拆行、`- ` 前缀、去句末句号、三段各自字数收口）、rule 模式不调模型、ready 复用与 force、失败保留 facts、generating 409、`generate_due` 开关/limit/失败上限、任务表达式与跨天 400。降级路径：模型失败 → 卡片「未生成」可刷新；无数据 → rule 要点；任务错过 → 启动补跑或手动刷新；男性/无周期 → 正常生成且禁提周期。
+
+## 九、AI 开发契约
 
 1. 新增或修改 AI 功能前，必须先阅读本文件、`docs/ARCHITECTURE.md` 和 `docs/AIplan.md`。
 2. 本文件只记录已实现的 AI 架构、功能、工具、接口和开发契约；版本路线、进度和未实现设想写入 `docs/AIplan.md`。
@@ -204,9 +278,11 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 8. AI 测试需覆盖权限隔离、查询工具只读、写工具的校验/落库/防重复、模型异常、结构化校验失败和 SSE 事件；清理模拟数据时不得删除原有数据。
 9. 平台技能用代码实现或平台内部声明式 DSL，复用只读工具层并补测试；用户技能只允许提示词，提示词不得成为代码/SQL 入口；任何新增平台声明式数据源、字段或算子都要先更新白名单、校验、执行器、平台只读展示和测试，禁止开放 SQL/代码入口。
 10. 技能定义变更或平台技能升级后，`scripts/seed_agent_skills.py` 与 `scripts/schema.sql` 必须保持幂等；运行审计不得写入密码、完整聊天正文或超出技能参数范围的数据。
-11. 报告功能（`app/modules/report/`）必须保持「事实层确定性计算、叙事层只解释」的分层：新增指标先加到 `facts.metrics` 并写入提示词可用 key 白名单，再让模型引用；不得让模型直接查库或自行计算。报告生成失败必须保留 `facts`，删除必须走软删除，自动生成必须由计划任务调 CLI，不得在应用进程内起常驻循环。
+11. 报告功能（`app/modules/report/`）必须保持「事实层确定性计算、叙事层只解释」的分层：新增指标先加到 `facts.metrics` 并写入提示词可用 key 白名单，再让模型引用；不得让模型直接查库或自行计算。报告生成失败必须保留 `facts`，删除必须走软删除；自动生成只能由 `app/modules/scheduler` 的 cron 任务触发（统一走 `report.service.generate_due`），不得在业务模块里自起循环或另建第二套调度。
+12. 每日训练建议（`app/modules/daily_advice/`）同样只允许「事实由代码算、模型只解释」：新增建议维度先进 `facts` 与提示词规则，不得让模型查库；地板约束以 `hard_limits` 表达并在 `sanitize` 强制执行，不得只写在提示词里；生成入口统一 `service.generate` / `generate_due`，定时只能由调度器 `advice.daily` 触发；模型固定 `ai_default_model`；失败保留 `facts`，前端任何异常都不得阻塞页面渲染。
+13. 多角色只允许影响 system prompt：角色定义固定为 `{schema_version:1, prompt}`，不得加入工具、代码、SQL、数据源或用户可写的授权字段；角色会话创建时固定 `persona_id + version_no`，不提供切换；角色模板与平台角色用 `scripts/seed_agent_personas.py` 幂等维护。专用工具/技能的可见范围只能登记在服务端 `tools/policy.py`，不得写进用户角色定义，也不能只靠提示词约束。
 
-## 九、文件索引
+## 十、文件索引
 
 | 内容 | 文件 |
 | --- | --- |
@@ -220,10 +296,18 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | 工具定义（只读） | `app/modules/agent/tools/definitions.py` |
 | 受控写工具 | `app/modules/agent/tools/action_definitions.py` |
 | 受控查询 | `app/modules/agent/tools/queries.py` |
-| AI 页面 | `app/templates/agent/`、`app/static/js/agent.js`、`app/static/js/agent_skills.js`、`app/static/css/pages/agent.css`、`agent_skills.css` |
+| AI 页面 | `app/templates/agent/`、`app/static/js/agent.js`、`agent_skills.js`、`agent_personas.js`、`app/static/css/pages/agent.css`、`agent_skills.css`、`agent_personas.css` |
 | 技能种子与迁移 | `scripts/seed_agent_skills.py`、`scripts/migrate_agent_skills.py` |
+| 角色定义/管理/运行时 | `app/modules/agent/personas/definition.py`、`management.py`、`runtime.py` |
+| 角色工具可见性预留 | `app/modules/agent/tools/policy.py` |
+| 角色种子与迁移 | `scripts/seed_agent_personas.py`、`scripts/migrate_agent_personas.py` |
+| 角色模板 | `app/ai/prompts/persona_nutrition_v1.txt`、`persona_e_trainer_v1.txt` |
 | 报告事实快照 / 叙事 / 服务 / 模型 | `app/modules/report/facts.py`、`ai.py`、`service.py`、`models.py` |
 | 报告提示词 | `app/ai/prompts/weekly_report_v1.txt`、`monthly_report_v1.txt` |
 | 报告页面 | `app/templates/report/`、`app/static/js/report.js`、`app/static/css/pages/report.css` |
-| 报告迁移与定时任务 | `scripts/migrate_reports.py`、`scripts/generate_reports.py`、`scripts/register_report_task.ps1` |
+| 报告迁移与定时任务 | `scripts/migrate_reports.py`、`scripts/generate_reports.py`、`scripts/migrate_scheduler.py`、`app/modules/scheduler/`（定时任务定义/执行/管理页） |
+| 每日建议事实 / 清洗 / 服务 / 模型 | `app/modules/daily_advice/facts.py`、`ai.py`、`service.py`、`models.py`、`schemas.py` |
+| 每日建议提示词 | `app/ai/prompts/daily_advice_v1.txt` |
+| 每日建议侧栏 | `app/templates/layout/sidebar.html`、`app/static/js/sidebar_advice.js`、`app/static/css/layout.css` |
+| 每日建议迁移 | `scripts/migrate_daily_advice.py` |
 | AI 规划 | `docs/AIplan.md` |

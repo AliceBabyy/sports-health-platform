@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # 2026-11 状态记录迁移（幂等，可重复执行）：
-# 新建 appetite_record / myalgia_record / inflammation_record / mood_record 四张按天记录表。
+# 新建 state_appetite_record / state_myalgia_record / state_inflammation_record / state_mood_record 四张按天记录表。
+# 表名统一带 state_ 前缀（2026-11-17 由 appetite_record 等旧名改名，旧库见 scripts/migrate_state_table_prefix.py）。
 # 统一字段：id / user_id（FK 级联）/ date（同类一天一行）/ star（0~5 可空；0=最低分，null=未评）/ remark（可空）/
 #           created_at / updated_at；不套运动记录契约（无计划态、起止时间、心率、热量等）。
 import os
@@ -13,10 +14,10 @@ import psycopg2  # noqa: E402
 DSN = "postgresql://postgres:123456@127.0.0.1:5432/sports-health-platform"
 
 TABLES = {
-    "appetite_record": ("uq_appetite_user_date", "ix_appetite_record_user_date_id", "食欲状态记录（按天，每类每天一行）"),
-    "myalgia_record": ("uq_myalgia_user_date", "ix_myalgia_record_user_date_id", "肌肉疼痛状态记录（按天，每类每天一行）"),
-    "inflammation_record": ("uq_inflammation_user_date", "ix_inflammation_record_user_date_id", "炎症状态记录（按天，每类每天一行）"),
-    "mood_record": ("uq_mood_user_date", "ix_mood_record_user_date_id", "情绪状态记录（按天，每类每天一行）"),
+    "state_appetite_record": ("uq_state_appetite_user_date", "ix_state_appetite_record_user_date_id", "食欲状态记录（按天，每类每天一行）"),
+    "state_myalgia_record": ("uq_state_myalgia_user_date", "ix_state_myalgia_record_user_date_id", "肌肉疼痛状态记录（按天，每类每天一行）"),
+    "state_inflammation_record": ("uq_state_inflammation_user_date", "ix_state_inflammation_record_user_date_id", "炎症状态记录（按天，每类每天一行）"),
+    "state_mood_record": ("uq_state_mood_user_date", "ix_state_mood_record_user_date_id", "情绪状态记录（按天，每类每天一行）"),
 }
 
 

@@ -2,8 +2,9 @@
 
 users 表已含 display_name/gender/age（注册基础信息），本模块只更新既有列，不改表结构。
 校验口径与注册（auth.router_pages）完全一致。
-健康/运动档案存 health_profile（1:1 用户，开放式文本答案），题目 key 见 questions.py。
+健康/运动档案存 health_profile（一用户多行，按固定 aspect 分行记录），题目 key 见 questions.py。
 """
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -14,7 +15,8 @@ from app.modules.auth.models import User
 from app.modules.body.models import BodyBasicRecord, BodyBasicGoalRecord, BodyDimensionsRecord, BodyDimensionsGoalRecord
 from app.modules.cycle.models import PeriodLog, PeriodRecord, PeriodSetting
 from app.modules.profile.models import HealthProfile
-from app.modules.profile.questions import COMPLETION_MIN_ANSWERS, QUESTION_MAP
+from app.modules.profile import probe
+from app.modules.profile.questions import COMPLETION_MIN_ANSWERS, QUESTION_MAP, QUESTIONS
 from app.modules.training.models import TrainingRecord, TrainingRecordItem, TrainingNote
 from app.modules.swim.models import SwimRecord, SwimNote
 from app.modules.dance.models import DanceRecord, DanceNote
@@ -115,6 +117,7 @@ def get_health_answers(db: Session, user_id: int) -> dict[str, str]:
 def save_health_profile(db: Session, user: User, answers: dict[str, str]) -> HealthProfile | None:
     """保存档案：逐题校验后合并写入。
 
+    - 固定题按 questions.py 校验；定制题按当前 custom_questions 中已有的 key 校验。
     - 未出现在请求里的题目保持原值；显式传空串表示清空该题。
     - 未知 key、非文本、超长答案一律 400，不接受前端自行编造的题目。
     - 答案达到 COMPLETION_MIN_ANSWERS 项才记 completed_at，低于则清空（不阻断保存）。
@@ -122,20 +125,32 @@ def save_health_profile(db: Session, user: User, answers: dict[str, str]) -> Hea
     """
     row = get_health_profile(db, user.id)
     merged: dict[str, str] = dict(row.answers or {}) if row else {}
+    store = probe.parse_store(row.custom_questions if row else None)
+    custom_answers: dict[str, str] = {}
 
     for key, raw in answers.items():
-        question = QUESTION_MAP.get(key)
-        if question is None:
-            raise AppError(400, f"未知题目：{key}")
-        if not isinstance(raw, str):
-            raise AppError(400, f"「{question['label']}」的答案须为文本")
-        text = raw.strip()
-        if not text:
-            merged.pop(key, None)
+        if key in QUESTION_MAP:
+            question = QUESTION_MAP[key]
+            if not isinstance(raw, str):
+                raise AppError(400, f"「{question['label']}」的答案须为文本")
+            text = raw.strip()
+            if not text:
+                merged.pop(key, None)
+                continue
+            if len(text) > question["max_length"]:
+                raise AppError(400, f"「{question['label']}」最多 {question['max_length']} 字")
+            merged[key] = text
             continue
-        if len(text) > question["max_length"]:
-            raise AppError(400, f"「{question['label']}」最多 {question['max_length']} 字")
-        merged[key] = text
+
+        custom_answers[key] = raw
+
+    if custom_answers:
+        cleaned = probe.validate_page_answers(store, custom_answers)
+        for key, text in cleaned.items():
+            if text:
+                merged[key] = text
+            else:
+                merged.pop(key, None)
 
     if not merged:
         if row is not None:
@@ -144,7 +159,7 @@ def save_health_profile(db: Session, user: User, answers: dict[str, str]) -> Hea
         return None
 
     if row is None:
-        row = HealthProfile(user_id=user.id, answers=merged)
+        row = HealthProfile(user_id=user.id, answers=merged, custom_questions={"sets": []})
         db.add(row)
     else:
         row.answers = merged
@@ -158,6 +173,92 @@ def save_health_profile(db: Session, user: User, answers: dict[str, str]) -> Hea
     db.commit()
     db.refresh(row)
     return row
+
+
+def save_probe_health_profile(
+    db: Session,
+    user_id: int,
+    questions: list[dict],
+    answers: dict[str, str],
+) -> dict:
+    """受控写入“健康档案测试”角色生成的一套问题与答案。
+
+    - 问题 3~10 个，答案至少 1 题，只允许 q1~q10 且不得覆盖固定题。
+    - 与最新一套问题相同则更新该套答案；不同则新增一套，保留历史（最多 20 套）。
+    - 旧套被挤出时同步删除该套答案；固定题答案始终保留。
+    - 返回值供工具原样回给模型。
+    """
+    normalized = probe.normalize_questions(questions)
+    cleaned = probe.validate_probe_answers(normalized, answers)
+
+    row = get_health_profile(db, user_id)
+    store = probe.parse_store(row.custom_questions if row else None)
+    merged: dict[str, str] = dict(row.answers or {}) if row else {}
+    latest = probe.latest_set(store)
+    status = "created"
+
+    if latest is not None and probe.signature(latest["questions"]) == probe.signature(normalized):
+        set_id = latest["set_id"]
+        current_local = probe.latest_answers(store, merged)
+        target_local = {**current_local, **cleaned}
+        if target_local == current_local:
+            return {
+                "ok": True,
+                "status": "already_exists",
+                "set_id": set_id,
+                "question_count": len(latest["questions"]),
+                "answered_count": len(current_local),
+                "filled": True,
+                "completed_at": row.completed_at.isoformat() if row and row.completed_at else None,
+            }
+        for question in latest["questions"]:
+            key = question["key"]
+            text = target_local.get(question["local_key"])
+            if text:
+                merged[key] = text
+            else:
+                merged.pop(key, None)
+        status = "updated"
+    else:
+        store, set_id, dropped = probe.append_set(store, normalized)
+        for old_set_id in dropped:
+            prefix = probe.answer_prefix(old_set_id)
+            merged = {key: value for key, value in merged.items() if not key.startswith(prefix)}
+        for question in probe.latest_set(store)["questions"]:
+            text = cleaned.get(question["local_key"])
+            if text:
+                merged[question["key"]] = text
+
+    if row is None:
+        row = HealthProfile(user_id=user_id, answers=merged, custom_questions=store)
+        db.add(row)
+    else:
+        row.answers = merged
+        row.custom_questions = store
+
+    if len(merged) >= COMPLETION_MIN_ANSWERS:
+        if row.completed_at is None:
+            row.completed_at = datetime.now()
+    else:
+        row.completed_at = None
+
+    db.commit()
+    db.refresh(row)
+    return {
+        "ok": True,
+        "status": status,
+        "set_id": set_id,
+        "question_count": len(normalized),
+        "answered_count": len(cleaned),
+        "filled": True,
+        "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+    }
+
+
+def get_custom_questions(db: Session, user_id: int) -> dict | None:
+    """读取最新一套定制问题（供页面与 API 展示）。"""
+    row = get_health_profile(db, user_id)
+    return probe.latest_payload(probe.parse_store(row.custom_questions if row else None))
 
 
 def clear_health_profile(db: Session, user: User) -> None:

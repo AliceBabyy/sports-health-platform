@@ -40,7 +40,7 @@
 | 数据库 | `database.py` | engine / SessionLocal / Base / `get_db` 请求级会话依赖 |
 | 模型注册 | `models_registry.py` | 汇总 import 全部模型，供 `create_all` 建表 |
 | 核心 | `app/core/` | security（bcrypt）、deps（登录门禁）、constants（口径常量）、exceptions、pagination、templating（页面公共上下文） |
-| 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview / state_record / report / agent / scheduler |
+| 业务模块 | `app/modules/*` | auth / body / training / swim / dance / cycle / profile / overview / state_record / report / agent / system |
 | 视图 | `app/templates/` `app/static/` | Jinja2 模板与 CSS/JS/vendor/img |
 
 ## 4. 业务模块职责
@@ -53,18 +53,23 @@
 | swim | swim_records / swim_notes | 游泳记录/计划两态；配速/划频派生；心得；Excel/JSON 导入 |
 | dance | dance_records / dance_notes | 舞蹈记录/计划两态；课程起止时间；心得；Excel/JSON 导入 |
 | cycle | period_setting / period_records / period_logs | 周期参考值；月经记录增改删（起止日期）；每日疼痛（仅 recorded 经期可填并归属记录）+ 当日 note；周期日志分页与「全部记录」两段切换；按记录分段推算七阶段、双份激素文案、只延伸一段 + 逐日四档状态 |
-| profile | users（复用）+ health_profile | 基本资料修改 + 修改密码；健康/运动档案（1:1 开放式问答，题目 key 固定、答案为文本） |
+| profile | users（复用）+ health_profile | 基本资料修改 + 修改密码；健康/运动档案（1:1 固定问卷 + 最新一套角色定制问题，题目 key 固定、答案为文本） |
 | overview | 跨模块聚合（只读） | 健身/游泳/舞蹈 日/周/月聚合 + 单日详情 |
 | state_record | state_appetite_record / state_myalgia_record / state_inflammation_record / state_mood_record | 食欲/肌肉疼痛/炎症/情绪按天记录；四表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
-| report | reports | AI 运动周报/月报：/reports 单页周/月切换；事实层确定性计算（三运动 + 身材 + 状态 + 周期）→ 叙事层结构化输出 → 依据层；同周期快照复用、过期检测、软删除；空数据走规则文案不调模型；由 scheduler 模块按周一/每月 1 日 cron 触发 |
-| daily_advice | daily_advice | 侧栏「今日训练建议」：/api/daily-advice 读取与重新生成；事实层确定性计算（基础信息 + 身材 + 昨日/近 7 天负荷 + 状态 + 当天计划 + 女性周期）→ 硬约束由代码降档 → 模型只解释；一天一条，00:01 由 scheduler 触发，启动补跑缺失行 |
-| scheduler | scheduled_jobs / job_runs | 应用内定时任务：APScheduler 后台线程 + 内存作业；表为唯一事实源，启动 reconcile 重建；cron/date/interval 三种触发；执行记录与立即执行；/system/scheduler 管理页 |
-| agent | agent_conversations / agent_personas / agent_persona_versions / agent_skills / agent_skill_versions / agent_skill_runs | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；平台只读代码/声明式技能 + 用户私有提示词技能；斜杠自然语言触发、参数解析与追问续接；按用户技能集装配图；多角色（营养师/电子私教内置 + 用户自定义提示词角色，角色会话创建时固定版本、不可切换，只影响 system prompt）；SSE 流式（含工具/技能事件）；会话 CRUD/归属隔离；模型下拉；最近一轮可重新生成并覆盖；硬删除 |
+| report | reports | AI 运动周报/月报：/reports 单页周/月切换；事实层确定性计算（三运动 + 身材 + 状态 + 周期）→ 叙事层结构化输出 → 依据层；同周期快照复用、过期检测、软删除；空数据走规则文案不调模型；由 system/scheduler 子包按周一/每月 1 日 cron 触发 |
+| daily_advice | daily_advice | 侧栏「今日训练建议」：/api/daily-advice 读取与重新生成；事实层确定性计算（基础信息 + 身材 + 昨日/近 7 天负荷 + 状态 + 当天计划 + 女性周期）→ 硬约束由代码降档 → 模型只解释；一天一条，00:01 由 system/scheduler 子包触发，启动补跑缺失行 |
+| system | scheduled_jobs / job_runs / agent_personas | 系统管理区：聚合页面前缀 `/system` 与 API 前缀 `/api/system`，**仅管理员可访问**（AdminGateMiddleware 按前缀拦截），子模块以相对前缀 router 挂入；当前含 `scheduler/`（定时任务）与 `personas/`（内置角色 CRUD + 工具/技能白名单），页面 `/system/scheduler`、`/system/personas` |
+| agent | agent_conversations / agent_personas / agent_persona_versions / agent_skills / agent_skill_versions / agent_skill_runs | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；平台只读代码/声明式技能 + 用户私有提示词技能；斜杠自然语言触发、参数解析与追问续接；按用户技能集与角色授权装配图；多角色（营养师/电子私教/健康档案测试内置 + 用户自定义提示词角色，角色会话创建时固定版本、不可切换，角色定义只提供提示词；工具/技能默认范围由 `TOOL_PERSONA_SCOPES` 提供，管理员可写显式白名单；健康档案测试专用写工具默认仅该角色可用）；SSE 流式（含工具/技能事件）；会话 CRUD/归属隔离；模型下拉；最近一轮可重新生成并覆盖；生成中途可停止并保留半截回答，停止后可「继续」续写或重新生成；硬删除 |
 
 ## 5. 认证与会话机制
 
 - `SessionMiddleware`：Cookie `sh_session`，`SameSite=Lax`（防 CSRF），`Secure` 由 `.env` 的 `SESSION_COOKIE_SECURE` 控制。
 - `app/core/deps.py::get_current_user` 是业务路由统一门禁：无会话或用户不存在时，页面轨抛 `RedirectRequest`（303 → /login），API 轨抛 `AppError(401)`。
+- **角色与管理员区（2026-11-19）**：`users.role ∈ {管理员, 普通用户}`，注册默认普通用户。`app/core/access.py::AdminGateMiddleware` 按路径前缀 `("/system", "/api/system")` 统一拦截（含该前缀下全部现有与新增路由）：未登录页面 303 → `/login`、API 401；停用账号按未登录处理并清会话；已登录非管理员页面渲染 `error.html` 403、API 返回 `{"code":"FORBIDDEN","error":...}` 403。
+- **中间件顺序**：`SessionMiddleware` 必须在外层（`AdminGateMiddleware` 先 `add_middleware`），否则管理员门禁读不到已解析的会话；门禁内不能抛 `AppError`，需直接构造响应（全局异常处理器包不到中间件）。
+- **管理员产生**：`scripts/migrate_role.py` 在库中无管理员时把启用账号中 `id` 最小者提升为管理员；应用启动时 `app/modules/auth/admin.py::ensure_admin_accounts` 幂等兜底（只升不降），`.env` 的 `ADMIN_USERNAMES`（逗号分隔登录名）可指定追加管理员。
+- **单路由管理员依赖**：`app/core/deps.py::get_admin_user` 供前缀之外仍需要管理员权限的个别路由使用；`/system` 与 `/api/system` 本身由中间件兜底，不重复挂依赖。
+- 侧栏「系统设置」分组仅管理员可见（`app/core/templating.py` 注入 `is_admin` 并过滤导航），属展示层处理，安全边界只认中间件。
 - 三运动主表 `user_id` 为指向 users 的数据库外键；所有业务查询仍按登录用户过滤。
 
 ## 6. 异常体系（app/core/exceptions.py）
@@ -81,8 +86,8 @@
 - **唯一约束支撑 upsert**：body 4 表按 `(user_id, record_date)` 唯一；`period_logs` 按 `(user_id, log_date)` 唯一；状态记录四表按 `(user_id, date)` 唯一（同类一天一行）。三运动同日可多条，按主表 id 定位。
 - **统一两态**：健身/游泳/舞蹈均为 `status ∈ {planned, recorded}`；健身「完成训练」一键转 recorded；统计口径只计 recorded 行。
 - **状态记录（非运动模块）**：`state_appetite_record` / `state_myalgia_record` / `state_inflammation_record` / `state_mood_record` 四表结构同构，不套统一运动契约（无计划态、起止时间、时长、心率、热量），字段仅 id/user_id/date/star(0~5 可空；0=最低分，null=未评)/remark/created_at/updated_at。跨表列表在 service 内存合并分页；月历阶段复用 `cycle.service.calendar_month` 推算结果并归并经期/卵泡·排卵/黄体三档，男性或无周期记录时阶段置空。接口前缀 `/api/state-record`：列表（分页 + type 筛选）、`/daily`、`/calendar`、新建、按 id 编辑（body 带 type）、`DELETE /{id}?type=`、`/batch-delete`（items 自带 type）。
-- **账号状态与注销**：`users.status ∈ {启用, 停用}`，注册默认启用；登录和请求门禁拦截停用账号。`DELETE /api/profile/account` 要求当前密码，`retain` 停用并清会话，`purge` 在事务中删除用户及全部关联数据后清会话。停用账号通过注册页显式选择恢复、验证原密码后复用原 user_id。无管理员角色及管理员恢复接口。
-- **健康/运动档案（profile）**：`health_profile` 与用户 1:1（`user_id` 主键 + FK CASCADE），`answers` 为「题目 key → 用户文本」。本版全部开放式文本题，只限单题长度、不校验选项；保存为合并语义，空串清空、全空删行；`completed_at` 只需 ≥3 项即记，不阻断保存。文本不做结构化解析：每日训练建议只把它作为模型参考（不参与 `hard_limits` 硬约束），Agent 经 `get_profile_info` 只读返回。
+- **账号状态与注销**：`users.status ∈ {启用, 停用}`，注册默认启用；登录和请求门禁拦截停用账号。`DELETE /api/profile/account` 要求当前密码，`retain` 停用并清会话，`purge` 在事务中删除用户及全部关联数据后清会话。停用账号通过注册页显式选择恢复、验证原密码后复用原 user_id。角色见第 5 节（管理员 / 普通用户，仅管理员可进 `/system` 与 `/api/system`）；仍无管理员重置他人密码或恢复停用账号的接口，管理员账号由迁移与启动保障产生。
+- **健康/运动档案（profile）**：`health_profile` 与用户 1:1（`user_id` 主键 + FK CASCADE），`answers` 为「题目 key → 用户文本」。固定题全部开放式文本，只限单题长度、不校验选项；保存为合并语义，空串清空、全空删行；`completed_at` 只需 ≥3 项即记，不阻断保存。`custom_questions` 存「健康档案测试」角色生成的多套问题（最多 20 套，答案 key `probe_<set_id>_<qN>`），同签名更新最新套、问题变化新增一套并保留历史，页面/API 只展示最新一套；Agent 经 `get_profile_info` 读取固定档案、最新定制问答、全部历史定制问答与按 `group` 的主题覆盖统计。该角色在对话中逐个调用 `ask_user` 单题提问，答完再问下一题，全部问完后确认并静默写入；保存成功后图进入 `finalize_probe_save` 固定结束，不自动开始下一套，角色段固定追加 `persona_health_profile_test_guard.v1` 主题覆盖约束，旧版本角色会话同样生效。文本不做结构化解析：每日训练建议只把它作为模型参考（不参与 `hard_limits` 硬约束）。
 - **时长存秒、距离存米**，界面按分钟/米展示，派生展示值实时换算。
 
 ## 8. 关键业务口径（常量集中在 app/core/constants.py）
@@ -122,12 +127,13 @@
 - 状态记录页 `/state-record`：三卡片自上而下纵向堆叠（`three-row-stack`，内容随卡片宽度自适应铺满），依次为月历（阶段三档圆点 + 有记录标记，翻月/选日联动）、「当日状态」四类块（食欲/肌肉疼痛/炎症/情绪）就地填写——每块内联星级（五星 + 「0」最低分按钮，未评存空）+ 描述 + 保存，有记录时块内可删除，不再弹新增表单、「全部记录」列表（类型分段筛选 + 勾选跨表批量删除 + 分页，操作列查看详情/编辑/删除，行内「编辑」才弹出表单弹窗）。类型标签：食欲橙 / 肌肉疼痛灰 / 炎症红 / 情绪紫。详情复用公共 `#modalDetail`；无 Excel/JSON/AI 导入入口。页级脚本 `app/static/js/state_record.js`，页级样式 `css/pages/state_record.css`。
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 - 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
-- 个人信息：侧栏「个人信息」为分组，子项「账号资料」（`/profile`）与「健康/运动档案」（`/profile/health-profile`）。账号资料页保持左栏只读概览 + 右栏基本资料/修改密码；健康/运动档案页未填写时直接展示问卷（按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组卡片逐题文本框），已填写时展示只读答案卡，提供「编辑档案 / 清空档案」，编辑态可「清空重写」；保存为合并语义（未传的题保留、空串清空），全部清空即删除档案行回到问卷态。题目 key 与文案由 `app/modules/profile/questions.py` 单一维护，页面渲染与后端校验同源；页级脚本 `health_profile.js`、样式 `pages/health_profile.css`。
-- AI 助手页 `/agent`：提供多会话、多轮问答、工具/技能调用和 SSE 流式交互；顶部「新建会话」与「新建角色会话」，后者点击弹出角色选择弹窗，创建后整段会话固定该角色、不可切换，侧栏会话显示「人形图标 + 角色名」徽标；输入框支持 `/技能名 自然语言`，输入 `/` 会浮出可用技能建议并支持键盘选择；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
+- 个人信息：侧栏「个人信息」为分组，子项「账号资料」（`/profile`）与「健康/运动档案」（`/profile/health-profile`）。账号资料页保持左栏只读概览 + 右栏基本资料/修改密码；健康/运动档案页未填写时直接展示问卷（按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组卡片逐题文本框），已填写时展示只读答案卡，提供「编辑档案 / 清空档案」，编辑态可「清空重写」；存在「健康档案测试」生成的定制问题时，只读态与编辑态都追加「定制问题」卡片（只展示最新一套，带生成时间）。保存为合并语义（未传的题保留、空串清空），全部清空即删除档案行回到问卷态。固定题 key 与文案由 `app/modules/profile/questions.py` 单一维护，定制问题由 `app/modules/profile/probe.py` 管理；页级脚本 `health_profile.js`、样式 `pages/health_profile.css`。
+- AI 助手页 `/agent`：提供多会话、多轮问答、工具/技能调用和 SSE 流式交互；生成中发送按钮切换为停止按钮，可随时中断，中断后可就地「继续」续写；顶部「新建会话」与「新建角色会话」，后者点击弹出角色选择弹窗，创建后整段会话固定该角色、不可切换，侧栏会话显示「人形图标 + 角色名」徽标；输入框支持 `/技能名 自然语言`，输入 `/` 会浮出可用技能建议并支持键盘选择；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
 - 技能管理页 `/agent/skills`：整页白底铺满、左侧平台/我的技能列表 + 右侧编辑区；用户技能只提供提示词文本域，平台代码/声明式技能只读展示；校验/保存/发布/停用/删除/试运行/运行记录；平台技能只读。页面挂在侧栏「AI助手」分组下，`active=agent_skills`。
-- 角色管理页 `/agent/personas`：挂在侧栏「AI助手 → 角色」（`active=agent_personas`），布局与技能页一致；左侧平台角色/我的角色，右侧角色名、角色键、定位与提示词编辑区；平台角色只读，用户角色保存即生成新版本并生效，支持启停与删除（被会话引用时提示先删会话）。
+- 角色管理页 `/agent/personas`：挂在侧栏「AI助手 → 角色管理」（`active=agent_personas`），布局与技能页一致；左侧平台角色（营养师/电子私教/健康档案测试）与我的角色，右侧角色名、角色键、定位与提示词编辑区；平台角色普通用户只读，用户角色保存即生成新版本并生效，支持启停与删除（被会话引用时提示先删会话）。
+- 内置角色管理页 `/system/personas`：挂在侧栏「系统设置 → 内置角色」（`active=system_personas`），仅管理员可见；左侧内置角色列表，右侧角色名/键/排序/状态/提示词编辑，以及按只读、交互、写入分组的工具勾选和按代码/声明式分组的平台技能勾选。支持新建、保存、删除、恢复默认范围；被会话引用删除返回 409。页级脚本 `app/static/js/system_personas.js`，样式 `css/pages/system_personas.css`，模板 `app/templates/system/personas.html`。
 - 报告页 `/reports`：周报/月报单页（`?type=weekly|monthly&anchor=YYYY-MM-DD`），侧栏「运动训练/计划」第四项；顶部周期步进 + 进行中标记 + 生成/重新生成；4 张事实卡 → 叙事（亮点/留意/建议/周期视角/数据说明）→ 判断依据（运动/身体/状态/周期/完整度）→ 历史报告（软删除）。总览页顶部提供「周报」「月报」入口。页级脚本 `app/static/js/report.js`，样式 `css/pages/report.css`。
-- 定时任务页 `/system/scheduler`：挂在侧栏「系统设置」分组下（`active=scheduler`）；任务卡列表（任务名与说明、表达式中文化、下次执行、上次结果与累计次数、启用状态）+ 新建/编辑弹窗（触发类型 cron/interval/date、表达式、时区、参数）+ 执行历史（时间/来源/结果/耗时/摘要，分页）；卡片操作「立即执行 / 编辑 / 停用启用 / 删除」。页级脚本 `app/static/js/scheduler.js`，样式 `css/pages/scheduler.css`。
+- 定时任务页 `/system/scheduler`：挂在侧栏「系统设置」分组下（`active=scheduler`）；任务卡列表（任务名与说明、表达式中文化、下次执行、上次结果与累计次数、启用状态）+ 新建/编辑弹窗（触发类型 cron/interval/date、表达式、时区、参数）+ 执行历史（时间/来源/结果/耗时/摘要，分页）；卡片操作「立即执行 / 编辑 / 停用启用 / 删除」。页级脚本 `app/static/js/system_scheduler.js`，样式 `css/pages/system_scheduler.css`，模板 `app/templates/system/scheduler.html`。
 
 ## 专项规范索引
 
@@ -153,7 +159,7 @@ sports-health-platform/
 │  │  ├─ state_record/ # 状态记录：食欲/肌肉疼痛/炎症/情绪四表 CRUD + 月历阶段归并
 │  │  ├─ report/       # AI 运动报告：reports 表 + 事实快照 + 叙事 + 自动生成
 │  │  ├─ daily_advice/ # 侧栏每日训练建议：facts + sanitize + service + /api/daily-advice
-│  │  ├─ scheduler/    # 应用内定时任务：APScheduler + scheduled_jobs/job_runs + /system/scheduler 管理页
+│  │  ├─ system/       # 系统管理区：聚合 /system 页面与 /api/system API；scheduler/ 子包为定时任务（APScheduler + scheduled_jobs/job_runs）
 │  │  └─ agent/        # AI 助手：LangGraph 图 + checkpointer + 会话/SSE + skills 技能子系统
 │  ├─ templates/       # Jinja2 页面
 │  └─ static/          # css / js / vendor(echarts) / img
@@ -174,7 +180,7 @@ sports-health-platform/
 
 ## 13. 应用内定时任务（V2.7，2026-11-17）
 
-- **位置**：`app/modules/scheduler/`（`models` / `schemas` / `triggers` / `registry` / `runner` / `engine` / `service` / 两个 router），`main.py` 的 lifespan 内启停。替代原「Windows 任务计划程序每 30 分钟跑一次 CLI」的方案，`scripts/register_report_task.ps1` 已移除。
+- **位置**：`app/modules/system/scheduler/`（`models` / `schemas` / `triggers` / `registry` / `runner` / `engine` / `service` / 两个 router），`main.py` 的 lifespan 内启停。替代原「Windows 任务计划程序每 30 分钟跑一次 CLI」的方案，`scripts/register_report_task.ps1` 已移除。
 - **三种触发**：`cron`（标准五段式「分 时 日 月 星期」）、`date`（某时刻只跑一次，必须晚于当前时间）、`interval`（`30s`/`10m`/`2h`/`1d`，最小 60 秒）。cron 的星期字段**只接受 mon~sun 英文缩写**：APScheduler 的 `day_of_week` 以 0=周一，与 crontab 的 0=周日 差一位，数字写法会被静默错一天，因此 `triggers.parse_trigger` 直接拒绝数字。
 - **唯一事实源**：任务定义存 `scheduled_jobs`，内存作业不持久化。启动时 `service.bootstrap()` 先 `seed_defaults`（注册表里带默认排期的任务，库里没有就补一条，幂等），再 `reconcile()` 按表全量重建内存作业并移除已不存在的作业。不使用 APScheduler 自带的 `SQLAlchemyJobStore`，避免 job store 与业务表两套状态互相覆盖。
 - **不存 callable**：库里只存 `job_key` 与表达式，执行时由 `registry.REGISTRY` 查到函数；重构函数名、挪模块都不会让已存任务失效。参数由注册表的 pydantic schema 校验（`extra=forbid`），页面不能传任意字段。

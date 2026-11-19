@@ -5,6 +5,9 @@
   // 进入页面默认停留在一个新会话窗口，不自动选中历史会话；首条消息发送时才惰性创建后端会话
   let currentId = null;
   let streaming = false;
+  let stopping = false;
+  let activeStream = null; // { controller, turn }：当前进行中的流，用于中断
+  let interruptedTurn = null; // 最近一次被用户停止、可用「继续」接写的回答
   let lastUserText = "";
   let activeAsk = null; // 当前唯一等待回答的卡片，主输入框也复用它作答
   const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false };
@@ -24,6 +27,19 @@
   const ICON_MORE =
     '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">' +
     '<circle cx="8" cy="3" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="13" r="1.3"/>' +
+    '</svg>';
+  const ICON_SEND =
+    '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">' +
+    '<path d="M8 12V4M3.5 8.5 8 4l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
+    '</svg>';
+  // 流式期间同一按钮变为停止：方形图标 + 深色底，避免和发送态混淆
+  const ICON_STOP =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
+    '<rect x="4" y="4" width="8" height="8" rx="1.6" fill="currentColor"/>' +
+    '</svg>';
+  const ICON_CONTINUE =
+    '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">' +
+    '<path d="M5.2 3.1 12 8l-6.8 4.9z" fill="currentColor"/>' +
     '</svg>';
   const ICON_PERSONA =
     '<svg class="s-persona-icon" viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">' +
@@ -154,9 +170,13 @@
   }
 
   /* ---------- 消息渲染：流式与历史共用同一套 turn 结构 ---------- */
-  function actionsHtml(withRegen = true) {
+  function actionsHtml(withRegen = true, withContinue = false) {
     return '<div class="msg-actions">' +
       '<button type="button" class="msg-act" data-act="copy" title="复制" aria-label="复制">' + ICON_COPY + '</button>' +
+      (withContinue
+        ? '<button type="button" class="msg-act msg-act-continue" data-act="continue" title="从中断处继续生成" aria-label="继续生成">' +
+          ICON_CONTINUE + '<span>继续</span></button>'
+        : '') +
       (withRegen
         ? '<button type="button" class="msg-act" data-act="regen" title="重新生成" aria-label="重新生成">' + ICON_REGEN + '</button>'
         : '') +
@@ -197,7 +217,7 @@
 
   function createTurn(node) {
     const bubble = node.querySelector(".msg-bubble");
-    return {
+    const turn = {
       node: node,
       bubble: bubble,
       trace: bubble.querySelector(".tool-trace"),
@@ -206,10 +226,14 @@
       toolRuns: [],
       meta: {},
       failure: null,
+      stopped: false,
+      completed: false,
       busy: false,
       closed: false,
       raf: 0,
     };
+    node.__turn = turn;
+    return turn;
   }
 
   function appendAssistantTurn(streaming) {
@@ -260,7 +284,7 @@
 
     const label = document.createElement("div");
     label.className = "ask-label";
-    label.textContent = block.answer ? "已回复" : waiting ? "需要你回答" : "待回答";
+    label.textContent = block.skipped ? "已跳过" : block.answer ? "已回复" : waiting ? "需要你回答" : "待回答";
     card.appendChild(label);
 
     const question = document.createElement("div");
@@ -268,6 +292,13 @@
     question.textContent = block.question || "";
     card.appendChild(question);
 
+    if (block.skipped && !block.answer) {
+      const note = document.createElement("div");
+      note.className = "ask-answer ask-skipped";
+      note.textContent = "未作答，按已有信息继续";
+      card.appendChild(note);
+      return card;
+    }
     if (block.answer) {
       const answer = document.createElement("div");
       answer.className = "ask-answer";
@@ -328,6 +359,15 @@
     });
     reply.appendChild(input);
     reply.appendChild(sendBtn);
+    const skipBtn = document.createElement("button");
+    skipBtn.type = "button";
+    skipBtn.className = "ask-skip";
+    skipBtn.textContent = "跳过";
+    skipBtn.addEventListener("click", () => {
+      if (turn.busy) return;
+      submitAsk(turn, block, "", true);
+    });
+    reply.appendChild(skipBtn);
     card.appendChild(reply);
     return card;
   }
@@ -349,38 +389,49 @@
       options: data.options || [],
       multiple: !!data.multiple,
       answer: null,
+      skipped: false,
       pending: true,
     };
     turn.blocks.push(block);
     renderAskCard(turn, block);
   }
 
-  // 作答就是下一条消息：后端检测到挂起的 ask_user 会用答案恢复同一轮
-  async function submitAsk(turn, block, answer) {
+  // 作答/跳过就是下一条消息：后端检测到挂起的 ask_user 后在同一轮恢复
+  async function submitAsk(turn, block, answer, skipped = false) {
     if (streaming || turn.busy) return;
     const conv = current();
     if (!conv) return;
     const text = String(answer || "").trim();
-    if (!text) return;
+    if (!skipped && !text) return;
 
     turn.busy = true;
     turn.closed = false;
     turn.bubble.classList.add("streaming");
-    block.answer = text;
+    block.answer = skipped ? null : text;
+    block.skipped = skipped;
     block.pending = false;
     renderAskCard(turn, block);
     setStreamingUI(true);
 
-    const payload = { content: text, client_msg_id: newClientMsgId() };
+    const payload = { content: skipped ? "跳过" : text, client_msg_id: newClientMsgId() };
+    if (skipped) payload.skip_ask = true;
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
     await runStream("/api/agent/conversations/" + conv.id + "/messages", payload, turn);
-    setStreamingUI(false);
     turn.busy = false;
+
+    if (turn.stopped) {
+      // 中断保留服务端挂起的提问：等收口完成后重拉，卡片回到待作答态
+      await awaitStop();
+      await loadMessages(conv);
+      return;
+    }
+    setStreamingUI(false);
 
     if (turn.failure) {
       App.toast(turn.failure, true);
       turn.bubble.classList.remove("streaming");
       block.answer = null;
+      block.skipped = false;
       block.pending = true;
       renderAskCard(turn, block);
       turn.failure = null;
@@ -442,7 +493,7 @@
     else if (evt.event === "tool_result") finishToolRun(turn, d);
     else if (evt.event === "delta") appendDelta(turn, d.content || "");
     else if (evt.event === "ask") appendAskBlock(turn, d);
-    else if (evt.event === "done") turn.meta = d;
+    else if (evt.event === "done") { turn.meta = d; turn.completed = true; }
     else if (evt.event === "error") turn.failure = d.message || "生成失败";
   }
 
@@ -465,11 +516,13 @@
   }
 
   // 收口：按段重建正文与问答卡片、补完成态工具行、挂明细与操作按钮
-  function finalizeTurn(turn) {
+  function finalizeTurn(turn, interrupted = false) {
     if (turn.raf) { cancelAnimationFrame(turn.raf); turn.raf = 0; }
     turn.node.querySelectorAll(".tool-detail").forEach(node => node.remove());
     const oldActions = turn.node.querySelector(".msg-actions");
     if (oldActions) oldActions.remove();
+    const oldNote = turn.bubble.querySelector(".msg-stopped");
+    if (oldNote) oldNote.remove();
     turn.blocksEl.innerHTML = "";
     turn.blocks.forEach(block => {
       block._node = null;
@@ -489,9 +542,21 @@
     const text = turnText(turn);
     turn.node.dataset.raw = text;
     turn.bubble.classList.remove("streaming");
+    if (interrupted) markStopped(turn);
     const waiting = turn.blocks.some(b => b.type === "ask" && b.pending && !b.answer);
-    turn.node.querySelector(".msg-body").insertAdjacentHTML("beforeend", actionsHtml(!waiting));
+    turn.node.querySelector(".msg-body").insertAdjacentHTML(
+      "beforeend", actionsHtml(!waiting, interrupted && !waiting)
+    );
     turn.closed = true;
+  }
+
+  // 停止后的标记：只在这一条回答末尾留一行说明，不阻塞后续提问
+  function markStopped(turn) {
+    if (turn.bubble.querySelector(".msg-stopped")) return;
+    const note = document.createElement("div");
+    note.className = "msg-stopped";
+    note.textContent = "已停止生成";
+    turn.bubble.appendChild(note);
   }
 
   async function loadMessages(conv) {
@@ -510,12 +575,14 @@
       }
       els.messageList.innerHTML = "";
       activeAsk = null;
+      interruptedTurn = null;
       turns.forEach(item => {
         if (item.user != null) appendUserBubble(item.user);
         if ((item.blocks || []).length || (item.tool_runs || []).length) {
           const turn = appendAssistantTurn();
           hydrateTurn(turn, item);
-          finalizeTurn(turn);
+          finalizeTurn(turn, !!item.interrupted);
+          if (item.interrupted) interruptedTurn = turn;
         }
       });
       syncWelcome(false);
@@ -937,9 +1004,13 @@
   }
 
   /* ---------- 发送 + 流式接收 ---------- */
+  // 流式期间发送按钮原地变成“停止”（方形图标 + 深色底），点击即中断本轮生成
   function setStreamingUI(on) {
     streaming = on;
-    els.btnSend.disabled = on;
+    els.btnSend.classList.toggle("is-stop", on);
+    els.btnSend.innerHTML = on ? ICON_STOP : ICON_SEND;
+    els.btnSend.title = on ? "停止生成" : "发送";
+    els.btnSend.setAttribute("aria-label", on ? "停止生成" : "发送");
     els.btnNewChat.disabled = on;
     els.btnNewPersona.disabled = on;
   }
@@ -947,11 +1018,14 @@
   // 发送与重新生成共用：请求 → SSE 逐帧喂给同一个 turn，失败只记录不抛给页面
   async function runStream(path, payload, turn) {
     turn.failure = null;
+    const controller = new AbortController();
+    activeStream = { controller, turn };
     try {
       const res = await fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
       if (!res.ok || !res.body) {
         let msg = "请求失败（" + res.status + "）";
@@ -960,8 +1034,103 @@
       }
       await consumeSse(res, evt => applyEvent(turn, evt));
     } catch (err) {
-      turn.failure = err.message || "生成失败";
+      // 用户主动停止导致的 abort 不算失败，由停止流程收口
+      if (!turn.stopped) turn.failure = err.message || "生成失败";
+    } finally {
+      if (activeStream && activeStream.controller === controller) activeStream = null;
     }
+  }
+
+  /* ---------- 停止 / 继续 ---------- */
+  // 立即断开前端流（用户点下去就停），再请服务端做一次收口：回滚半途的调用、保留半截回答。
+  // 返回的 promise 用于让发送流程等到服务端占位释放后再收尾，避免紧接着发下一条时撞 409。
+  let stopPromise = null;
+
+  function stopStream() {
+    if (!streaming || stopping) return Promise.resolve();
+    stopping = true;
+    const turn = activeStream ? activeStream.turn : null;
+    if (turn && turn.completed) { stopping = false; return Promise.resolve(); }
+    if (turn) turn.stopped = true;
+    if (activeStream) activeStream.controller.abort();
+    const conv = current();
+    stopPromise = App.api(
+      "/api/agent/conversations/" + (conv ? conv.id : "") + "/messages/stop", { method: "POST" }
+    )
+      .then(res => {
+        if (res && conv) {
+          if (res.title) conv.title = res.title;
+          if (res.last_message_at) conv.last_message_at = res.last_message_at;
+          els.chatTitle.textContent = conversationTitle(conv);
+          renderSessions();
+        }
+      })
+      .catch(() => { /* 前端流已断开，收口失败不打断用户操作 */ })
+      .finally(() => { stopping = false; });
+    return stopPromise;
+  }
+
+  async function awaitStop() {
+    if (stopPromise) {
+      await stopPromise;
+      stopPromise = null;
+    }
+    setStreamingUI(false);
+  }
+
+  async function settleStopped(turn) {
+    await awaitStop();
+    finalizeTurn(turn, true);
+    interruptedTurn = turn;
+  }
+
+  const CONTINUE_TEXT = /^(继续|接着|接着说|继续说|继续生成|继续吧|continue)[\s。，、!！?？]*$/i;
+
+  function lastAssistantNode() {
+    const rows = els.messageList.querySelectorAll(".msg-row.assistant");
+    return rows.length ? rows[rows.length - 1] : null;
+  }
+
+  // 中断后只发“继续”这类短语：当作控制指令，不新开一轮，直接接写原回答
+  function isContinueFollowUp(text) {
+    if (!interruptedTurn) return false;
+    if (lastAssistantNode() !== interruptedTurn.node) return false;
+    return CONTINUE_TEXT.test(String(text).trim());
+  }
+
+  async function continueTurn(turn) {
+    if (streaming || !turn) return;
+    const conv = current();
+    if (!conv) return;
+    const oldActions = turn.node.querySelector(".msg-actions");
+    if (oldActions) oldActions.remove();
+    const oldNote = turn.bubble.querySelector(".msg-stopped");
+    if (oldNote) oldNote.remove();
+    turn.failure = null;
+    turn.stopped = false;
+    turn.closed = false;
+    turn.bubble.classList.add("streaming");
+    interruptedTurn = null;
+    setStreamingUI(true);
+
+    const payload = { client_msg_id: newClientMsgId() };
+    if (els.chatModel.value) payload.model_name = els.chatModel.value;
+
+    await runStream("/api/agent/conversations/" + conv.id + "/messages/continue", payload, turn);
+    setStreamingUI(false);
+
+    if (turn.stopped) { await settleStopped(turn); return; }
+    if (turn.failure) {
+      App.toast(turn.failure, true);
+      // 服务端可能已回滚本轮，重拉一次与持久化状态对齐
+      await loadMessages(conv);
+      return;
+    }
+    finalizeTurn(turn);
+    if (turn.meta.title) conv.title = turn.meta.title;
+    if (turn.meta.last_message_at) conv.last_message_at = turn.meta.last_message_at;
+    els.chatTitle.textContent = conversationTitle(conv);
+    renderSessions();
   }
 
   async function send() {
@@ -977,6 +1146,15 @@
       submitAsk(activeAsk.turn, activeAsk.block, text);
       return;
     }
+
+    // 中断后接着说“继续”：接写被中断的那条回答，不新增轮次
+    if (isContinueFollowUp(text)) {
+      els.chatInput.value = "";
+      autoGrow();
+      continueTurn(interruptedTurn);
+      return;
+    }
+    interruptedTurn = null;
 
     let conv;
     try {
@@ -998,6 +1176,8 @@
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
     await runStream("/api/agent/conversations/" + conv.id + "/messages", payload, turn);
+
+    if (turn.stopped) { await settleStopped(turn); return; }
     setStreamingUI(false);
 
     if (turn.failure) {
@@ -1024,6 +1204,7 @@
     const allAi = els.messageList.querySelectorAll(".msg-row.assistant");
     if (allAi[allAi.length - 1] !== aiNode) { App.toast("只能重新生成最近一次回答"); return; }
 
+    interruptedTurn = null;
     const oldActions = aiNode.querySelector(".msg-actions");
     if (oldActions) oldActions.remove();
     const bubble = aiNode.querySelector(".msg-bubble");
@@ -1036,6 +1217,8 @@
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
     await runStream("/api/agent/conversations/" + conv.id + "/messages/regenerate", payload, turn);
+
+    if (turn.stopped) { await settleStopped(turn); return; }
     setStreamingUI(false);
 
     if (turn.failure) {
@@ -1218,7 +1401,10 @@
       localStorage.setItem(SIDEBAR_KEY, collapsed ? "0" : "1");
       applySidebar(!collapsed);
     });
-    els.btnSend.addEventListener("click", send);
+    els.btnSend.addEventListener("click", () => {
+      if (streaming) stopStream();
+      else send();
+    });
     els.chatInput.addEventListener("input", () => {
       autoGrow();
       refreshSkillSuggest();
@@ -1296,6 +1482,7 @@
       if (!node) return;
       if (actBtn.dataset.act === "copy") copyAnswer(node);
       else if (actBtn.dataset.act === "regen") regenerate(node);
+      else if (actBtn.dataset.act === "continue") continueTurn(node.__turn);
     });
   }
 

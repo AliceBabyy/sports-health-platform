@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}内置角色 · 系统设置 · 体序{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/pages/agent_skills.css?v=20261117t">
+<link rel="stylesheet" href="/static/css/pages/agent_personas.css?v=20261118a">
+<link rel="stylesheet" href="/static/css/pages/system_personas.css?v=20261119a">
+{% endblock %}
+{% block content %}
+<div class="skills-page personas-page system-personas-page">
+  <aside class="skills-rail">
+    <button class="rail-new" id="btnNewPersona" type="button">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+      </svg>
+      新建内置角色
+    </button>
+
+    <div class="rail-scroll">
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">平台内置角色</span>
+          <span class="skills-count" id="personaCount">0</span>
+        </div>
+        <div class="skills-list" id="personaList"></div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="skills-work">
+    <header class="work-head">
+      <div class="work-identity">
+        <div class="work-kicker" id="editorKicker">内置角色</div>
+        <div class="work-name-row">
+          <h1 class="work-name" id="editorName">选择或新建角色</h1>
+        </div>
+      </div>
+      <div class="work-badges" id="editorBadges"></div>
+    </header>
+
+    <div class="work-scroll">
+      <div class="editor-empty" id="editorEmpty">
+        <div class="empty-graphic" aria-hidden="true">
+          <span>角色名</span><i></i><span>人设提示词</span><i></i><span>工具 / 技能白名单</span>
+        </div>
+        <div class="empty-title">左侧选择一个内置角色，或新建一个</div>
+        <div class="empty-sub">内置角色仅管理员可编辑；普通用户只能读取和创建角色会话。</div>
+        <button class="btn btn-primary btn-sm" id="btnEmptyNew" type="button">新建内置角色</button>
+      </div>
+
+      <form class="skill-editor" id="personaForm" hidden>
+        <section class="editor-section">
+          <div class="section-head">基本信息</div>
+          <div class="field-grid">
+            <label class="field">
+              <span>角色名</span>
+              <input class="input" id="fName" maxlength="48" required>
+            </label>
+            <label class="field">
+              <span>角色键（创建后不可修改）</span>
+              <input class="input mono" id="fKey" maxlength="48" placeholder="my_coach" required>
+            </label>
+            <label class="field">
+              <span>排序</span>
+              <input class="input mono" id="fSort" type="number" min="0" max="9999" step="1" value="0">
+            </label>
+            <label class="field">
+              <span>状态</span>
+              <select class="input" id="fStatus">
+                <option value="active">启用</option>
+                <option value="disabled">停用</option>
+              </select>
+            </label>
+            <label class="field field-wide">
+              <span>角色定位（展示与选角色时用）</span>
+              <input class="input" id="fDescription" maxlength="200" placeholder="围绕训练计划与恢复给建议">
+            </label>
+          </div>
+        </section>
+
+        <section class="editor-section">
+          <div class="section-head"><span>角色提示词</span></div>
+          <textarea class="code-editor prompt-editor persona-prompt" id="fPrompt" rows="16" spellcheck="false"
+                    maxlength="{{ persona_max_chars }}"
+                    placeholder="你是用户的……，关注……；给建议前先看……；不承诺……。"></textarea>
+        </section>
+
+        <section class="editor-section">
+          <div class="section-head">
+            <span>可用工具</span>
+            <span class="grants-note" id="toolModeNote"></span>
+          </div>
+          <div class="check-groups" id="toolChecks"></div>
+        </section>
+
+        <section class="editor-section">
+          <div class="section-head">
+            <span>可用技能</span>
+            <span class="grants-note" id="skillModeNote"></span>
+          </div>
+          <div class="check-groups" id="skillChecks"></div>
+        </section>
+
+        <div class="editor-result" id="editorResult"></div>
+      </form>
+    </div>
+
+    <footer class="work-actions" id="workActions" hidden>
+      <span class="work-hint" id="versionHint"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnResetGrants">恢复默认范围</button>
+      <button class="btn btn-ghost btn-sm danger" type="button" id="btnDelete">删除</button>
+      <button class="btn btn-primary btn-sm" type="button" id="btnSave">保存并生效</button>
+    </footer>
+  </section>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.INIT_SYSTEM_PERSONAS = {{ personas | tojson }};
+window.INIT_TOOL_OPTIONS = {{ tool_options | tojson }};
+window.INIT_SKILL_OPTIONS = {{ skill_options | tojson }};
+window.PERSONA_MAX_CHARS = {{ persona_max_chars }};
+</script>
+<script src="/static/js/system_personas.js?v=20261119a"></script>
+{% endblock %}

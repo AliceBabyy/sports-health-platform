@@ -9,8 +9,8 @@ checkpointer，支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久�
 V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用 8 个**只读工具**查询现有
 业务表后基于事实回答，不新建表、不写数据。**V2.4 技能系统**已实现平台代码/声明式技能、用户私有
 提示词技能、斜杠自然语言触发、参数解析与追问续接、技能管理页和运行审计；**V2.4 多角色**已实现
-2 个平台内置角色（营养师、电子私教）与用户自定义提示词角色，按「一整个会话归属一种角色」创建，
-会话内不可切换。后续建设 LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6）。
+3 个平台内置角色（营养师、电子私教、健康档案测试）与用户自定义提示词角色，按「一整个会话归属一种角色」创建，
+会话内不可切换；管理员可在「系统设置 → 内置角色」中增删改查内置角色并勾选工具/技能。后续建设 LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6）。
 
 AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 `deepseek-v4.1-flash`、`qwen3.8-flash`、`qwen3.8-2.4t-a95b`、`qwen3-vl-plus`。
@@ -58,7 +58,7 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 `get_fitness_records`（健身明细含动作与容量）、`get_swim_records`（游泳明细含配速/划频）、
 `get_dance_records`（舞蹈明细）、`get_body_measurements`（身材 4 组，`metric=all` 取整表或单指标趋势，
 未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪）、`get_cycle_records`
-（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段）、`get_profile_info`（昵称/性别/年龄 + 健康运动档案文本，不含密码）。
+（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段）、`get_profile_info`（昵称/性别/年龄 + 健康档案固定题 + 最新与全部历史定制问答，不含密码）。
 取数范围由模型按用户意图决定：`days_back`、`start_date + end_date`、`limit` 均可选，
 **不传任何范围参数即取全部历史**，已移除原 366 天 / 20 条硬上限；一次拉全量或只拉最近几次
 都由意图决定。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具内部用独立短 session；
@@ -80,20 +80,44 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 提示词技能折叠区只显示指令已加载。
 
 **V2.4 多角色（2026-11-18）**：对话页「新建会话」旁新增「新建角色会话」，点击弹出角色选择弹窗（显示名称、来源与定位），从启用且已发布的角色中
-选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`，以及用户自定义角色）。角色会话创建时把
+选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`、健康档案测试 `health_profile_test`，以及用户自定义角色）。角色会话创建时把
 `persona_id + persona_version_no` 一并落库，整段会话固定该角色、不提供切换；侧栏显示角色名徽标，
-历史消息与 SSE `done` 均携带角色快照。角色只影响 system prompt（`agent_chat.v7` 末尾「角色设定」+
-「规则优先级（最高）」），默认装配全部工具与技能；角色改版后老会话仍读创建时版本。角色管理页
-`/agent/personas` 挂在「AI助手 → 角色」，平台角色只读，用户角色只写名称、定位与提示词，保存即
-生成新版本并生效，支持启停与删除（被会话引用时先删会话）。数据层新增 `agent_personas` /
-`agent_persona_versions`，会话表增加两列。迁移 `python scripts/migrate_agent_personas.py`，
-种子 `python scripts/seed_agent_personas.py`。
+历史消息与 SSE `done` 均携带角色快照。角色定义只提供提示词（`agent_chat.v7` 末尾「角色设定」+
+「规则优先级（最高）」）；工具/技能默认范围由服务端 `TOOL_PERSONA_SCOPES` 提供，管理员可在
+`/system/personas` 给内置角色配置显式 `tool_grants` / `skill_grants` 白名单（`NULL` 表示沿用默认范围，空数组表示不使用），
+装配阶段按白名单过滤。角色改版后老会话仍读创建时版本。普通用户角色管理页
+`/agent/personas` 挂在「AI助手 → 角色管理」，平台角色只读，用户角色只写名称、定位与提示词，保存即
+生成新版本并生效，支持启停与删除（被会话引用时先删会话）。管理员内置角色页 `/system/personas` 支持新建、编辑、
+删除、排序、启停、恢复默认范围，接口统一为 `/api/system/system-personas`，自动受管理员门禁保护。数据层新增 `agent_personas` /
+`agent_persona_versions` 与 `agent_personas.tool_grants / skill_grants` 两列，会话表增加两列。迁移
+`python scripts/migrate_agent_personas.py`、`python scripts/migrate_agent_persona_grants.py`，种子 `python scripts/seed_agent_personas.py`。
+
+**健康档案测试角色（2026-11-19）**：平台内置 `health_profile_test`，先读 `profile_info`、身材与运动记录，
+为当前用户设计 3~10 个有针对性、可跳过的健康问题，并逐个调用 `ask_user` 单题提问（答完一题再问下一题）；
+全部问完后先用 `ask_user` 确认，再调用 `save_health_profile_probe` 静默写入健康档案。保存成功后图直接进入
+`finalize_probe_save` 固定结束本轮，不会在同一会话自动开始下一套；只有用户明确说“再来一套”才重新出题。
+该角色固定追加 `persona_health_profile_test_guard.v1` 运行约束：每套至少覆盖 3 个主题、单主题最多 2 题、
+生理周期与近期事件各最多 1 题，历史覆盖少的基础主题优先，旧版本角色会话也生效。该工具默认只装配给此角色，
+普通会话与其他角色不可见；管理员可通过显式白名单勾给其他内置角色。
+档案表新增 `custom_questions` 保存多套问题（最多 20 套），答案沿用 `answers`，key 为
+`probe_<set_id>_<qN>`；同问题再保存只更新答案，问题变化新增一套并保留历史。档案页与 API 默认展示最新一套，
+`get_profile_info` 会读取最新一套、全部历史与按 `group` 统计的主题覆盖，供角色在出题前观察用户过去回答、未答项和覆盖缺口。
+档案页 `/profile/health-profile` 在固定问卷下展示最新一套定制问题，可编辑、清空。迁移
+`python scripts/migrate_health_profile_probe.py`。
 
 **V2.9 对话中途提问（2026-11-18）**：AI 可在回答中途调用 `ask_user` 停下来提问（问题 + 最多 4 个选项，
-可多选），用户作答后从同一轮继续，不必重新解释请求。停点由 LangGraph `interrupt()` 与 Postgres
+可多选，也可跳过），用户作答后从同一轮继续，不必重新解释请求。停点由 LangGraph `interrupt()` 与 Postgres
 checkpointer 承载；作答仍走 `POST .../messages`，服务端识别到挂起后以 `Command(resume=答案)` 恢复，
 问答与后续正文留在原轮次，刷新页面后卡片仍可继续作答。等待回答期间不可重新生成。提示词升到
 `agent_chat.v7`，新增 SSE `ask` 事件。
+
+**V2.10 中断生成与续写（2026-11-19）**：流式生成期间发送按钮就地变为停止按钮（方形图标 + 深色底），再次点击即中断
+本轮；前端用 `AbortController` 立即断开 SSE，并调用 `POST /api/agent/conversations/{id}/messages/stop` 交给服务端收口。
+服务端把已流出正文作为一条带 `interrupted` 标记的 AI 回答保留，回滚“工具调用没配齐结果”的尾部消息（已完成的工具
+轨迹保留），8 秒内未收尾则释放占位，避免会话被永久锁住。中断后可点「继续」，或直接发“继续/接着/continue”：
+`POST .../messages/continue` 不新增用户消息，以 `run_mode=续写` 在原轮次接着写（不重复、不重开场），也可改用「重新生成」
+整段重写；刷新后由历史消息的 `interrupted` 标记恢复「继续」。中断只结束会话消息，不撤销已落库的业务写入。提示词
+`agent_chat.v7` 新增 `{run_mode}` 变量。
 
 **V2.5 AI 运动报告（2026-11-17）**：新增 `/reports` 单页（周报/月报 tab 切换），侧栏挂在
 「运动训练/计划」第四项，总览页顶部提供周报/月报入口。三层结构：事实层由代码确定性计算
@@ -104,7 +128,7 @@ checkpointer 承载；作答仍走 `POST .../messages`，服务端识别到挂�
 月报=自然月；未结束周期标「进行中（截至 X）」。空数据不调模型、走规则文案。迁移
 `python scripts/migrate_reports.py`。
 
-**V2.7 应用内定时任务（2026-11-17）**：新增 `app/modules/scheduler/` 与 `/system/scheduler` 管理页
+**V2.7 应用内定时任务（2026-11-17）**：新增 `app/modules/scheduler/`（2026-11-19 并入 `app/modules/system/scheduler/`）与 `/system/scheduler` 管理页
 （侧栏「系统设置 → 定时任务」），用
 APScheduler 后台线程替代原「Windows 任务计划程序每 30 分钟跑 CLI」方案。任务定义存 `scheduled_jobs`
 （唯一事实源，启动按表 reconcile 重建内存作业），支持 cron / date / interval 三种触发（cron 为标准
@@ -193,6 +217,7 @@ uv sync --extra dev   # 或 pip install -r requirements.txt
 DATABASE_URL=postgresql+psycopg2://postgres:123456@127.0.0.1:5432/sports-health-platform
 PORT=8010
 SESSION_COOKIE_SECURE=False
+ADMIN_USERNAMES=<可选，逗号分隔的管理员登录名；留空则由库里 id 最小的启用账号担任>
 SECRET_KEY=<随机生成，勿提交仓库>
 ```
 
@@ -203,12 +228,14 @@ SECRET_KEY=<随机生成，勿提交仓库>
 # 可选参数：--username <名> --password <密码> --display-name <昵称>，默认 admin / admin123
 # 已有库补结构：python scripts\migrate_reports.py（AI 运动报告表）
 #              python scripts\migrate_scheduler.py（定时任务两表 + 默认周报/月报任务）
+#              python scripts\migrate_role.py（users 角色列 + 首个管理员回填）
 #              python scripts\migrate_daily_advice.py（每日训练建议表）
+#              python scripts\migrate_agent_persona_grants.py（内置角色工具/技能白名单两列）
 ```
 
 ### 3.1 AI 运动报告自动生成（可选）
 
-周报/月报由应用内调度器自动触发（服务启动即注册，无需操作系统计划任务）；`/system/scheduler` 管理页可改表达式、启停与立即执行。手动补跑：
+周报/月报由应用内调度器自动触发（服务启动即注册，无需操作系统计划任务）；`/system/scheduler` 管理页（仅管理员可见，`/system` 与 `/api/system` 前缀统一由管理员门禁拦截）可改表达式、启停与立即执行。手动补跑：
 
 ```powershell
 # 试运行（只列出到期周期，不调模型）
@@ -258,7 +285,7 @@ sports-health-platform/
 │  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症/情绪四表按天记录 + 月历阶段归并 + 跨表批量删除
 │  │  ├─ report/           # AI 运动报告：周/月事实快照 + 叙事 + 软删除 + 自动生成（页面 /reports）
 │  │  ├─ daily_advice/     # 每日训练建议：今天卡内要点判断 + 硬约束降档 + 00:01 定时生成（/api/daily-advice）
-│  │  ├─ scheduler/        # 应用内定时任务：APScheduler + scheduled_jobs/job_runs（页面 /system/scheduler）
+│  │  ├─ system/           # 系统管理区：聚合 /system 页面与 /api/system API；scheduler/ 定时任务、personas/ 内置角色 CRUD + 工具/技能白名单
 │  │  ├─ profile/          # 个人信息：基本资料 + 修改密码（复用 users）+ 健康/运动档案（health_profile）
 │  │  └─ agent/            # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE（页面 /agent）
 │  ├─ templates/           # Jinja2（base/侧栏/各模块页面 + auth/register + profile）

@@ -65,7 +65,7 @@ class ScheduledJob(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
     job_key: Mapped[str] = mapped_column(
-        String(64), nullable=False, comment="任务键，对应 app/modules/scheduler/registry.py"
+        String(64), nullable=False, comment="任务键，对应 app/modules/system/scheduler/registry.py"
     )
     name: Mapped[str] = mapped_column(String(64), nullable=False, comment="任务显示名")
     trigger_type: Mapped[str] = mapped_column(

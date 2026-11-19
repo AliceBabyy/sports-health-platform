@@ -225,10 +225,11 @@ def test_prompt_v7_persona_block_and_v6_removed():
     assert "agent_chat.v6" not in PROMPTS
     text = load_system_prompt(
         "agent_chat.v7", today="2026-11-18", weekday="周三", now_time="09:00",
-        capabilities="只读工具", persona_block="当前角色：营养师（v1）。",
+        capabilities="只读工具", persona_block="当前角色：营养师（v1）。", run_mode="常规",
     )
     assert "角色设定" in text and "当前角色：营养师（v1）" in text
     assert text.index("规则优先级") > text.index("角色设定")
+    assert "本轮模式：常规" in text
 
 
 def test_conversation_persona_pair_constraint(db):

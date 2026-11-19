@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import text
 
 from app.core.exceptions import AppError
-from app.modules.scheduler.models import (
+from app.modules.system.scheduler.models import (
     RUN_FAILED,
     RUN_RUNNING,
     RUN_SKIPPED,
@@ -19,7 +19,7 @@ from app.modules.scheduler.models import (
     JobRun,
     ScheduledJob,
 )
-from app.modules.scheduler.registry import REGISTRY, validate_params
+from app.modules.system.scheduler.registry import REGISTRY, validate_params
 from database import SessionLocal, engine
 
 logger = logging.getLogger("scheduler")

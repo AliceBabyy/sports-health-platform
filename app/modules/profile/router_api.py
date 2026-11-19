@@ -6,6 +6,7 @@ from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.profile import service
+from app.modules.profile import probe
 from app.modules.profile.schemas import (
     AccountDeleteIn,
     HealthProfileIn,
@@ -19,11 +20,14 @@ router = APIRouter(prefix="/api/profile", tags=["profile"])
 
 def _health_profile_payload(db: Session, user: User) -> dict:
     row = service.get_health_profile(db, user.id)
+    store = probe.parse_store(row.custom_questions if row else None)
     return {
         "ok": True,
         "filled": row is not None,
         "completed_at": row.completed_at.isoformat() if row and row.completed_at else None,
         "answers": dict(row.answers or {}) if row else {},
+        "custom_questions": probe.latest_payload(store),
+        "custom_history_count": len(store["sets"]),
     }
 
 
@@ -81,13 +85,11 @@ def save_health_profile(
     """保存档案：只更新提交的题目，空串清空该题；全部清空后删除档案行。"""
     row = service.save_health_profile(db, user, payload.answers)
     if row is None:
-        return {"ok": True, "filled": False, "completed_at": None, "answers": {}}
-    return {
-        "ok": True,
-        "filled": True,
-        "completed_at": row.completed_at.isoformat() if row.completed_at else None,
-        "answers": dict(row.answers or {}),
-    }
+        return {
+            "ok": True, "filled": False, "completed_at": None, "answers": {},
+            "custom_questions": None, "custom_history_count": 0,
+        }
+    return _health_profile_payload(db, user)
 
 
 @router.delete("/health-profile")

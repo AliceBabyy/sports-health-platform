@@ -1,7 +1,8 @@
 """角色定义校验：只允许 {schema_version, prompt}。
 
 角色是会话级人设，不承载工具、代码、SQL 或数据源声明；工具可见范围由服务端
-`tools/policy.py` 统一装配，不写进用户可编辑的定义。
+`tools/policy.py` 的默认基线和管理员维护的 `agent_personas.tool_grants/skill_grants`
+统一装配，不写进用户可编辑的定义。
 """
 from dataclasses import dataclass
 from typing import Any

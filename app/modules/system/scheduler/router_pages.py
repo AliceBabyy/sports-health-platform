@@ -1,19 +1,22 @@
-"""定时任务页面路由：GET /system/scheduler（任务列表 + 新建/编辑 + 执行历史）。"""
+"""定时任务页面路由：GET /system/scheduler（任务列表 + 新建/编辑 + 执行历史）。
+
+前缀 /scheduler 为相对前缀，由 system 模块的 /system 命名空间聚合。
+"""
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.templating import render_page
 from app.modules.auth.models import User
-from app.modules.scheduler import service
-from app.modules.scheduler.registry import catalog
+from app.modules.system.scheduler import service
+from app.modules.system.scheduler.registry import catalog
 from config import settings
 from database import get_db
 
-router = APIRouter()
+router = APIRouter(prefix="/scheduler")
 
 
-@router.get("/system/scheduler")
+@router.get("")
 def scheduler_page(
     request: Request,
     db: Session = Depends(get_db),
@@ -23,7 +26,7 @@ def scheduler_page(
     runs = service.history(db, None, 1, 12)
     return render_page(
         request,
-        "scheduler/index.html",
+        "system/scheduler.html",
         {
             "active": "scheduler",
             "jobs": jobs["list"],

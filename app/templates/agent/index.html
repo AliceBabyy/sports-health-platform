@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}AI 助手 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261118d">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261119b">{% endblock %}
 {% block content %}
 <div class="agent-workbench" id="agentWorkbench">
   <!-- 会话列表 -->
@@ -88,5 +88,5 @@ window.INIT_PERSONAS = {{ personas | tojson }};
 window.MODEL_OPTIONS = {{ model_options | tojson }};
 window.DEFAULT_MODEL = {{ default_model | tojson }};
 </script>
-<script src="/static/js/agent.js?v=20261118g"></script>
+<script src="/static/js/agent.js?v=20261119b"></script>
 {% endblock %}

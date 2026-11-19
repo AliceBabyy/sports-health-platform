@@ -13,8 +13,8 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MI
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.exceptions import AppError
-from app.modules.scheduler.runner import run_task
-from app.modules.scheduler.triggers import get_tz
+from app.modules.system.scheduler.runner import run_task
+from app.modules.system.scheduler.triggers import get_tz
 from config import settings
 
 logger = logging.getLogger("scheduler")
@@ -58,7 +58,7 @@ def start_scheduler() -> BackgroundScheduler | None:
     sched.start()
     _scheduler = sched
 
-    from app.modules.scheduler import service
+    from app.modules.system.scheduler import service
 
     service.bootstrap()
     _schedule_advice_catchup(sched)
@@ -147,7 +147,7 @@ def sync_job(row, sched: BackgroundScheduler | None = None) -> None:
 
 
 def _trigger(row):
-    from app.modules.scheduler.triggers import parse_trigger
+    from app.modules.system.scheduler.triggers import parse_trigger
 
     return parse_trigger(row.trigger_type, row.trigger_expr, row.timezone)
 
@@ -177,7 +177,7 @@ def _on_event(event) -> None:
     if job_pk is None:
         return
     try:
-        from app.modules.scheduler import service
+        from app.modules.system.scheduler import service
 
         if event.code == EVENT_JOB_MISSED:
             service.mark_missed(job_pk)

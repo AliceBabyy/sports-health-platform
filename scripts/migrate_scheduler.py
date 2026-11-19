@@ -62,7 +62,7 @@ DDL = [
 COMMENTS = [
     "COMMENT ON TABLE scheduled_jobs IS '定时任务定义（job_key 指向代码注册表；表达式为本表唯一事实源）'",
     "COMMENT ON COLUMN scheduled_jobs.id IS '主键'",
-    "COMMENT ON COLUMN scheduled_jobs.job_key IS '任务键，对应 app/modules/scheduler/registry.py'",
+    "COMMENT ON COLUMN scheduled_jobs.job_key IS '任务键，对应 app/modules/system/scheduler/registry.py'",
     "COMMENT ON COLUMN scheduled_jobs.name IS '任务显示名'",
     "COMMENT ON COLUMN scheduled_jobs.trigger_type IS '触发类型：cron / date / interval'",
     "COMMENT ON COLUMN scheduled_jobs.trigger_expr IS '触发表达式（cron 五段式 / interval 如 10m / date 如 2026-11-20 15:40）'",
@@ -100,7 +100,7 @@ def main() -> None:
         for sql in COMMENTS:
             conn.execute(text(sql))
 
-    from app.modules.scheduler import service
+    from app.modules.system.scheduler import service
 
     db = SessionLocal()
     try:

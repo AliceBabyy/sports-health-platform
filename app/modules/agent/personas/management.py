@@ -34,6 +34,11 @@ def _hash(definition: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def definition_hash(definition: dict) -> str:
+    """角色定义 SHA-256；供用户角色与系统角色管理共用。"""
+    return _hash(definition)
+
+
 def _check_basic(payload: dict, db: Session, user_id: int, exclude_id: int | None = None) -> list[dict]:
     errors: list[dict] = []
     name = (payload.get("name") or "").strip()

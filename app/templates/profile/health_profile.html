@@ -23,6 +23,17 @@
     {% endfor %}
   </section>
   {% endfor %}
+  {% if custom_questions %}
+  <section class="card">
+    <div class="card-title">健康档案测试 · 定制问题 <span class="sub">{{ custom_generated_at }}</span></div>
+    {% for q in custom_questions %}
+    <div class="hp-row">
+      <div class="hp-label">{{ q.label }}</div>
+      <div class="hp-value{{ ' is-empty' if not answers.get(q.key) }}">{{ answers.get(q.key) or '—' }}</div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
 </div>
 
 <form class="hp-stack" id="hpForm" {% if filled %}hidden{% endif %}>
@@ -39,6 +50,18 @@
     {% endfor %}
   </section>
   {% endfor %}
+  {% if custom_questions %}
+  <section class="card">
+    <div class="card-title">健康档案测试 · 定制问题 <span class="sub">{{ custom_generated_at }}</span></div>
+    {% for q in custom_questions %}
+    <div class="hp-field">
+      <label class="field-label" for="hp-{{ q.key }}">{{ q.label }}</label>
+      {% if q.hint %}<div class="hp-hint">{{ q.hint }}</div>{% endif %}
+      <textarea class="input hp-textarea" id="hp-{{ q.key }}" name="{{ q.key }}" rows="3" maxlength="{{ q.max_length }}" placeholder="{{ q.placeholder or '' }}">{{ answers.get(q.key, '') }}</textarea>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
   <div class="card hp-form-foot">
     <div class="hp-foot-hint">可以只填一部分，保存即生效。</div>
     <div class="hp-foot-actions">

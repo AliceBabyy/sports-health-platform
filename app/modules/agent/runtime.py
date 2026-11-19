@@ -4,8 +4,8 @@
 再让池内连接通过 search_path 固定到该 schema，PostgresSaver 无 schema 前缀的
 建表迁移即落到该 schema。
 
-V2.4：系统图常驻；用户有私有技能时，按 (user_id, 技能版本指纹) 编译并缓存独立图。
-多角色只影响 system prompt，不参与图装配；仅当角色被授予专用工具时，角色指纹才进入缓存 key。
+V2.4：系统图常驻；用户有私有技能、角色显式工具/技能白名单或角色专用工具时，按
+(user_id, 技能版本指纹, 角色指纹) 编译并缓存独立图。
 """
 import re
 
@@ -47,7 +47,7 @@ def build_user_graph(saver, skills: list[ResolvedSkill], persona=None):
         *ACTION_TOOLS,
         *(build_skill_tool(skill) for skill in skills),
     ]
-    tools = tools_for_persona(tools, persona.key if persona is not None else None)
+    tools = tools_for_persona(tools, persona)
     return build_graph(saver, tools, _capabilities(skills, tools))
 
 
@@ -87,7 +87,11 @@ async def init_agent_runtime() -> dict:
 
 def graph_for_user(db: Session, user_id: int, runtime: dict, persona=None):
     """返回该用户当前技能集（及角色工具范围）对应的编译图；无差异时复用系统图。"""
-    skills = available_skills(db, user_id, persona.key if persona is not None else None)
+    skills = available_skills(
+        db, user_id,
+        persona.key if persona is not None else None,
+        skill_grants=persona.skill_grants if persona is not None else None,
+    )
     user_skills = [s for s in skills if s.scope == "user"]
     persona_fp = persona_graph_fingerprint(persona)
     if not user_skills and not persona_fp:

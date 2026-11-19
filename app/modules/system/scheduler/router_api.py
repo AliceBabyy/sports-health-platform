@@ -1,15 +1,15 @@
-"""定时任务 API（/api/scheduler）：任务列表、新建、更新、删除、立即执行、执行历史。"""
+"""定时任务 API（相对前缀 /scheduler，由 system 模块挂载为 /api/system/scheduler）：任务列表、新建、更新、删除、立即执行、执行历史。"""
 from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.core.deps import get_current_user
 from app.modules.auth.models import User
-from app.modules.scheduler import service
-from app.modules.scheduler.schemas import JobCreateIn, JobUpdateIn
+from app.modules.system.scheduler import service
+from app.modules.system.scheduler.schemas import JobCreateIn, JobUpdateIn
 from database import get_db
 
-router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
 
 @router.get("/jobs")

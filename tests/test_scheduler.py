@@ -6,15 +6,15 @@ from sqlalchemy.orm import sessionmaker
 
 import models_registry  # noqa: F401
 from app.core.exceptions import AppError
-from app.modules.scheduler import registry, runner, service, triggers
-from app.modules.scheduler.models import (
+from app.modules.system.scheduler import registry, runner, service, triggers
+from app.modules.system.scheduler.models import (
     RUN_FAILED,
     RUN_SUCCESS,
     JobRun,
     ScheduledJob,
 )
-from app.modules.scheduler.registry import JobSpec
-from app.modules.scheduler.schemas import JobCreateIn, JobUpdateIn
+from app.modules.system.scheduler.registry import JobSpec
+from app.modules.system.scheduler.schemas import JobCreateIn, JobUpdateIn
 
 TZ = "Asia/Shanghai"
 

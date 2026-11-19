@@ -1,4 +1,4 @@
-"""平台内置角色种子（幂等）：营养师、电子私教。
+"""平台内置角色种子（幂等）：营养师、电子私教、健康档案测试。
 
 用法：
     python scripts/seed_agent_personas.py
@@ -30,6 +30,13 @@ PLATFORM_PERSONAS = [
         "description": "围绕训练计划、动作质量与恢复给建议",
         "prompt_id": "persona_e_trainer.v1",
         "sort_order": 2,
+    },
+    {
+        "key": "health_profile_test",
+        "name": "健康档案测试",
+        "description": "根据你的记录定制健康问题，回答后写入健康档案",
+        "prompt_id": "persona_health_profile_test.v1",
+        "sort_order": 3,
     },
 ]
 

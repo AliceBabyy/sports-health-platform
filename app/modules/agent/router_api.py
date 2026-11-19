@@ -114,8 +114,7 @@ async def send_message(
 
 
 @router.post("/conversations/{conversation_id}/messages/regenerate")
-async def regenerate_message(
-    conversation_id: int,
+async def regenerate_message(    conversation_id: int,
     payload: schemas.RegenerateIn,
     request: Request,
     db: Session = Depends(get_db),
@@ -127,6 +126,40 @@ async def regenerate_message(
     )
     return StreamingResponse(
         service.stream_reply(db, row, thread_id, _runtime(request), payload, human_content, replay=True),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.post("/conversations/{conversation_id}/messages/stop")
+async def stop_message(
+    conversation_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 中断只结束本轮：已流出正文作为一条 interrupted 回答留下，断在半途的工具调用回滚
+    return await service.stop_reply(db, user.id, conversation_id, _runtime(request))
+
+
+@router.post("/conversations/{conversation_id}/messages/continue")
+async def continue_message(
+    conversation_id: int,
+    payload: schemas.ContinueIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 续写不新增用户消息：在既有状态上以 run_mode=续写 再跑一次 agent
+    row, thread_id = await service.prepare_continue(
+        db, user.id, conversation_id, _runtime(request), payload
+    )
+    return StreamingResponse(
+        service.stream_reply(db, row, thread_id, _runtime(request), payload, continuation=True),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

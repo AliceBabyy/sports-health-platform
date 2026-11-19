@@ -1,6 +1,6 @@
 /* 定时任务管理页（2026-11-17）：任务卡渲染、新建/编辑、立即执行、启停、删除、执行历史 */
 (function () {
-  const API = '/api/scheduler';
+  const API = '/api/system/scheduler';
   const boot = window.SCHEDULER_BOOT || {
     jobs: [], catalog: [], runs: [], graceDefault: 300, timezone: 'Asia/Shanghai',
   };

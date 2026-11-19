@@ -7,7 +7,7 @@
     python scripts/generate_reports.py --type monthly --user 1 --force
 
 说明：
-- `--scan` 走 `app.modules.scheduler.runner.run_task("report.scan")`，与页面「立即执行」同一路径：
+- `--scan` 走 `app.modules.system.scheduler.runner.run_task("report.scan")`，与页面「立即执行」同一路径：
   PostgreSQL advisory lock 与后台定时任务互斥，执行结果写入 `job_runs` 表留痕，日志写 logs/scheduler.log。
 - `--type` 模式直接调用 report.service.generate，用于单用户、单周期重跑与排查。
 """
@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.modules.auth.models import User
 from app.modules.report import service
 from app.modules.report.facts import build_facts, resolve_period
-from app.modules.scheduler.runner import run_task
+from app.modules.system.scheduler.runner import run_task
 from config import settings
 from database import SessionLocal
 

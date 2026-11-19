@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     advice_max_attempts: int = 3
     # 启动补跑延迟秒数；0 表示不补跑（错过仍可手动刷新）
     advice_startup_catchup_seconds: int = 60
+    # 角色与管理员区（2026-11-19）：`/system` 与 `/api/system` 仅管理员可访问；
+    # 无管理员时启动自动提升 user_id 最小的启用账号，配置项可按登录名追加指定管理员（逗号分隔）
+    admin_usernames: str = ""
     # 应用内定时任务（2026-11-17）：APScheduler 后台线程 + scheduled_jobs 表
     scheduler_enabled: bool = True
     scheduler_timezone: str = "Asia/Shanghai"

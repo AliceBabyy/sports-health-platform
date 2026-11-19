@@ -5,6 +5,8 @@ from pathlib import Path
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
+from app.core.access import ADMIN_ROLE
+
 BASE_DIR = Path(__file__).resolve().parents[2]  # 项目根目录
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
 
@@ -44,6 +46,7 @@ NAV_GROUPS = [
         "short": "系统",
         "children": [
             {"key": "scheduler", "url": "/system/scheduler", "label": "定时任务", "short": "定时"},
+            {"key": "system_personas", "url": "/system/personas", "label": "内置角色", "short": "角色"},
         ],
     },
 ]
@@ -73,11 +76,13 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
     """渲染业务页：自动注入登录用户、分组导航高亮、今日信息与常量。
 
     性别联动：男性账号不显示“生理周期”导航入口与侧栏周期卡片（cycle_today 置空）。
+    角色联动：非管理员不显示「系统设置」分组，进入管理员区由 AdminGateMiddleware 拦截。
     分组展开：active 落在分组头或其子菜单时，该分组默认展开（group_open）。
     面包屑：page_title 默认取当前 active 模块名，页面可显式覆盖。
     """
     user = getattr(request.state, "user", None)
     today = date.today()  # 按请求取当天：进程长跑跨天也不会把「今天」停留在启动日
+    is_admin_user = user is not None and user.role == ADMIN_ROLE
     cycle_info = {}
     is_male = user is not None and user.gender == "男"
     if user is not None and not is_male:
@@ -95,7 +100,11 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
 
     ctx = dict(ctx or {})
     active = ctx.get("active", "")
-    nav_groups = [g for g in NAV_GROUPS if not (is_male and g["key"] == "cycle")]
+    nav_groups = [
+        g
+        for g in NAV_GROUPS
+        if not (is_male and g["key"] == "cycle") and (g["key"] != "system" or is_admin_user)
+    ]
     group_open = ""
     for g in nav_groups:
         if g.get("children") and active in (g["key"], *(c["key"] for c in g["children"])):
@@ -104,6 +113,7 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
     nav_count = sum(1 + len(g.get("children", [])) for g in nav_groups)
     base = {
         "user": user,
+        "is_admin": is_admin_user,
         "today": today,
         "today_str": today.strftime("%Y.%m.%d"),
         "weekday_cn": WEEKDAY_CN[today.weekday()],

@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
 from app.core.pagination import paginate
-from app.modules.scheduler import engine as sched
-from app.modules.scheduler.models import (
+from app.modules.system.scheduler import engine as sched
+from app.modules.system.scheduler.models import (
     RUN_SKIPPED,
     SOURCE_LABELS,
     SOURCE_MANUAL,
@@ -18,8 +18,8 @@ from app.modules.scheduler.models import (
     JobRun,
     ScheduledJob,
 )
-from app.modules.scheduler.registry import REGISTRY, get_spec, validate_params
-from app.modules.scheduler.triggers import describe, parse_trigger
+from app.modules.system.scheduler.registry import REGISTRY, get_spec, validate_params
+from app.modules.system.scheduler.triggers import describe, parse_trigger
 from config import settings
 from database import SessionLocal
 
@@ -283,7 +283,7 @@ def run_now(job_pk: int) -> dict:
     finally:
         db.close()
 
-    from app.modules.scheduler.runner import run_task
+    from app.modules.system.scheduler.runner import run_task
 
     result = run_task(job_key, params, source=SOURCE_MANUAL, job_id=job_pk)
 

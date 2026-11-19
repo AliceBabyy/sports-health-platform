@@ -35,9 +35,13 @@ async def ask_user(
 ) -> dict:
     """在回答中途向用户提一个问题并暂停，等用户作答后自动继续本轮任务。
 
-    只在「必须由用户先做决定、否则无法继续」时调用：一次只问一个问题，问句具体、
-    能用一条消息答完；能给出明确选项时提供 2~4 个短选项，可多选时设 multiple=true。
+    只在「必须由用户先做决定或提供信息、否则无法继续」时调用：一次只问一个问题，
+    问句具体、能用一条消息答完；能给出明确选项时提供 2~4 个短选项，可多选时设
+    multiple=true。角色要求逐个收集信息时，应按角色流程逐题调用，不要合并问题。
     调用后立即停止输出，不要继续写正文、不要同时调用其他工具、不要先替用户假设答案。
+
+    用户可以选择跳过：此时返回 `skipped=true`、`answer=null`，表示用户不愿回答，
+    应按已有信息继续完成原任务，在回答里说明因此缺少哪部分依据，不要重复提问。
     """
     text = (question or "").strip()[:MAX_QUESTION_CHARS] or DEFAULT_QUESTION
     cleaned = _clean_options(options)
@@ -46,7 +50,14 @@ async def ask_user(
         "options": cleaned,
         "multiple": bool(multiple and len(cleaned) > 1),
     }
-    answer = interrupt(payload)
-    if isinstance(answer, dict):
-        answer = answer.get("answer", "")
-    return {"question": text, "answer": str(answer or "").strip()}
+    value = interrupt(payload)
+    if isinstance(value, dict):
+        answer = str(value.get("answer") or "").strip()
+        skipped = bool(value.get("skipped"))
+    else:
+        answer, skipped = str(value or "").strip(), False
+    return {
+        "question": text,
+        "answer": None if skipped else (answer or None),
+        "skipped": skipped,
+    }

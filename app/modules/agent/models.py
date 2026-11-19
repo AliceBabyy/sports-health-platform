@@ -77,7 +77,8 @@ PERSONA_STATUSES = ("active", "disabled")
 class AgentPersona(Base):
     """角色主表：平台内置角色（scope=system）与用户自定义角色（scope=user）。
 
-    角色只提供一段人设提示词；可用工具与技能由服务端代码统一装配，不因角色差异而改变。
+    角色只保存人设提示词和角色级授权：tool_grants / skill_grants 为空表示沿用平台
+    默认范围（TOOL_PERSONA_SCOPES 等代码基线），非空表示管理员显式勾选的白名单。
     """
     __tablename__ = "agent_personas"
     __table_args__ = (
@@ -93,7 +94,7 @@ class AgentPersona(Base):
         Index("uq_agent_personas_user_key", "owner_user_id", "persona_key", unique=True,
               postgresql_where=text("scope = 'user'"), sqlite_where=text("scope = 'user'")),
         Index("ix_agent_personas_list", "scope", "status", "sort_order"),
-        {"comment": "AI 角色（平台内置只读 + 用户私有自定义提示词角色）"},
+        {"comment": "AI 角色（平台内置角色 + 用户私有自定义提示词角色；含角色级工具/技能白名单）"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
@@ -116,6 +117,14 @@ class AgentPersona(Base):
     )
     current_version_no: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="当前生效版本号；未发布为空",
+    )
+    tool_grants: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True,
+        comment="角色可用工具白名单 JSON 数组；NULL=按平台默认范围，空数组=不使用工具",
+    )
+    skill_grants: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True,
+        comment="角色可用平台技能白名单 JSON 数组；NULL=全部平台技能，空数组=不使用技能",
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")

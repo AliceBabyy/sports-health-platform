@@ -3,11 +3,15 @@
 - 会话元数据走 agent_conversations（同步 ORM/psycopg2）；消息由 checkpointer 承载，
   通过 graph state 读取，不直接 SQL 框架表。
 - 同一会话同时只允许一个生成（进程内 async 锁 + 运行集合），重复 client_msg_id 拒绝。
+- 用户可随时停止生成：生成器只把已流出正文写到内存句柄，由停止接口在生成器收尾后
+  用独立请求统一的 db/图状态做一次“中断收口”（回滚断在半途的调用、保留半截回答）。
 - 硬删除：checkpointer delete_thread + 删 agent_conversations 行，同一编排。
 """
 import asyncio
+import contextlib
 import json
 import logging
+import time
 from datetime import date, datetime
 from uuid import uuid4
 
@@ -25,6 +29,7 @@ from app.modules.agent.models import (
     AgentSkill,
     AgentSkillVersion,
 )
+from app.modules.agent.graph import RUN_MODE_CONTINUE, RUN_MODE_NORMAL
 from app.modules.agent.personas.management import bindable_persona
 from app.modules.agent.personas.runtime import (
     persona_summary,
@@ -48,7 +53,16 @@ logger = logging.getLogger(__name__)
 # 进程内运行态：正在生成的 thread_id；client_msg_id -> thread_id（幂等兜底）
 _running: set[str] = set()
 _client_msgs: dict[str, str] = {}
-_state_lock = asyncio.Lock()
+# thread_id -> 本次生成句柄：已流出正文、本轮用户原文、中断信号、结束信号与起始时刻。
+# 生成器只在内存里写 partial，不碰数据库；停止接口在生成器收尾后用自己请求的 session 收口。
+_runs: dict[str, dict] = {}
+
+STOP_WAIT_SECONDS = 8.0    # 停止接口等待生成器收尾的上限
+STALE_RUN_SECONDS = 600.0  # 响应头发出前就断连导致运行态滞留时的兜底释放时长
+
+
+class _Stopped(Exception):
+    """用户主动停止：向上透传，不按生成失败处理。"""
 
 
 def _validate_model(model_name: str | None) -> None:
@@ -156,13 +170,13 @@ def _message_text(content) -> str:
     return ""
 
 
-def _ask_answer(content) -> str | None:
-    """ask_user 工具返回结构化答案；空答案（用户跳过）视为未回答。"""
+def _ask_result(content) -> dict:
+    """ask_user 返回的结构化结果：正常答案是文本，用户跳过时 answer 为空、skipped=true。"""
     data = _normalize_tool_content(content)
     if not isinstance(data, dict):
-        return None
+        return {"answer": None, "skipped": False}
     text = str(data.get("answer") or "").strip()
-    return text or None
+    return {"answer": text or None, "skipped": bool(data.get("skipped"))}
 
 
 def build_turns(
@@ -181,6 +195,7 @@ def build_turns(
     turns: list[dict] = []
     turn: dict | None = None
     ask_index: dict[str, dict] = {}
+    prev_interrupted = False
     for m in messages:
         if m.type == "human":
             # 旧版本遗留：工具调用后会重插一条相同 human（且此前没有产生任何正文）。
@@ -189,14 +204,23 @@ def build_turns(
                 continue
             turn = {"user": m.content, "blocks": [], "tool_runs": []}
             ask_index = {}
+            prev_interrupted = False
             turns.append(turn)
         elif turn is None:
             # 没有以用户消息开头的残缺序列，兜底跳过
             continue
         elif m.type == "ai":
             text = _message_text(m.content)
+            interrupted = bool((getattr(m, "additional_kwargs", None) or {}).get("interrupted"))
             if text.strip():
-                turn["blocks"].append({"type": "text", "content": text})
+                last = turn["blocks"][-1] if turn["blocks"] else None
+                if prev_interrupted and last is not None and last.get("type") == "text":
+                    # 续写：接在被中断的片段后面，不另起一段
+                    last["content"] += text
+                else:
+                    turn["blocks"].append({"type": "text", "content": text})
+                prev_interrupted = interrupted
+                turn["_last_interrupted"] = interrupted
             # 工具调用动作：登记 run，等待 ToolMessage 按 call_id 回填
             for tc in getattr(m, "tool_calls", None) or []:
                 if tc.get("name") == ASK_TOOL_NAME:
@@ -207,9 +231,11 @@ def build_turns(
                         "options": [str(o).strip() for o in (args.get("options") or []) if str(o).strip()][:4],
                         "multiple": bool(args.get("multiple")),
                         "answer": None,
+                        "skipped": False,
                         "call_id": tc.get("id"),
                     }
                     turn["blocks"].append(block)
+                    prev_interrupted = False
                     if tc.get("id"):
                         ask_index[tc["id"]] = block
                     continue
@@ -226,7 +252,9 @@ def build_turns(
             call_id = getattr(m, "tool_call_id", None)
             ask_block = ask_index.get(call_id) if call_id else None
             if ask_block is not None:
-                ask_block["answer"] = _ask_answer(m.content)
+                result = _ask_result(m.content)
+                ask_block["answer"] = result["answer"]
+                ask_block["skipped"] = result["skipped"]
                 continue
             data = _normalize_tool_content(m.content)
             target = None
@@ -270,8 +298,16 @@ def build_turns(
                 block["pending"] = True
                 break
 
-    return [t for t in turns
-            if t["user"] is not None or t["blocks"] or t["tool_runs"]]
+    result: list[dict] = []
+    for index, item in enumerate(turns):
+        interrupted = item.pop("_last_interrupted", False)
+        if item["user"] is None and not item["blocks"] and not item["tool_runs"]:
+            continue
+        # 只有最后一轮还停在中断处才标记：续写或新提问之后，这一轮已经有了后续内容
+        if interrupted and index == len(turns) - 1:
+            item["interrupted"] = True
+        result.append(item)
+    return result
 
 
 async def get_messages(db: Session, user_id: int, conversation_id: int, runtime: dict) -> dict:
@@ -286,7 +322,11 @@ async def get_messages(db: Session, user_id: int, conversation_id: int, runtime:
     config = {"configurable": {"thread_id": str(row.thread_id)}}
     graph = graph_for_user(db, user_id, runtime, persona)
     state = await graph.aget_state(config)
-    skills = available_skills(db, user_id, persona.key if persona is not None else None)
+    skills = available_skills(
+        db, user_id,
+        persona.key if persona is not None else None,
+        skill_grants=persona.skill_grants if persona is not None else None,
+    )
     return {
         "conversation_id": row.id,
         "turns": build_turns(
@@ -299,20 +339,44 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def _acquire_slot(thread_id: str, client_msg_id: str) -> None:
-    async with _state_lock:
-        if client_msg_id in _client_msgs:
-            raise AppError(409, "请勿重复发送")
-        if thread_id in _running:
+def _acquire_slot(thread_id: str, client_msg_id: str, row: AgentConversation) -> None:
+    """占位：同一会话同时只允许一次生成。
+
+    全在同一个事件循环里同步完成、中途没有 await，因此不需要额外加锁；结束信号已置位
+    或已超时的残留运行态先释放，避免断连后会话被永久占用。
+    """
+    if client_msg_id in _client_msgs:
+        raise AppError(409, "请勿重复发送")
+    if thread_id in _running:
+        run = _runs.get(thread_id)
+        alive = (
+            run is not None
+            and not run["done"].is_set()
+            and time.monotonic() - run["started_at"] < STALE_RUN_SECONDS
+        )
+        if alive:
             raise AppError(409, "该会话正在生成回复")
-        _running.add(thread_id)
-        _client_msgs[client_msg_id] = thread_id
+        _release_slot(thread_id)
+    _running.add(thread_id)
+    _client_msgs[client_msg_id] = thread_id
+    _runs[thread_id] = {
+        "conversation_id": row.id,
+        "user_id": row.user_id,
+        "user": "",
+        "partial": "",
+        "stop": asyncio.Event(),
+        "done": asyncio.Event(),
+        "started_at": time.monotonic(),
+    }
 
 
-async def _release_slot(thread_id: str, client_msg_id: str) -> None:
-    async with _state_lock:
-        _running.discard(thread_id)
-        _client_msgs.pop(client_msg_id, None)
+def _release_slot(thread_id: str, client_msg_id: str | None = None) -> None:
+    """释放占位与运行句柄；同步执行，取消中的生成器也能安全收尾。"""
+    _running.discard(thread_id)
+    _runs.pop(thread_id, None)
+    for key, value in list(_client_msgs.items()):
+        if key == client_msg_id or value == thread_id:
+            _client_msgs.pop(key, None)
 
 
 async def acquire_reply_slot(db: Session, user_id: int, conversation_id: int, payload):
@@ -325,7 +389,10 @@ async def acquire_reply_slot(db: Session, user_id: int, conversation_id: int, pa
     _validate_model(payload.model_name)
     row = get_conversation(db, user_id, conversation_id)
     thread_id = str(row.thread_id)
-    await _acquire_slot(thread_id, payload.client_msg_id)
+    _acquire_slot(thread_id, payload.client_msg_id, row)
+    run = _runs.get(thread_id)
+    if run is not None:
+        run["user"] = getattr(payload, "content", "") or ""
     if payload.model_name is not None:
         row.model_name = payload.model_name
     return row, thread_id
@@ -341,25 +408,25 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
     row = get_conversation(db, user_id, conversation_id)
     thread_id = str(row.thread_id)
     persona = resolve_for_conversation(db, row, user_id)
-    await _acquire_slot(thread_id, payload.client_msg_id)
+    _acquire_slot(thread_id, payload.client_msg_id, row)
     config = {"configurable": {"thread_id": thread_id}}
     state = await graph_for_user(db, user_id, runtime, persona).aget_state(config)
     msgs = state.values.get("messages", [])
 
     if _pending_ask(state):
-        await _release_slot(thread_id, payload.client_msg_id)
+        _release_slot(thread_id, payload.client_msg_id)
         raise AppError(409, "当前有等待回答的问题，请先回答或跳过")
 
     human_idx = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].type == "human"), None)
     if human_idx is None:
-        await _release_slot(thread_id, payload.client_msg_id)
+        _release_slot(thread_id, payload.client_msg_id)
         raise AppError(400, "暂无可重新生成的回答")
     # 保留最后一条用户消息，仅移除其后的工具中转/上一条 AI 回答；
     # 若把用户消息一并删掉，update_state 后消息为空，条件边会取最后一条而越界。
     removed = msgs[human_idx + 1:]
     has_answer = any(m.type == "ai" and not getattr(m, "tool_calls", None) for m in removed)
     if not has_answer:
-        await _release_slot(thread_id, payload.client_msg_id)
+        _release_slot(thread_id, payload.client_msg_id)
         raise AppError(400, "暂无可重新生成的回答")
 
     try:
@@ -372,9 +439,153 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
             row.model_name = payload.model_name
         db.commit()
     except Exception:
-        await _release_slot(thread_id, payload.client_msg_id)
+        _release_slot(thread_id, payload.client_msg_id)
         raise
     return row, thread_id, human_content
+
+
+def _unfinished_tail(messages) -> list:
+    """尾部断在半途的消息：删掉“工具调用没有配齐结果”的中转消息及其后续。
+
+    已完整执行完的工具轨迹（调用 + 对应 ToolMessage）保留，“继续”时可直接复用结果。
+    """
+    human_idx = next(
+        (i for i in range(len(messages) - 1, -1, -1) if messages[i].type == "human"), None
+    )
+    if human_idx is None:
+        return []
+    cut = len(messages)
+    for i in range(len(messages) - 1, human_idx, -1):
+        calls = getattr(messages[i], "tool_calls", None) or []
+        if not calls:
+            continue
+        answered = {
+            getattr(item, "tool_call_id", None)
+            for item in messages[i + 1:]
+            if item.type == "tool"
+        }
+        if not {call.get("id") for call in calls}.issubset(answered):
+            cut = i
+    return messages[cut:]
+
+
+async def _rollback_unfinished(graph, config, messages) -> bool:
+    """按消息 ID 回滚断在半途的尾部；返回是否发生回滚。"""
+    removed = _unfinished_tail(messages)
+    ids = [RemoveMessage(id=m.id) for m in removed if getattr(m, "id", None)]
+    if not ids:
+        return False
+    await graph.aupdate_state(config, {"messages": ids}, as_node="agent")
+    return True
+
+
+def _is_settled_answer(message) -> bool:
+    """最后一条已经是完整回答（不是断在半途、也不是中断残留）。"""
+    if message.type != "ai" or getattr(message, "tool_calls", None):
+        return False
+    return not (getattr(message, "additional_kwargs", None) or {}).get("interrupted")
+
+
+async def _close_interrupted_turn(graph, config, partial: str) -> bool:
+    """停止后的收口：回滚断在半途的调用，把已流出正文作为一条 interrupted 回答留下。
+
+    没有可收口的内容（本轮已完成、或还没产生任何输出）时返回 False。
+    """
+    state = await graph.aget_state(config)
+    messages = list(state.values.get("messages", []))
+    if not messages or _is_settled_answer(messages[-1]):
+        return False
+    rolled = await _rollback_unfinished(graph, config, messages)
+    if partial.strip():
+        await graph.aupdate_state(
+            config,
+            {"messages": [AIMessage(content=partial, additional_kwargs={"interrupted": True})]},
+            as_node="agent",
+        )
+        return True
+    return rolled
+
+
+def _stop_payload(row: AgentConversation, stopped: bool, settled: bool, closed: bool, partial: str = "") -> dict:
+    return {
+        "conversation_id": row.id,
+        "stopped": stopped,
+        "settled": settled,
+        "closed": closed,
+        "title": row.title,
+        "last_message_at": row.last_message_at.isoformat() if row.last_message_at else None,
+        "partial": partial,
+    }
+
+
+async def stop_reply(db: Session, user_id: int, conversation_id: int, runtime: dict) -> dict:
+    """中断当前生成：置停止信号 → 等生成器收尾 → 用本请求的 session 做一次状态收口。
+
+    生成器在取消中不能安全写库，所以落库统一放在这里；停止信号只负责让模型流尽快停下。
+    """
+    row = get_conversation(db, user_id, conversation_id)
+    thread_id = str(row.thread_id)
+    run = _runs.get(thread_id)
+    if run is None:
+        return _stop_payload(row, stopped=False, settled=True, closed=False)
+
+    run["stop"].set()
+    settled = True
+    try:
+        await asyncio.wait_for(run["done"].wait(), timeout=STOP_WAIT_SECONDS)
+    except asyncio.TimeoutError:
+        # 生成器没能及时收尾（多见于响应头发出前就断连）：释放占位，避免会话被永久锁住
+        settled = False
+        _release_slot(thread_id)
+
+    partial = run.get("partial") or ""
+    closed = False
+    if settled:
+        persona = resolve_for_conversation(db, row, user_id)
+        graph = graph_for_user(db, user_id, runtime, persona)
+        try:
+            closed = await _close_interrupted_turn(
+                graph, {"configurable": {"thread_id": thread_id}}, partial
+            )
+        except Exception as exc:  # 收口失败不影响停止本身，保留本次已流出内容由前端展示
+            logger.warning("agent stop cleanup failed: conv=%s err=%r", row.id, exc)
+
+    now = datetime.now()
+    row.last_message_at = now
+    user_text = (run.get("user") or "").strip()
+    if user_text and row.title == DEFAULT_TITLE:
+        row.title = user_text[:AUTO_TITLE_LEN] or DEFAULT_TITLE
+    db.commit()
+    return _stop_payload(row, stopped=True, settled=settled, closed=closed, partial=partial)
+
+
+async def prepare_continue(db: Session, user_id: int, conversation_id: int, runtime: dict, payload):
+    """续写前置：确认最近一轮停在被中断/未完成处，回滚断在半途的调用后占位。
+
+    真正的生成仍交给 stream_reply：不新增 HumanMessage，只以 run_mode=续写 再跑一次 agent。
+    """
+    _validate_model(payload.model_name)
+    row = get_conversation(db, user_id, conversation_id)
+    thread_id = str(row.thread_id)
+    persona = resolve_for_conversation(db, row, user_id)
+    graph = graph_for_user(db, user_id, runtime, persona)
+    config = {"configurable": {"thread_id": thread_id}}
+    state = await graph.aget_state(config)
+
+    if _pending_ask(state):
+        raise AppError(409, "当前有等待回答的问题，请先回答或跳过")
+    messages = list(state.values.get("messages", []))
+    if not messages:
+        raise AppError(400, "暂无可继续的回答")
+    if _is_settled_answer(messages[-1]):
+        raise AppError(400, "当前没有可继续的回答")
+
+    await _rollback_unfinished(graph, config, messages)
+    _acquire_slot(thread_id, payload.client_msg_id, row)
+    if payload.model_name is not None:
+        row.model_name = payload.model_name
+    db.commit()
+    return row, thread_id
 
 
 def _normalize_tool_content(content):
@@ -462,50 +673,89 @@ def _pending_ask(state) -> dict | None:
     return None
 
 
-async def _stream_graph(graph, stream_input, config, skills: list[ResolvedSkill]):
-    async for mode, data in graph.astream(
+async def _stream_graph(graph, stream_input, config, skills: list[ResolvedSkill], run: dict | None = None):
+    """逐帧转发图执行结果；带 run 时可被停止信号打断，并把已流出正文记进 run。
+
+    停止用“下一帧”和“停止信号”竞速：信号先到就取消这一帧的 await，连带关闭底层
+    模型流；半截回答不进 checkpointer，由停止接口在随后的一次性收口里落库。
+    """
+    stop_event = run["stop"] if run else None
+    iterator = graph.astream(
         stream_input,
         config=config,
         stream_mode=["messages", "updates"],
-    ):
-        if mode == "messages":
-            message_chunk, metadata = data
-            if metadata.get("langgraph_node") == "agent" and message_chunk.content:
-                yield _sse("delta", {"content": message_chunk.content})
-        elif mode == "updates":
-            for node, update in data.items():
-                if node == "__interrupt__":
-                    for item in update:
-                        value = getattr(item, "value", None)
-                        if isinstance(value, dict) and value.get("question"):
-                            yield _sse("ask", {
-                                "question": value.get("question", ""),
-                                "options": value.get("options") or [],
-                                "multiple": bool(value.get("multiple")),
-                            })
-                    continue
-                if not isinstance(update, dict):
-                    continue
-                for msg in update.get("messages", []):
-                    if node == "agent" and getattr(msg, "tool_calls", None):
-                        for tc in msg.tool_calls:
-                            if tc["name"] == ASK_TOOL_NAME:
+    ).__aiter__()
+
+    try:
+        while True:
+            next_task = asyncio.ensure_future(iterator.__anext__())
+            if stop_event is None:
+                try:
+                    mode, data = await next_task
+                except StopAsyncIteration:
+                    break
+            else:
+                stop_task = asyncio.ensure_future(stop_event.wait())
+                done, _ = await asyncio.wait(
+                    {next_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if next_task not in done:
+                    next_task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await next_task
+                    raise _Stopped()
+                stop_task.cancel()
+                with contextlib.suppress(BaseException):
+                    await stop_task
+                try:
+                    mode, data = next_task.result()
+                except StopAsyncIteration:
+                    break
+
+            if mode == "messages":
+                message_chunk, metadata = data
+                if metadata.get("langgraph_node") == "agent" and message_chunk.content:
+                    if run is not None:
+                        run["partial"] += _message_text(message_chunk.content)
+                    yield _sse("delta", {"content": message_chunk.content})
+            elif mode == "updates":
+                for node, update in data.items():
+                    if node == "__interrupt__":
+                        for item in update:
+                            value = getattr(item, "value", None)
+                            if isinstance(value, dict) and value.get("question"):
+                                yield _sse("ask", {
+                                    "question": value.get("question", ""),
+                                    "options": value.get("options") or [],
+                                    "multiple": bool(value.get("multiple")),
+                                })
+                        continue
+                    if not isinstance(update, dict):
+                        continue
+                    for msg in update.get("messages", []):
+                        if node == "agent" and getattr(msg, "tool_calls", None):
+                            for tc in msg.tool_calls:
+                                if tc["name"] == ASK_TOOL_NAME:
+                                    continue
+                                meta = _tool_meta(tc["name"], skills)
+                                yield _sse("tool_start", {
+                                    **meta, "args": tc["args"], "call_id": tc.get("id"),
+                                })
+                        elif node == "tools":
+                            name = getattr(msg, "name", None)
+                            if name == ASK_TOOL_NAME:
+                                # 提问的答案由 ask 段承载，不再作为工具行展示
                                 continue
-                            meta = _tool_meta(tc["name"], skills)
-                            yield _sse("tool_start", {
-                                **meta, "args": tc["args"], "call_id": tc.get("id"),
+                            meta = _tool_meta(name, skills)
+                            yield _sse("tool_result", {
+                                **meta,
+                                "data": _normalize_tool_content(msg.content),
+                                "call_id": getattr(msg, "tool_call_id", None),
                             })
-                    elif node == "tools":
-                        name = getattr(msg, "name", None)
-                        if name == ASK_TOOL_NAME:
-                            # 提问的答案由 ask 段承载，不再作为工具行展示
-                            continue
-                        meta = _tool_meta(name, skills)
-                        yield _sse("tool_result", {
-                            **meta,
-                            "data": _normalize_tool_content(msg.content),
-                            "call_id": getattr(msg, "tool_call_id", None),
-                        })
+    finally:
+        # 主动停止/断连时把底层迭代器关掉，避免模型流悬挂
+        with contextlib.suppress(Exception):
+            await iterator.aclose()
 
 
 async def _persist(graph, config, human: str, assistant: str) -> None:
@@ -530,11 +780,14 @@ def _finish(db: Session, row: AgentConversation, content: str | None, persona) -
     })
 
 
-async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload, human_content: str | None = None, replay: bool = False):
+async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload, human_content: str | None = None, replay: bool = False, continuation: bool = False):
     persona = resolve_for_conversation(db, row, row.user_id)
     skill_scope = persona.key if persona is not None else None
     graph = graph_for_user(db, row.user_id, runtime, persona)
-    skills = available_skills(db, row.user_id, skill_scope)
+    skills = available_skills(
+        db, row.user_id, skill_scope,
+        skill_grants=persona.skill_grants if persona is not None else None,
+    )
     base_config = {
         "configurable": {
             "thread_id": thread_id,
@@ -544,17 +797,21 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
             "persona_id": persona.id if persona else None,
             "persona_version_no": persona.version_no if persona else None,
             "persona_block": render_persona_block(persona),
+            "run_mode": RUN_MODE_NORMAL,
         },
         "recursion_limit": 10,
     }
-    content = human_content or payload.content
+    content = human_content or getattr(payload, "content", "") or ""
+    run = _runs.get(thread_id)
+    if run is not None and content:
+        run["user"] = content
     today = date.today()
 
     try:
         # 上一轮停在 ask_user 等待回答时，本条消息即答案：用 Command(resume) 从同一
         # thread 继续，不新增 HumanMessage，问答都留在原来那一轮里。
         pending_ask = None
-        if not replay:
+        if not replay and not continuation:
             state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
             pending_ask = _pending_ask(state)
 
@@ -564,19 +821,36 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
             "resume": pending_ask is not None,
         })
 
+        if continuation:
+            # 续写：不新增用户消息，直接在既有状态上再跑一次 agent；提示词按 run_mode 要求接续
+            config = {**base_config, "configurable": {
+                **base_config["configurable"],
+                "skill_trigger": "model",
+                "run_mode": RUN_MODE_CONTINUE,
+            }}
+            async for event in _stream_graph(graph, {"messages": []}, config, skills, run):
+                yield event
+            yield _finish(db, row, None, persona)
+            return
+
         if pending_ask is not None:
             pending_store.clear(row.id)
             config = {**base_config, "configurable": {
                 **base_config["configurable"], "skill_trigger": "answer",
             }}
-            async for event in _stream_graph(graph, Command(resume=content), config, skills):
+            resume_value = (
+                {"answer": None, "skipped": True}
+                if getattr(payload, "skip_ask", False)
+                else {"answer": content, "skipped": False}
+            )
+            async for event in _stream_graph(graph, Command(resume=resume_value), config, skills, run):
                 yield event
             yield _finish(db, row, None, persona)
             return
 
         if replay:
             config = {**base_config, "configurable": {**base_config["configurable"], "skill_trigger": "model"}}
-            async for event in _stream_graph(graph, {"messages": []}, config, skills):
+            async for event in _stream_graph(graph, {"messages": []}, config, skills, run):
                 yield event
         else:
             slash = _slash_parts(content)
@@ -590,7 +864,10 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
                     await _persist(graph, base_config, content, reply)
                     yield _sse("delta", {"content": reply})
                 else:
-                    skill = find_by_slash(db, row.user_id, token, skill_scope)
+                    skill = find_by_slash(
+                        db, row.user_id, token, skill_scope,
+                        skill_grants=persona.skill_grants if persona is not None else None,
+                    )
                     if skill is None:
                         reply = f"没有找到 `/{token}` 技能。可用技能：" + _commands_text(skills)
                         await _persist(graph, base_config, content, reply)
@@ -626,7 +903,7 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
                             )
                             yield _sse("tool_start", {**_tool_meta(skill.tool_name, skills),
                                                       "args": safe_args})
-                            async for event in _stream_graph(graph, None, config, skills):
+                            async for event in _stream_graph(graph, None, config, skills, run):
                                 yield event
 
             elif pending is not None:
@@ -670,20 +947,25 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
                             as_node="agent",
                         )
                         yield _sse("tool_start", {**_tool_meta(skill.tool_name, skills), "args": safe_args})
-                        async for event in _stream_graph(graph, None, config, skills):
+                        async for event in _stream_graph(graph, None, config, skills, run):
                             yield event
 
             else:
                 config = {**base_config, "configurable": {**base_config["configurable"], "skill_trigger": "model"}}
                 async for event in _stream_graph(
-                    graph, {"messages": [HumanMessage(content=content)]}, config, skills
+                    graph, {"messages": [HumanMessage(content=content)]}, config, skills, run
                 ):
                     yield event
 
         yield _finish(db, row, content, persona)
+    except _Stopped:
+        # 用户主动停止：模型流已关闭，状态收口交给停止接口；正常结束本次流，不写 done/error
+        return
     except Exception as exc:
         logger.warning("agent stream failed: conv=%s err=%r", row.id, exc)
         db.rollback()
         yield _sse("error", {"message": "生成失败，请稍后重试"})
     finally:
-        await _release_slot(thread_id, payload.client_msg_id)
+        if run is not None:
+            run["done"].set()
+        _release_slot(thread_id, payload.client_msg_id)

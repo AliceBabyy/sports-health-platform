@@ -19,6 +19,7 @@ DDL = [
     CREATE TABLE IF NOT EXISTS health_profile (
         user_id      integer   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
         answers      jsonb     NOT NULL DEFAULT '{}'::jsonb,
+        custom_questions jsonb NOT NULL DEFAULT '{}'::jsonb,
         completed_at timestamp NULL,
         created_at   timestamp NOT NULL DEFAULT now(),
         updated_at   timestamp NOT NULL DEFAULT now()
@@ -29,7 +30,8 @@ DDL = [
 COMMENTS = [
     "COMMENT ON TABLE health_profile IS '健康/运动档案（1:1 用户，开放式问答答案）'",
     "COMMENT ON COLUMN health_profile.user_id IS '用户主键 + FK，删除账号时级联删除'",
-    "COMMENT ON COLUMN health_profile.answers IS '题目 key → 用户文本答案（题目定义见 questions.py）'",
+    "COMMENT ON COLUMN health_profile.answers IS '题目 key → 用户文本答案（固定题见 questions.py，定制题为 probe_<set_id>_<qN>）'",
+    "COMMENT ON COLUMN health_profile.custom_questions IS '角色定制的多套问题（sets：set_id、persona_key、generated_at、questions），仅最新一套展示'",
     "COMMENT ON COLUMN health_profile.completed_at IS '达到完成题数（≥3 项）的时间；不足时为空'",
     "COMMENT ON COLUMN health_profile.created_at IS '创建时间'",
     "COMMENT ON COLUMN health_profile.updated_at IS '更新时间（ORM onupdate 自动刷新）'",

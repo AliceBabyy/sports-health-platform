@@ -29,6 +29,7 @@ from app.modules.cycle import service as cycle_service
 from app.modules.cycle.models import PeriodLog, PeriodSetting
 from app.modules.dance.models import DanceRecord
 from app.modules.profile.models import HealthProfile
+from app.modules.profile import probe
 from app.modules.dance.service import to_dict as dance_to_dict
 from app.modules.overview.service import SPORT_LABELS, _fitness_minutes
 from app.modules.state_record.models import STATE_MODELS, STATE_TYPES, STATE_TYPE_LABELS
@@ -412,21 +413,46 @@ def cycle_records(
 # ---------- 个人信息 ----------
 
 def profile_info(db: Session, user_id: int) -> dict:
-    """个人基本信息（昵称 / 性别 / 年龄 / 注册时间 + 健康运动档案文本）；不含密码等敏感字段。"""
+    """个人基本信息 + 健康档案全部数据：固定题、最新定制问答、全部历史定制问答。
+
+    不含密码等敏感字段。历史问答按生成时间倒序，未答项保留空 answer。
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise AppError(404, "用户不存在")
     health = db.query(HealthProfile).filter(HealthProfile.user_id == user_id).first()
+    answers = dict(health.answers or {}) if health else {}
+    store = probe.parse_store(health.custom_questions if health else None)
     return {
         "display_name": user.display_name,
         "gender": user.gender,
         "age": user.age,
         "status": user.status,
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        "health_profile": dict(health.answers or {}) if health else {},
+        "health_profile": {
+            key: value for key, value in answers.items()
+            if not key.startswith(probe.PROBE_PREFIX)
+        },
+        "health_profile_meta": {
+            "filled": health is not None,
+            "completed_at": health.completed_at.isoformat()
+            if health and health.completed_at else None,
+            "created_at": health.created_at.isoformat()
+            if health and health.created_at else None,
+            "updated_at": health.updated_at.isoformat()
+            if health and health.updated_at else None,
+            "custom_set_count": len(store["sets"]),
+        },
+        "custom_health_profile": probe.latest_qa(store, answers),
+        "custom_health_profile_history": probe.history_qa(store, answers),
+        "custom_health_profile_group_coverage": probe.group_coverage(store),
         "note": (
             "身高、体重等身体数据在身材数据中，不在基本资料里；"
-            "health_profile 是用户自己写的目标与习惯（开放式文本，未填写为空对象），"
-            "只作参考，不要当作诊断结论；本工具不返回密码等敏感字段。"
+            "health_profile 是用户自己写的固定档案（开放式文本，未填写为空对象）；"
+            "custom_health_profile 是“健康档案测试”角色生成的最新一套定制问答（只有已回答项）；"
+            "custom_health_profile_history 是全部历史定制问答，按生成时间倒序，含未答项（answer 为空），"
+            "用于观察用户历史、避免重复提问；custom_health_profile_group_coverage 按问题 group 统计"
+            "主题出现题数与涉及套数，出题前优先补覆盖少的基础主题；两者都只作参考，不要当作诊断结论；"
+            "本工具不返回密码等敏感字段。"
         ),
     }

@@ -1,8 +1,8 @@
-"""健康/运动档案题目定义：题目 key 的唯一来源。
+"""健康/运动档案固定题定义：题目 key 的唯一来源。
 
-answers 以 `key -> 用户文本` 存进 health_profile.answers（JSON）。key 是稳定标识，
-前端渲染、后端校验与 AI 读取都以本文件为准：改文案可以，改 key 会让旧答案失去归属。
-本版全部题目都是开放式文本，不做枚举与选项校验，只限制长度。
+每题除 key 外必须声明 aspect（只能来自 aspects.py 的固定模板）。答案按
+`health_profile` 的一行一条记录保存，item_key 使用这里的 key；前端渲染、后端校验
+与 AI 读取共用本文件。改文案可以，改 key 会让旧答案失去归属。
 """
 
 # 至少回答几项才记 completed_at（用于判断「是否填过」），
@@ -12,6 +12,7 @@ COMPLETION_MIN_ANSWERS = 3
 QUESTIONS = [
     {
         "key": "goal",
+        "aspect": "goal",
         "group": "目标与节奏",
         "label": "你的主要目标",
         "hint": "减脂、降体脂、增肌、增重、塑形、提升体能，或者别的",
@@ -20,6 +21,7 @@ QUESTIONS = [
     },
     {
         "key": "horizon",
+        "aspect": "goal",
         "group": "目标与节奏",
         "label": "想达成的程度或期限",
         "hint": "没有明确期限可以写「不设期限」",
@@ -28,6 +30,7 @@ QUESTIONS = [
     },
     {
         "key": "weekly",
+        "aspect": "training",
         "group": "目标与节奏",
         "label": "一周大概能练几次",
         "hint": "写数字或「不固定」，这是你的预期，不是实际记录",
@@ -36,6 +39,7 @@ QUESTIONS = [
     },
     {
         "key": "session",
+        "aspect": "training",
         "group": "目标与节奏",
         "label": "单次能练多久",
         "hint": "按平常真正能留出的时间写",
@@ -44,6 +48,7 @@ QUESTIONS = [
     },
     {
         "key": "sports",
+        "aspect": "exercise",
         "group": "训练方式与条件",
         "label": "常做的运动和运动方式",
         "hint": "健身、游泳、舞蹈、跑步、骑行、球类、居家自重都可以写",
@@ -52,6 +57,7 @@ QUESTIONS = [
     },
     {
         "key": "place",
+        "aspect": "environment",
         "group": "训练方式与条件",
         "label": "场地和器材",
         "hint": "健身房、家里、户外、泳池，以及能用的器械",
@@ -60,6 +66,7 @@ QUESTIONS = [
     },
     {
         "key": "experience",
+        "aspect": "training",
         "group": "训练方式与条件",
         "label": "训练经验和强度偏好",
         "hint": "练了多久、熟不熟动作、喜欢轻松还是上强度",
@@ -68,6 +75,7 @@ QUESTIONS = [
     },
     {
         "key": "habits",
+        "aspect": "preference",
         "group": "习惯与限制",
         "label": "运动习惯、癖好与偏好",
         "hint": "喜欢什么、讨厌什么、什么时间最练得动",
@@ -76,6 +84,7 @@ QUESTIONS = [
     },
     {
         "key": "limits",
+        "aspect": "medical",
         "group": "习惯与限制",
         "label": "伤病或身体限制",
         "hint": "写清部位和要避开的动作，没有可以写「无」",
@@ -84,6 +93,7 @@ QUESTIONS = [
     },
     {
         "key": "note",
+        "aspect": "other",
         "group": "习惯与限制",
         "label": "其它想让我知道的",
         "hint": "饮食、作息、目标变化，任何影响训练安排的事",
@@ -94,6 +104,13 @@ QUESTIONS = [
 
 QUESTION_KEYS = frozenset(q["key"] for q in QUESTIONS)
 QUESTION_MAP = {q["key"]: q for q in QUESTIONS}
+
+# 固定题的 aspect 必须来自 aspects.py 模板，防止配置漂移。
+from app.modules.profile.aspects import ASPECT_KEYS as _ASPECT_KEYS
+
+_unknown_aspects = sorted({q["aspect"] for q in QUESTIONS} - set(_ASPECT_KEYS))
+if _unknown_aspects:
+    raise RuntimeError(f"固定题 aspect 未登记：{_unknown_aspects}")
 
 
 def grouped_questions() -> list[dict]:

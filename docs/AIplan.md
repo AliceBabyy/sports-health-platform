@@ -19,12 +19,13 @@ AI 能力分为两种运行方式：
 | V2.1 单次调用试水 | AI 导入数据 | 已实现 |
 | V2.2 基础问答 | 多会话、多轮对话、SSE 流式与 checkpointer 持久化 | 已实现 |
 | V2.3 数据问答 | 识别查询意图，调用受限工具读取真实数据 | 已实现 |
-| V2.4 Skill 管理与多角色智能体 | 平台只读 code/declarative 技能、用户私有提示词技能、斜杠与自然语言触发、管理页；2 个平台角色 + 用户自定义提示词角色、角色会话创建时固定版本、角色管理页 | 已实现 |
+| V2.4 Skill 管理与多角色智能体 | 平台只读 code/declarative 技能、用户私有提示词技能、斜杠与自然语言触发、管理页；2 个平台角色 + 用户自定义提示词角色、角色会话创建时固定版本、角色管理页；管理员内置角色 CRUD 与工具/技能白名单 | 已实现 |
 | V2.5 AI 运动报告 | 周报/月报单页、事实快照 + AI 叙事、软删除、周一/每月 1 日自动生成（V2.7 起由应用内调度器触发） | 已实现 |
 | V2.6 受控写工具 | 首个写操作工具：用户确认后把健身动作写入今日 planned 计划，代码强制安全边界 | 已实现 |
 | V2.7 应用内定时任务 | APScheduler 后台调度、cron/date/interval 三种触发、任务定义进库 + `/system/scheduler` 管理页（侧栏「系统设置」）；周报/月报改为 cron 触发，不再依赖系统计划任务 | 已实现 |
 | V2.8 侧栏每日训练建议 | 「今天」卡下方常驻一段模型生成的一日训练建议（是否练 / 有氧还是无氧 / 强度 / 部位），00:01 定时生成 | 已实现 |
 | V2.9 对话中途提问 | `ask_user` 工具 + LangGraph `interrupt()` 暂停、问答卡片、作答后用 `Command(resume)` 在同一轮继续 | 已实现 |
+| V2.10 中断生成与续写 | 发送按钮就地变停止按钮、`AbortController` 断流 + 服务端收口、半截回答保留为中断态；「继续」在原轮次接着写（不重复不重开场），刷新后可恢复 | 已实现 |
 
 ## V2.0 基础骨架（已实现）
 
@@ -95,7 +96,7 @@ AI 能力分为两种运行方式：
 
 ## V2.4 Skill 封装管理与多角色（已实现）
 
-**目标**：把反复使用的分析任务或提示词封装成可发现、可版本化、可停用、可由自然语言触发的能力，同时允许用户创建自己的私有技能，但不让用户代码或 SQL 进入服务端。本版同时交付多角色：平台内置 2 种人设 + 用户自定义提示词角色，按「一整个会话归属一种角色」创建，会话内不可切换。
+**目标**：把反复使用的分析任务或提示词封装成可发现、可版本化、可停用、可由自然语言触发的能力，同时允许用户创建自己的私有技能，但不让用户代码或 SQL 进入服务端。本版同时交付多角色：平台内置 3 种人设（营养师、电子私教、健康档案测试）+ 用户自定义提示词角色，按「一整个会话归属一种角色」创建，会话内不可切换；平台管理员在系统设置中维护内置角色及其工具/技能白名单。
 
 **最终边界**
 
@@ -104,6 +105,7 @@ AI 能力分为两种运行方式：
 平台技能（scope=system，kind=declarative）  只读、平台内部 DSL、平台维护
 用户技能（scope=user，kind=prompt）         私有、单段提示词、作为技能指令交给模型
 Tool（V2.3）                               只读原子数据查询，不接受 SQL
+Tool（V2.4）                               角色专用写工具，仅授权角色可装配
 ```
 
 - 平台技能首批：`lose_weight_analyse`（减重分析）、`recent_swim_review`（游泳复盘）。统计与比较在代码中完成，返回统一契约。
@@ -117,15 +119,16 @@ Tool（V2.3）                               只读原子数据查询，不接�
 2. 声明式引擎：`definition.py` 校验 DSL 与提示词定义，`expression.py` 用 AST 白名单执行四则运算，`engine.py` 按数据源白名单取数并执行 `first/last/count/sum/avg/min/max/group_count`。
 3. 参数解析：`parser.py` 先规则层识别日期、最近 N 天/周/月、最近 N 次、`k=v` 和泳姿标签，再由默认模型结构化兜底；`argument.py` 负责归一化和校验。
 4. 追问续接：`pending.py` 保存待补参数，TTL 10 分钟、最多 2 轮，绑定 `conversation_id + user_id`；下一条普通文本自动合并原命令继续解析，不要求用户重输斜杠。
-5. 图装配：启动时构建系统图；用户有私有技能时按 `(user_id, 技能版本指纹)` 编译独立图并缓存（上限 32）。技能工具名 `skill_<key>`，执行前再次校验 active/current version/owner。
+5. 图装配：启动时构建系统图；用户有私有技能、角色显式工具/技能白名单或角色专用工具时，按 `(user_id, 技能版本指纹, 角色指纹)` 编译独立图并缓存（上限 32）。技能工具名 `skill_<key>`，执行前再次校验 active/current version/owner。
 6. 对话链路：`/技能名 自由文本` 命中 key/name/alias 后解析参数；齐全时注入 `AIMessage(tool_calls)` 并 `aupdate_state(..., as_node="agent")` 续跑，缺参数则追问；SSE 工具事件携带 `label/kind/origin/version/skill`。对话页输入 `/` 时按 `GET /api/agent/skills` 的 active 技能浮出建议，按 name/key/slash_alias 过滤并支持键盘插入。
 7. 管理页：`/agent/skills` 挂在“AI助手”分组下，整页白底铺满、左侧列表 + 右侧编辑区；提供平台/我的技能列表、用户提示词文本域、平台声明式只读展示、校验、保存、发布、停用、删除、试运行和运行记录；平台技能字段只读。
-8. 提示词：当前为 `agent_chat.v7`（V2.9 起），使用 `today/weekday/now_time/capabilities/persona_block`，日期与时刻按每次调用时的本机时间实时注入（局域网 HTTP 下浏览器端不提供时钟，时间只能由服务端给）；`skill_arg_parse.v1` 负责参数抽取，参数定义逐行传递，避免 JSON 花括号被 `ChatPromptTemplate` 当作变量。旧 `agent_chat.v6`/`v5`/`v4` 已删除。
+8. 提示词：当前为 `agent_chat.v7`（V2.9 起，V2.10 增加 `run_mode`），使用 `today/weekday/now_time/capabilities/persona_block/run_mode`，日期与时刻按每次调用时的本机时间实时注入（局域网 HTTP 下浏览器端不提供时钟，时间只能由服务端给）；`skill_arg_parse.v1` 负责参数抽取，参数定义逐行传递，避免 JSON 花括号被 `ChatPromptTemplate` 当作变量。旧 `agent_chat.v6`/`v5`/`v4` 已删除。
 9. 提示词技能：定义 `{"schema_version":1,"prompt":"..."}`；包装为普通 `skill_<key>` 工具，执行时把提示词放入结果 `summary`（`outputs=[]`、`sample_size=0`），由 `capabilities`/工具描述要求模型把 summary 当指令遵循；斜杠路径不抽参数、不追问。
-10. 多角色数据层：`agent_personas`（`scope=system/user`、归属、键、名称、定位、状态、排序、当前版本）、`agent_persona_versions`（定义 `{schema_version:1,prompt}`、哈希、发布时间）；`agent_conversations` 增加 `persona_id` + `persona_version_no` 与两列一致性约束。迁移脚本 `scripts/migrate_agent_personas.py`，种子脚本 `scripts/seed_agent_personas.py` 写入 `nutrition`（营养师）与 `e_trainer`（电子私教）。
-11. 角色运行时：`personas/runtime.py` 按会话记录的角色版本读取定义并渲染 `persona_block`，普通会话传固定默认句；角色只影响 system prompt，不进入 checkpointer，也不参与图装配。角色改版后老会话仍用创建时版本；停用只禁新建，已绑定会话继续；删除被会话引用的角色返回 409。
-12. 角色管理页：`/agent/personas` 挂在「AI助手 → 角色」，左侧平台/我的角色、右侧提示词编辑；平台只读，用户角色保存即生成新版本并生效（无草稿/发布），支持启停与删除。对话页新增「新建角色会话」，点击弹出角色选择弹窗，从启用且已发布的角色中选择；侧栏角色会话显示「人形图标 + 角色名」徽标，会话内无切换入口。
-13. 工具可见性预留：`tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 本期为空，所有角色装配全量工具与技能；未来专用工具按「工具名 → 允许角色 key」登记，过滤后 `capabilities` 自动只列可用项，仅被授予专用工具的角色才把角色指纹加入图缓存 key。
+10. 多角色数据层：`agent_personas`（`scope=system/user`、归属、键、名称、定位、状态、排序、当前版本、`tool_grants`、`skill_grants`）、`agent_persona_versions`（定义 `{schema_version:1,prompt}`、哈希、发布时间）；`agent_conversations` 增加 `persona_id` + `persona_version_no` 与两列一致性约束。迁移脚本 `scripts/migrate_agent_personas.py`、`scripts/migrate_agent_persona_grants.py`，种子脚本 `scripts/seed_agent_personas.py` 写入 `nutrition`（营养师）、`e_trainer`（电子私教）与 `health_profile_test`（健康档案测试）。
+11. 角色运行时：`personas/runtime.py` 按会话记录的角色版本读取定义并渲染 `persona_block`，普通会话传固定默认句；角色定义只提供提示词，不进入 checkpointer。角色级 `tool_grants` / `skill_grants` 由管理员配置，非空时进入图装配与缓存指纹；`NULL` 时沿用默认范围。角色改版后老会话仍用创建时版本；停用只禁新建，已绑定会话继续；删除被会话引用的角色返回 409。
+12. 角色管理页：`/agent/personas` 挂在「AI助手 → 角色管理」，左侧平台/我的角色、右侧提示词编辑；平台角色普通用户只读，用户角色保存即生成新版本并生效（无草稿/发布），支持启停与删除。管理员页 `/system/personas` 挂在「系统设置 → 内置角色」，可新建/编辑/删除内置角色、调整排序与状态、编辑提示词，并按稳定清单勾选工具与平台技能；接口统一为 `/api/system/system-personas`。对话页新增「新建角色会话」，点击弹出角色选择弹窗，从启用且已发布的角色中选择；侧栏角色会话显示「人形图标 + 角色名」徽标，会话内无切换入口。
+13. 工具可见性：`tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 是默认基线，登记 `save_health_profile_probe → {health_profile_test}`；未登记工具默认对所有角色可用。`tools_for_persona` / `available_skills` 先检查角色显式 `tool_grants` / `skill_grants`，非空时按白名单过滤，`NULL` 时回落基线。过滤后 `capabilities` 自动只列可用项；显式白名单或默认专用工具会把角色指纹加入图缓存 key。
+14. 健康档案测试角色：`health_profile` 新增 `custom_questions` JSONB 存多套问题（最多 20 套，`set_id` + `generated_at` + `questions`），答案 key 为 `probe_<set_id>_<qN>` 继续存 `answers`；同签名问题再保存更新最新套答案，签名变化新增一套并保留历史，固定题答案永不被覆盖。专用写工具 `save_health_profile_probe` 仅该角色可用。角色先读 `profile_info`（含固定档案、最新定制问答、全部历史与 `custom_health_profile_group_coverage` 主题覆盖统计）、运动/身体/周期数据，通读历史后设计 3~10 个针对性问题，必须逐个调用 `ask_user` 单题提问，用户答完一题再问下一题；全部问完后再用 `ask_user` 确认保存，确认后静默写入，允许部分作答。保存成功后图直接进入 `finalize_probe_save` 固定收口，不再回到模型；一次只做一套，只有用户明确说“再来一套”才开启下一套。`health_profile_test` 角色段固定追加 `persona_health_profile_test_guard.v1` 运行约束：至少覆盖 3 个主题、单主题最多 2 题、生理周期与近期事件最多 1 题、历史覆盖少的基础主题优先，旧版本角色会话也生效。档案页与 API 展示最新一套定制问题，`profile_info` 返回固定档案、最新定制问答、全部历史定制问答与主题覆盖统计。
 
 **验收（已完成）**
 
@@ -135,12 +138,14 @@ Tool（V2.3）                               只读原子数据查询，不接�
 - `tests/test_agent_skills.py` 覆盖 DSL 校验、安全表达式、平台声明式取数/空样本、代码技能、日期规则、参数校验、权限、平台遮蔽、斜杠空格与追问 TTL，以及提示词定义校验、用户禁建声明式、prompt 技能创建发布执行和平台声明式只读装配；全量 `pytest` 206 项通过。
 - 管理页已做浏览器验收：创建、保存、发布、试运行、删除和运行记录可用；斜杠对话已在页面实测。对话页输入 `/` 会弹出 active 技能建议，支持名称/键/别名过滤、↑↓ 选择、Enter/Tab 插入、Esc 关闭和鼠标点选，已逐项实测。
 - 多角色：平台两个角色种子幂等；用户角色创建/保存（仅内容变化才升版）/启停/删除、平台只读、越权 403、被会话引用删除 409；角色会话创建时写入版本号，角色改版后老会话仍读旧版本；普通会话两列为空、行为不变。
-- `tests/test_agent_personas.py` 覆盖定义字段/长度、版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束；全量 `pytest` 277 项通过。
+- `tests/test_agent_personas.py` 覆盖定义字段/长度、版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束。
+- 健康档案测试：`tests/test_health_profile_probe.py` 11 项覆盖问题校验、多套历史与最新优先、主题覆盖统计、固定题保留、同套更新、幂等、页面定制题保存/清空、`profile_info` 读取全部历史、专用工具仅该角色可见且可调用、保存成功后 `finalize_probe_save` 收口不自动续问、旧版角色仍追加运行约束；`tests/test_agent_ask.py` 覆盖 `ask_user` 连续两次中断与恢复、同一轮多张 ask 卡片的历史还原。
+- 内置角色管理：`tests/test_system_personas.py` 6 项覆盖创建/列表、`NULL` 默认范围、显式白名单、键不可改、提示词版本化、未知工具/技能拒绝、被会话引用删除 409、运行时工具过滤与图指纹；迁移已执行，全量 `pytest` 323 项通过。
 
 **未实现/后续**
 
-- 角色级专用工具/技能授权未实现：`tools/policy.py` 已预留注册表与装配过滤位，但当前为空，所有角色仍装配全量工具；专用工具的归属、平台角色与用户角色是否可选、以及前端展示，待未来单独立项。
-- 管理页目前是用户提示词文本域 + 平台只读展示，不是逐字段可视化构建器；提示词技能的“试运行”返回提示词原文，不是模型回答。
+- 角色级专用工具/技能授权已打通：`tools/policy.py` 的默认基线 + `agent_personas.tool_grants/skill_grants` 显式白名单；管理员页面可勾选、可恢复默认。仍待未来扩展的是：其他角色专属工具/技能、用户自定义角色是否可被授予平台专用工具、专用能力走平台技能还是独立代码工具。
+- 内置角色管理已从只读展示升级为管理员 CRUD + 工具/技能勾选；用户角色仍只编辑提示词，不开放工具/技能白名单。
 - 用户技能仅在定义内容变化时新增版本，纯名称/描述/别名修改不递增版本；当前无版本数量上限/清理策略。平台技能版本变化不会自动失效进程内图缓存，升级后需重启或清缓存。
 - PendingStore 为进程内状态，服务重启或多实例部署时待回答追问会失效。
 
@@ -157,7 +162,7 @@ Tool（V2.3）                               只读原子数据查询，不接�
 
 **存储**：统一 `reports` 表（`period_type` 区分周/月），一份周期一行、`(user_id, period_type, period_start)` 唯一；`facts` 与 `narrative` 分列，`data_hash` 做过期检测；删除软删除（`status=deleted`），避免定时任务把用户删掉的报告又生成回来；空数据走 `mode=rule` 不调模型。
 
-**自动生成渠道**：由应用内调度器按 cron 触发（V2.7，`app/modules/scheduler/`）。`report.weekly`（`0 8 * * mon`）生成上周周报，`report.monthly`（`0 8 1 * *`）生成上月月报，时区 Asia/Shanghai；`attempts` 控制重试上限，同域 advisory lock 互斥，执行记录写 `job_runs`。错过执行窗口不补跑，由页面「立即执行」或 `scripts/generate_reports.py --scan` 手动补。
+**自动生成渠道**：由应用内调度器按 cron 触发（V2.7，`app/modules/system/scheduler/`）。`report.weekly`（`0 8 * * mon`）生成上周周报，`report.monthly`（`0 8 1 * *`）生成上月月报，时区 Asia/Shanghai；`attempts` 控制重试上限，同域 advisory lock 互斥，执行记录写 `job_runs`。错过执行窗口不补跑，由页面「立即执行」或 `scripts/generate_reports.py --scan` 手动补。
 
 **验收（已完成）**：
 - `tests/test_report.py` 覆盖周期归一、空数据、热量口径、进行中同期对比、周期仅女性有记录、规则模式不调模型、ready 复用/force、失败保留 facts、软删除与扫描跳过、半程报告周期结束后重写、evidence 清洗；全量 `pytest` 206 项通过。
@@ -198,7 +203,7 @@ Tool（V2.3）                               只读原子数据查询，不接�
 
 **默认任务**：`report.weekly`（cron `0 8 * * mon`，生成上周周报）、`report.monthly`（cron `0 8 1 * *`，生成上月月报）、`report.scan`（不排期，手动兜底，忽略 `report_auto_enabled`）。三条共用 `lock_scope="report"`，不会并发生成。
 
-**页面与接口**：`/system/scheduler`（侧栏「系统设置」分组下的「定时任务」）任务卡 + 新建/编辑弹窗 + 执行历史；`/api/scheduler` 6 个接口。
+**页面与接口**：`/system/scheduler`（侧栏「系统设置」分组下的「定时任务」）任务卡 + 新建/编辑弹窗 + 执行历史；`/api/scheduler` 6 个接口（2026-11-19 已迁至 `/api/system/scheduler`，由 system 命名空间聚合）。
 
 **验收（已完成）**：
 
@@ -342,33 +347,57 @@ CSS 需同时给 `.sidebar-nav` 加 `flex: 1 1 auto; min-height: 0; overflow-y: 
 
 1. 工具：新增 `app/modules/agent/tools/interaction.py` 的 `ask_user`（`question` ≤200 字、`options` 最多 4 个短选项、`multiple` 可多选），工具内调用 LangGraph `interrupt()` 挂起；停点由代码强制，不依赖提示词让模型“自觉停住”。工具装配进每张图，`default_capabilities` 单独输出「与用户交互（调用后会暂停等待回答）」分组。
 2. 提示词：`agent_chat.v7` 新增「中途提问：ask_user，一次一个问题」一节——只在必须由用户决定时调用、一次一个问题、调用后立即停止输出与其它工具调用、能靠已有数据推进的不问、回答后不重复追问；健身计划写入的确认改为优先用 `ask_user`。v6 已删除。
-3. 恢复：`POST .../messages` 收到消息时先 `aget_state`；存在挂起 interrupt 时把 `content` 当答案，用 `Command(resume=答案)` 从同一 thread 继续，不写 HumanMessage。工具返回 `{question, options, answer}` 作为 ToolMessage 回到模型，问答与后续正文留在原轮次。
+3. 恢复：`POST .../messages` 收到消息时先 `aget_state`；存在挂起 interrupt 时把 `content` 当答案，用 `Command(resume=答案)` 从同一 thread 继续，不写 HumanMessage；`skip_ask=true` 时改为 `{answer:null, skipped:true}`，表示用户跳过。工具返回 `{question, answer, skipped}` 作为 ToolMessage 回到模型，问答与后续正文留在原轮次。
 4. 协议：新增 SSE `ask`（`question/options/multiple`）、`start` 增加 `resume`；`ask_user` 不发 `tool_start/tool_result`，避免界面出现假工具行与空明细。
 5. 历史：`build_turns` 把 ask 作为 `{type:"ask"}` 段插在正文原位，答案由 ToolMessage 回填；图状态仍有 interrupt 时把最后一条未回答 ask 标记 `pending`，刷新后卡片仍可作答。
 6. 边界：等待回答期间 `regenerate` 返回 409；同一 thread 同时只允许一个生成（沿用 slot）；主输入框在有待答问题时也作为答案提交，不新开一轮。
 
 ### 前端
 
-`agent.js` 正文改为按段渲染（`blocks` → `.msg-text` / `.ask-card`），发送、重新生成、历史恢复与作答共用同一 turn；ask 卡片显示问题与选项，单选点击即提交、多选先选后提交、也可直接输入；已答卡片显示“已回复 + 答案”；待答时隐藏“重新生成”按钮。
+`agent.js` 正文改为按段渲染（`blocks` → `.msg-text` / `.ask-card`），发送、重新生成、历史恢复与作答共用同一 turn；ask 卡片显示问题与选项，单选点击即提交、多选先选后提交、也可直接输入，并提供「跳过」按钮（提交 `skip_ask=true`，模型按已有信息继续）；已答卡片显示“已回复 + 答案”，跳过的显示“已跳过 + 未作答，按已有信息继续”；待答时隐藏“重新生成”按钮。
 
 ### 测试与验收
 
 `tests/test_agent_ask.py` 5 项：真实 LangGraph 图 `interrupt → Command(resume)` 往返、ask 段穿插与答案回填、`pending` 标记、interrupt 读取、选项裁剪；`test_agent_personas.py` 的提示词用例改为 v7 且断言 v6 已移除。
 
-**未做**：问答超时自动取消或提醒、显式「跳过」按钮（当前用文本表达跳过）、单轮内的表单型多字段提问。
+**未做**：问答超时自动取消或提醒、单轮内的表单型多字段提问。
+
+## V2.10 中断生成与续写（已实现）
+
+**目标**：回答生成过程中用户随时可以停下，不再只能等模型全部输出完；停下之后还能选择“接着写”或“重新生成”，而不是只能重来。
+
+### 中断
+
+1. 交互：流式期间发送按钮原地切换为停止按钮（方形图标、深色底，尺寸不变），再次点击即中断；前端用 `AbortController` 立刻断开 SSE，同时调用 `POST .../messages/stop`。
+2. 服务端：生成器把已流出正文记在进程内运行句柄（`_runs[thread_id]["partial"]`），停止信号用“下一帧 vs 停止信号”竞速打断 `graph.astream`，被取消的生成器不写 checkpointer、不碰数据库；`stop` 在生成器收尾后用自己请求的 session 收口——回滚“工具调用没配齐结果”的尾部消息（已完成的工具轨迹保留），把已流出正文写成一条 `additional_kwargs={"interrupted": true}` 的 AIMessage。
+3. 兜底：8 秒内未收尾（如响应头发出前就断连）返回 `settled=false` 并释放占位，避免会话被永久锁住；没有进行中的生成返回 `stopped=false`。
+4. 边界：中断只结束本轮会话消息，不撤销已经落库的业务写入（如已保存的今日计划）。
+
+### 续写
+
+1. `POST .../messages/continue` 不新增 HumanMessage，在既有状态上以 `configurable.run_mode=续写` 再跑一次 agent；`agent_chat.v7` 新增「续写模式」段（变量 `run_mode`），要求模型接着被中断的半截回答往下写、不重复已输出内容、不重新开场。
+2. 本质上这是“续写”而不是“恢复推理”：模型调用一旦取消就没有可续跑的推理断点，checkpointer 也只在节点边界落盘，所以只能把半截回答作为上下文重新生成剩余部分。
+3. 触发方式：中断后回答末尾出现「继续」按钮；输入框只发“继续/接着/continue”这类短语也走同一路径且不新增用户消息。刷新后由 `GET .../messages` 最近一轮的 `interrupted` 标记恢复按钮。
+4. 前置校验：最近一轮已完成或为空返回 400，正等待回答返回 409；“继续”复用已完成的工具结果，不重复调用同一只读工具。
+
+### 测试与验收
+
+`tests/test_agent_stop.py` 17 项：尾部回滚（断开的工具调用 / 完整工具轨迹 / 无用户消息）、停止收口（保留半截 + 回滚 + 已完成不重复写 + 无正文仅回滚）、`stop_reply` 有/无运行态、续写前置（已完成 400、待答 409、占位）、停止信号打断慢速流、历史渲染的 `interrupted` 标记与续写片段合并。
+
+**未做**：中断后服务端主动推 `stopped` SSE 事件（当前由 stop 接口 JSON 返回）、跨进程/多 worker 的停止信号广播。
 
 ## 拓展功能设想
 
 以下能力暂不排期、不在当前版本实现，仅记录方向与关键约束，避免在当前设计中提前背负复杂度；待主功能稳定后再单独立项、细化交互与验收。
 
-### 1. 角色级专用工具与技能（预留，未实现）
+### 1. 角色级专用工具与技能（已落地健康档案专用工具，其余预留）
 
-V2.4 已交付平台/用户角色与角色会话（创建时固定角色版本、不可切换），本节只保留「专用工具/技能只在特定角色生效」的增量：
+V2.4 已交付平台/用户角色与角色会话（创建时固定角色版本、不可切换），并落地首个角色专用写工具 `save_health_profile_probe`（仅 `health_profile_test`）；本节保留后续扩展约束：
 
-1. **声明位置**：只在服务端 `app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 登记「工具名（含 `skill_<key>`）→ 允许的角色 key 集合」；未登记的工具对所有角色与普通会话可用。不得写进用户可编辑的角色定义，避免自助授权。
-2. **装配过滤**：`tools_for_persona` 在编译图时过滤，被排除的工具不会 `bind` 给模型；`capabilities` 用过滤后的工具生成，保证提示词与实际注册一致。斜杠解析与 `/` 建议复用 `available_skills` 的 `persona_key` 参数过滤。
-3. **图缓存**：只有角色被授予专用工具时，`persona_graph_fingerprint` 才返回非空并进入缓存 key，按 `(user_id, 技能版本指纹, 角色指纹)` 编译，沿用上限 32 的 LRU；普通角色仍复用系统图。
-4. **待产品确认**：用户自定义角色能否被授予平台专用工具；专用能力走平台技能还是独立代码工具；管理页是否需要展示「当前角色可用工具」只读清单。
+1. **声明位置**：默认范围只在服务端 `app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 登记「工具名（含 `skill_<key>`）→ 允许的角色 key 集合」；未登记的工具对所有角色与普通会话可用。管理员显式白名单落库到 `agent_personas.tool_grants` / `skill_grants`，不得写进用户可编辑的角色定义，避免自助授权。
+2. **装配过滤**：`tools_for_persona` 在编译图时先看显式白名单、再看默认基线；被排除的工具不会 `bind` 给模型。`capabilities` 用过滤后的工具生成，保证提示词与实际注册一致。斜杠解析与 `/` 建议复用 `available_skills` 的 `persona_key` / `skill_grants` 参数过滤。
+3. **图缓存**：角色存在显式白名单或默认专用工具时，`persona_graph_fingerprint` 返回非空并进入缓存 key，按 `(user_id, 技能版本指纹, 角色指纹)` 编译，沿用上限 32 的 LRU；普通角色仍复用系统图。
+4. **待产品确认**：用户自定义角色能否被授予平台专用工具；其他平台专用能力走技能还是独立代码工具；是否需要角色级工具调用审计。
 5. 角色配额、版本化、提示词分层、归属隔离与删除引用保护已在 V2.4 实现，不在此重复；角色头像/主题色未做，用户角色仍只允许名称、定位与提示词。
 
 ### 2. 长期画像与跨会话偏好
@@ -387,10 +416,10 @@ V2.4 已交付平台/用户角色与角色会话（创建时固定角色版本�
 
 ### 3. 人机协作反向提问（已实现，见 V2.9）
 
-V2.9 已交付 `ask_user` + `interrupt()` 的暂停/恢复，问答留在原轮次、刷新后可继续作答。本节只保留尚未做的增量：
+V2.9 已交付 `ask_user` + `interrupt()` 的暂停/恢复，问答留在原轮次、刷新后可继续作答；卡片提供「跳过」，跳过时模型按已有信息继续。本节只保留尚未做的增量：
 
 1. **超时策略**：等待过久时提醒或自动把问题降级为普通文本追问；当前无超时，停点一直有效。
-2. **显式跳过**：卡片提供「跳过」按钮并记录跳过原因；当前由用户输入文本表达跳过。
+2. **跳过原因**：跳过目前不收集理由；若后续需要，可在卡片上加可选原因输入并随 `skip_ask` 一起提交。
 3. **表单型提问**：一次收集多个字段（如天数 + 目标 + 限制）；当前一次只问一个问题，但可连续多轮提问。
 4. **恢复前的时效校验**：跨天恢复时重新核对“今天/本周”口径，避免拿暂停前的事实继续；当前恢复不重算日期事实，由模型在回答里按注入的当前时间自行判断。
 

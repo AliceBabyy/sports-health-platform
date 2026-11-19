@@ -61,8 +61,20 @@ def resolve_row(db: Session, row: AgentSkill) -> ResolvedSkill | None:
     )
 
 
-def available_skills(db: Session, user_id: int, persona_key: str | None = None) -> list[ResolvedSkill]:
-    """当前用户可用技能；persona_key 用于角色级技能过滤（当前注册表为空，等价于不过滤）。"""
+def available_skills(
+    db: Session,
+    user_id: int,
+    persona_key: str | None = None,
+    *,
+    skill_grants: frozenset[str] | None = None,
+    tool_grants: frozenset[str] | None = None,
+) -> list[ResolvedSkill]:
+    """当前用户可用技能；角色显式 skill_grants 非空时按白名单过滤。
+
+    skill_grants 为 NULL 时沿用代码基线 ``tool_visible(skill_<key>, persona_key)``；
+    显式空数组表示该角色不使用任何技能。tool_grants 不直接过滤技能工具，
+    技能是否可用只由 skill_grants 决定，避免管理页勾选技能后还要重复勾工具。
+    """
     rows = (
         db.query(AgentSkill)
         .filter(AgentSkill.status == "active")
@@ -80,15 +92,25 @@ def available_skills(db: Session, user_id: int, persona_key: str | None = None) 
         skill = resolve_row(db, row)
         if skill is None:
             continue
-        if not tool_visible(skill.tool_name, persona_key):
+        if skill_grants is not None:
+            if skill.key not in skill_grants:
+                continue
+        elif not tool_visible(skill.tool_name, persona_key):
             continue
         resolved.append(skill)
     return resolved
 
 
-def find_by_slash(db: Session, user_id: int, token: str, persona_key: str | None = None) -> ResolvedSkill | None:
+def find_by_slash(
+    db: Session,
+    user_id: int,
+    token: str,
+    persona_key: str | None = None,
+    *,
+    skill_grants: frozenset[str] | None = None,
+) -> ResolvedSkill | None:
     token = token.strip().lower()
-    for skill in available_skills(db, user_id, persona_key):
+    for skill in available_skills(db, user_id, persona_key, skill_grants=skill_grants):
         if skill.key.lower() == token or skill.name.lower() == token:
             return skill
         row = db.get(AgentSkill, skill.id)

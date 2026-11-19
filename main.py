@@ -8,9 +8,11 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.core.access import AdminGateMiddleware
 from app.core.exceptions import register_exception_handlers
 from app.core.templating import templates
 from config import settings
+from database import SessionLocal
 
 # Windows 下 psycopg 异步驱动要求 SelectorEventLoop（默认 ProactorEventLoop 不兼容），
 # 必须在 uvicorn 启动事件循环前切换；非 Windows 保持默认。
@@ -24,13 +26,22 @@ if sys.platform == "win32":
 async def lifespan(app: FastAPI):
     # 启动：建 checkpointer 连接池/框架表并编译图，挂到 app.state 供路由取用
     from app.modules.agent.runtime import close_agent_runtime, init_agent_runtime
-    from app.modules.scheduler.engine import shutdown_scheduler, start_scheduler
+    from app.modules.system.scheduler.engine import shutdown_scheduler, start_scheduler
 
     app.state.agent_runtime = await init_agent_runtime()
     try:
         start_scheduler()
     except Exception:  # 调度器初始化失败不阻塞服务（如首次部署尚未执行迁移）
         logging.getLogger("scheduler").exception("调度器启动失败，服务继续运行")
+    try:
+        from app.modules.auth.admin import ensure_admin_accounts
+
+        with SessionLocal() as db:
+            promoted = ensure_admin_accounts(db)
+        if promoted:
+            logging.getLogger("auth").info("已提升 %d 个管理员账号", promoted)
+    except Exception:  # 首次部署尚未建表时跳过，不阻塞服务
+        logging.getLogger("auth").exception("管理员账号保障失败，服务继续运行")
     try:
         yield
     finally:
@@ -39,6 +50,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="个人健康管理平台 · 体序 BODY ALMANAC", lifespan=lifespan)
+
+# 管理员区门禁（先加 = 内层，在 SessionMiddleware 解析会话之后执行）
+app.add_middleware(AdminGateMiddleware, session_factory=SessionLocal)
 
 # 会话中间件（SameSite=Lax 防 CSRF；Secure 由配置控制）
 app.add_middleware(
@@ -85,8 +99,8 @@ from app.modules.agent.router_api import router as agent_api
 from app.modules.report.router_pages import router as report_pages
 from app.modules.report.router_api import router as report_api
 from app.modules.daily_advice.router_api import router as daily_advice_api
-from app.modules.scheduler.router_pages import router as scheduler_pages
-from app.modules.scheduler.router_api import router as scheduler_api
+from app.modules.system.router_pages import router as system_pages
+from app.modules.system.router_api import router as system_api
 
 _include(auth_pages)
 _include(auth_api)
@@ -112,8 +126,8 @@ _include(agent_api)
 _include(report_pages)
 _include(report_api)
 _include(daily_advice_api)
-_include(scheduler_pages)
-_include(scheduler_api)
+_include(system_pages)
+_include(system_api)
 
 
 @app.get("/", include_in_schema=False)

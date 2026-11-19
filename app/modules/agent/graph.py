@@ -4,11 +4,13 @@
 - agent 节点：bind_tools 后的模型，自主决定是否调用只读工具或技能；
 - tools 节点：ToolNode 执行工具/技能，结果作为 ToolMessage 回到 agent；
 - 条件边：agent 最后一条消息带 tool_calls 则继续工具循环，否则结束。
+- 健康档案测试保存成功后进入 finalize 节点，固定输出结束语并终止，不再回到模型续问。
 身份（user_id）由服务端经 config 注入，工具从 config 读取，模型不可填。
 """
+import json
 from datetime import datetime
 
-from langchain_core.messages import SystemMessage, convert_to_openai_messages
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, convert_to_openai_messages
 from langchain_core.messages.utils import trim_messages
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
@@ -23,12 +25,68 @@ from app.modules.agent.tools.interaction import ASK_TOOL_NAME
 
 MAX_HISTORY_MESSAGES = 20
 
+# 续写模式取值：写入 agent_chat.v7 的 {run_mode}，具体规则由提示词定义，代码只负责传递模式
+RUN_MODE_NORMAL = "常规"
+RUN_MODE_CONTINUE = "续写"
+
 
 def _should_continue(state: MessagesState) -> str:
     last_message = state["messages"][-1]
     if getattr(last_message, "tool_calls", None):
         return "tools"
     return END
+
+
+PROBE_SAVE_TOOL = "save_health_profile_probe"
+PROBE_SAVE_STATUSES = {"created", "updated", "already_exists"}
+
+
+def _probe_save_payload(message: ToolMessage) -> dict | None:
+    """解析健康档案保存工具的结构化结果；非该工具或结果不可解析时返回 None。"""
+    if getattr(message, "name", None) != PROBE_SAVE_TOOL:
+        return None
+    raw = message.content
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _after_tools(state: MessagesState) -> str:
+    """健康档案保存成功后直接收口，避免模型在同一个会话里自动开始下一套问题。"""
+    payload = _probe_save_payload(state["messages"][-1])
+    if payload and payload.get("ok") and payload.get("status") in PROBE_SAVE_STATUSES:
+        return "finalize_probe_save"
+    return "agent"
+
+
+def _finalize_probe_save(state: MessagesState) -> dict:
+    """固定输出本轮结果并结束，不再给模型继续提问的机会。"""
+    payload = _probe_save_payload(state["messages"][-1]) or {}
+    status = payload.get("status")
+    question_count = payload.get("question_count")
+    answered_count = payload.get("answered_count")
+    status_text = {
+        "created": "已新增一套定制问答",
+        "updated": "已更新本套定制问答",
+        "already_exists": "本套问答已是最新，未重复写入",
+    }.get(status, "已写入健康档案")
+    detail = []
+    if question_count is not None:
+        detail.append(f"共 {question_count} 题")
+    if answered_count is not None:
+        detail.append(f"记录 {answered_count} 题答案")
+    suffix = f"（{'，'.join(detail)}）" if detail else ""
+    return {
+        "messages": [AIMessage(
+            content=f"{status_text}{suffix}。本轮健康档案测试结束；如需重新出题，请明确说“再来一套”。"
+        )]
+    }
 
 
 ACTION_TOOL_NAMES = {tool.name for tool in ACTION_TOOLS}
@@ -56,7 +114,7 @@ def default_capabilities(tools=None) -> str:
     if readonly:
         sections.append("## 只读数据工具\n" + "\n".join(readonly))
     if actions:
-        sections.append("## 计划操作（写入，需用户确认后调用）\n" + "\n".join(actions))
+        sections.append("## 写入操作（需用户确认后调用）\n" + "\n".join(actions))
     return "\n\n".join(sections)
 
 
@@ -68,6 +126,7 @@ def make_agent_node(tools, capabilities: str):
         now = datetime.now()
         configurable = config["configurable"]
         persona_block = configurable.get("persona_block") or DEFAULT_PERSONA_BLOCK
+        run_mode = configurable.get("run_mode") or RUN_MODE_NORMAL
         system_text = load_system_prompt(
             "agent_chat.v7",
             today=now.date().isoformat(),
@@ -75,6 +134,7 @@ def make_agent_node(tools, capabilities: str):
             now_time=now.strftime("%H:%M"),
             capabilities=capabilities,
             persona_block=persona_block,
+            run_mode=run_mode,
         )
 
         trimmed = trim_messages(
@@ -97,6 +157,7 @@ def build_graph(checkpointer, tools=None, capabilities: str | None = None):
     graph = StateGraph(MessagesState)
     graph.add_node("agent", make_agent_node(tools, capabilities))
     graph.add_node("tools", ToolNode(tools))
+    graph.add_node("finalize_probe_save", _finalize_probe_save)
 
     graph.add_edge(START, "agent")
     graph.add_conditional_edges(
@@ -104,5 +165,10 @@ def build_graph(checkpointer, tools=None, capabilities: str | None = None):
         _should_continue,
         {"tools": "tools", END: END},
     )
-    graph.add_edge("tools", "agent")
+    graph.add_conditional_edges(
+        "tools",
+        _after_tools,
+        {"agent": "agent", "finalize_probe_save": "finalize_probe_save"},
+    )
+    graph.add_edge("finalize_probe_save", END)
     return graph.compile(checkpointer=checkpointer)

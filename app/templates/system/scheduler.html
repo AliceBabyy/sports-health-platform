@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}定时任务 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/scheduler.css?v=20261117a">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/system_scheduler.css?v=20261119a">{% endblock %}
 {% block content %}
 <div class="sch-page">
   <header class="sch-head">
@@ -111,5 +111,5 @@ window.SCHEDULER_BOOT = {
   timezone: {{ default_timezone | tojson }}
 };
 </script>
-<script src="/static/js/scheduler.js?v=20261117a"></script>
+<script src="/static/js/system_scheduler.js?v=20261119a"></script>
 {% endblock %}

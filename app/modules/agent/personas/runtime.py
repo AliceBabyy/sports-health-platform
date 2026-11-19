@@ -1,6 +1,7 @@
 """角色运行时：把会话绑定的角色版本解析为人设段，交给 Agent 节点渲染。
 
-角色只影响 system prompt，不影响工具装配；每轮从会话行读取快照，不写入 checkpointer。
+角色提示词影响 system prompt；角色级 tool_grants / skill_grants 参与工具与技能装配；
+每轮从会话行读取快照，不写入 checkpointer。
 """
 from __future__ import annotations
 
@@ -8,10 +9,13 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.ai.prompts.loader import load_system_prompt
 from app.modules.agent.models import AgentConversation, AgentPersona, AgentPersonaVersion
 from app.modules.agent.personas.definition import PersonaInvalid, parse_persona_definition
 
 DEFAULT_PERSONA_BLOCK = "未启用角色设定，按平台默认健康助手风格回答。"
+HEALTH_PROFILE_TEST_KEY = "health_profile_test"
+HEALTH_PROFILE_TEST_GUARD_PROMPT = "persona_health_profile_test_guard.v1"
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,8 @@ class ResolvedPersona:
     scope: str
     version_no: int
     prompt: str
+    tool_grants: frozenset[str] | None = None
+    skill_grants: frozenset[str] | None = None
 
 
 def _version(db: Session, persona_id: int, version_no: int) -> AgentPersonaVersion | None:
@@ -59,6 +65,14 @@ def resolve_for_conversation(
     return ResolvedPersona(
         id=row.id, key=row.persona_key, name=row.name, description=row.description or "",
         scope=row.scope, version_no=version.version_no, prompt=definition.prompt,
+        tool_grants=(
+            frozenset(str(item) for item in row.tool_grants)
+            if row.tool_grants is not None else None
+        ),
+        skill_grants=(
+            frozenset(str(item) for item in row.skill_grants)
+            if row.skill_grants is not None else None
+        ),
     )
 
 
@@ -69,6 +83,9 @@ def render_persona_block(persona: ResolvedPersona | None) -> str:
     if persona.description:
         lines.append(f"角色定位：{persona.description}")
     lines.append(persona.prompt)
+    if persona.key == HEALTH_PROFILE_TEST_KEY:
+        # 独立于角色版本的运行约束：老会话仍用旧版角色提示词，也强制受此约束。
+        lines.append(load_system_prompt(HEALTH_PROFILE_TEST_GUARD_PROMPT))
     return "\n".join(lines)
 
 

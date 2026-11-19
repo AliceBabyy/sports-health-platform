@@ -322,7 +322,7 @@ def test_generate_due_skips_failed_at_limit(db, monkeypatch):
 
 # ---------- 任务注册与接口 ----------
 def test_registry_has_daily_advice_jobs():
-    from app.modules.scheduler.registry import REGISTRY
+    from app.modules.system.scheduler.registry import REGISTRY
 
     spec = REGISTRY["advice.daily"]
     assert spec.default_trigger_type == "cron"

@@ -12,6 +12,8 @@ PROMPTS = {
     "agent_chat.v7": "agent_chat_v7.txt",
     "persona_nutrition.v1": "persona_nutrition_v1.txt",
     "persona_e_trainer.v1": "persona_e_trainer_v1.txt",
+    "persona_health_profile_test.v1": "persona_health_profile_test_v1.txt",
+    "persona_health_profile_test_guard.v1": "persona_health_profile_test_guard_v1.txt",
     "skill_arg_parse.v1": "skill_arg_parse_v1.txt",
     "weekly_report.v1": "weekly_report_v1.txt",
     "monthly_report.v1": "monthly_report_v1.txt",

@@ -35,7 +35,7 @@ PLATFORM_PERSONAS = [
         "key": "health_profile_test",
         "name": "健康档案测试",
         "description": "根据你的记录定制健康问题，回答后写入健康档案",
-        "prompt_id": "persona_health_profile_test.v1",
+        "prompt_id": "persona_health_profile_test.v2",
         "sort_order": 3,
     },
 ]

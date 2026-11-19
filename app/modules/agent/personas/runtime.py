@@ -15,7 +15,7 @@ from app.modules.agent.personas.definition import PersonaInvalid, parse_persona_
 
 DEFAULT_PERSONA_BLOCK = "未启用角色设定，按平台默认健康助手风格回答。"
 HEALTH_PROFILE_TEST_KEY = "health_profile_test"
-HEALTH_PROFILE_TEST_GUARD_PROMPT = "persona_health_profile_test_guard.v1"
+HEALTH_PROFILE_TEST_GUARD_PROMPT = "persona_health_profile_test_guard.v2"
 
 
 @dataclass(frozen=True)

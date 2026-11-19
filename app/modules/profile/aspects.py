@@ -23,8 +23,6 @@ ASPECTS = (
 ASPECT_MAP = {item["key"]: item for item in ASPECTS}
 ASPECT_KEYS = frozenset(ASPECT_MAP)
 ASPECT_LABELS = {item["key"]: item["label"] for item in ASPECTS}
-ASPECT_ORDER = {item["key"]: index for index, item in enumerate(ASPECTS)}
-CORE_ASPECT_KEYS = ASPECT_KEYS - {"other"}
 
 # 固定问卷 key → aspect；新增固定题时在这里补映射。
 FIXED_QUESTION_ASPECTS = {
@@ -48,7 +46,3 @@ def aspect_for_question(key: str) -> str:
 
 def aspect_label(key: str) -> str:
     return ASPECT_LABELS.get(key, ASPECT_LABELS["other"])
-
-
-def aspect_options() -> list[dict]:
-    return [dict(item) for item in ASPECTS]

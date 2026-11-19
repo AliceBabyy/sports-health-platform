@@ -23,7 +23,6 @@ MAX_SETS = 20
 MIN_ASPECTS = 3
 MAX_ASPECT_QUESTIONS = 2
 MAX_CYCLE_QUESTIONS = 1
-MAX_GROUP_LENGTH = 24
 MAX_LABEL_LENGTH = 48
 MAX_HINT_LENGTH = 120
 MAX_PLACEHOLDER_LENGTH = 120
@@ -222,21 +221,6 @@ def append_set(store: dict, questions: list[dict]) -> tuple[dict, str, list[str]
     return {"sets": sets}, set_id, dropped
 
 
-def answer_prefix(set_id: str) -> str:
-    return f"{PROBE_PREFIX}{set_id}_"
-
-
-def question_map(store: dict) -> dict[str, dict]:
-    """全部历史 set 的完整答案 key → 题目定义，供页面保存时校验。"""
-    mapping: dict[str, dict] = {}
-    for item in store.get("sets") or []:
-        for question in item.get("questions") or []:
-            key = question.get("key")
-            if isinstance(key, str):
-                mapping[key] = question
-    return mapping
-
-
 def validate_probe_answers(questions: list[dict], answers) -> dict[str, str]:
     """校验工具传来的本地答案（q1~q10），返回去空白后的本地 key → 文本。"""
     if not isinstance(answers, dict):
@@ -257,25 +241,6 @@ def validate_probe_answers(questions: list[dict], answers) -> dict[str, str]:
         cleaned[key] = text
     if not cleaned:
         raise AppError(400, "至少回答一题后才能保存")
-    return cleaned
-
-
-def validate_page_answers(store: dict, answers) -> dict[str, str]:
-    """校验页面提交的完整定制题 key；空串表示清空该题。"""
-    if not isinstance(answers, dict):
-        raise AppError(400, "answers 须为对象")
-    mapping = question_map(store)
-    cleaned: dict[str, str] = {}
-    for key, raw in answers.items():
-        question = mapping.get(key)
-        if question is None:
-            raise AppError(400, f"未知题目：{key}")
-        if not isinstance(raw, str):
-            raise AppError(400, f"「{question['label']}」的答案须为文本")
-        text = raw.strip()
-        if len(text) > question["max_length"]:
-            raise AppError(400, f"「{question['label']}」最多 {question['max_length']} 字")
-        cleaned[key] = text
     return cleaned
 
 

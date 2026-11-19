@@ -96,14 +96,17 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 为当前用户设计 3~10 个有针对性、可跳过的健康问题，并逐个调用 `ask_user` 单题提问（答完一题再问下一题）；
 全部问完后先用 `ask_user` 确认，再调用 `save_health_profile_probe` 静默写入健康档案。保存成功后图直接进入
 `finalize_probe_save` 固定结束本轮，不会在同一会话自动开始下一套；只有用户明确说“再来一套”才重新出题。
-该角色固定追加 `persona_health_profile_test_guard.v1` 运行约束：每套至少覆盖 3 个主题、单主题最多 2 题、
-生理周期与近期事件各最多 1 题，历史覆盖少的基础主题优先，旧版本角色会话也生效。该工具默认只装配给此角色，
+该角色固定追加 `persona_health_profile_test_guard.v2` 运行约束：健康档案以建立覆盖饮食、运动、训练、作息、生活、目标、伤病、心理、环境、偏好等维度的全貌基础画像为目标；每套至少覆盖 3 个不同 aspect、同一 aspect 最多 2 题、
+生理周期与“其他”各最多 1 题、近期事件合计最多 1 题；出题前读取 `custom_health_profile_aspect_coverage`，
+优先补覆盖少的基础 aspect，旧版本角色会话也生效。该工具默认只装配给此角色，
 普通会话与其他角色不可见；管理员可通过显式白名单勾给其他内置角色。
-档案表新增 `custom_questions` 保存多套问题（最多 20 套），答案沿用 `answers`，key 为
-`probe_<set_id>_<qN>`；同问题再保存只更新答案，问题变化新增一套并保留历史。档案页与 API 默认展示最新一套，
-`get_profile_info` 会读取最新一套、全部历史与按 `group` 统计的主题覆盖，供角色在出题前观察用户过去回答、未答项和覆盖缺口。
-档案页 `/profile/health-profile` 在固定问卷下展示最新一套定制问题，可编辑、清空。迁移
-`python scripts/migrate_health_profile_probe.py`。
+`health_profile` 已改为单表行式存储：`id` 主键、`user_id` 非唯一外键、每行一个固定 `aspect` 的档案记录；
+固定题与角色定制题共用一张表，定制题 key 为 `probe_<set_id>_<qN>`，未答项保留空答案行。
+同问题再保存只更新答案，问题变化新增一套并保留历史（最多 20 套）。档案页与 API 仍按 `answers`
+聚合返回并默认展示最新一套；`get_profile_info` 会读取全部行、最新一套、全部历史与按 `aspect`
+统计的方面覆盖，供角色在出题前观察用户过去回答、未答项和覆盖缺口。档案页 `/profile/health-profile`
+在固定问卷下展示最新一套定制问题，可编辑、清空。迁移
+`python scripts/migrate_health_profile_entries.py`（旧命令 `migrate_health_profile.py` / `migrate_health_profile_probe.py` 仍兼容）。
 
 **V2.9 对话中途提问（2026-11-18）**：AI 可在回答中途调用 `ask_user` 停下来提问（问题 + 最多 4 个选项，
 可多选，也可跳过），用户作答后从同一轮继续，不必重新解释请求。停点由 LangGraph `interrupt()` 与 Postgres
@@ -153,7 +156,7 @@ SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **801
 
 V1 范围：注册/登录认证 + 模块（身材数据 BD / 状态记录 SR / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC / 个人信息 PR）。
 
-健康/运动档案（2026-11-17）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，与账号资料页并列。按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组开放式文本框收集目标、每周可练次数、场地器材、习惯偏好与伤病限制，答案存 `health_profile.answers`（题目 key → 文本，题目定义在 `app/modules/profile/questions.py`）；未填写时整页即问卷，已填写展示答案并支持编辑、清空与清空重写。文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile.py` 建表。
+健康/运动档案（2026-11-17，2026-11-19 行式化）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，与账号资料页并列。固定问卷按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组开放式文本框收集目标、每周可练次数、场地器材、习惯偏好与伤病限制。答案存 `health_profile` 行式表：`id` 主键、`user_id` 非唯一外键、每行一条 `aspect` 记录，固定题 key 与文案定义在 `app/modules/profile/questions.py`，固定题必须映射固定 aspect；未填写时整页即问卷，已填写展示答案并支持编辑、清空与清空重写。角色定制问题按 `set_id` 分组存同一张表，`profile_info` 与页面聚合回 `answers`；文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_entries.py`。
 
 账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。当前无管理员角色或管理员接口；管理员恢复需通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。

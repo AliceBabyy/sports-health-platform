@@ -15,14 +15,21 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.exceptions import AppError
 from app.modules.profile import service as profile_service
+from app.modules.profile.aspects import ASPECTS
 from database import SessionLocal
+
+_ASPECT_HELP = "；".join(f"{item['key']}={item['label']}" for item in ASPECTS)
 
 
 class ProbeQuestionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str = Field(pattern=r"^q(?:[1-9]|10)$", description="问题序号，使用 q1~q10")
-    group: str = Field(default="本次定制", min_length=1, max_length=24, description="问题分组")
+    aspect: str = Field(
+        min_length=1,
+        max_length=32,
+        description=f"固定档案方面，只能从以下 key 中选：{_ASPECT_HELP}",
+    )
     label: str = Field(min_length=1, max_length=48, description="问题标题")
     hint: str = Field(default="", max_length=120, description="填写提示，可空")
     placeholder: str = Field(default="", max_length=120, description="占位文案，可空")
@@ -67,9 +74,10 @@ save_health_profile_probe = StructuredTool.from_function(
     name="save_health_profile_probe",
     description=(
         "保存“健康档案测试”角色生成的一套定制健康问题与用户已回答内容（仅该角色可用）。"
-        "只在用户明确确认写入健康档案后调用；questions 为 3~10 个，key 用 q1~q10；"
-        "answers 的 key 必须与 questions 对应，只填用户实际说出的答案，至少 1 题，不要推断或补写。"
-        "同一套问题再次保存只更新答案；问题变化会新增一套并保留历史。"
+        "只在用户明确确认写入健康档案后调用；questions 为 3~10 个，key 用 q1~q10，"
+        "每题必须声明固定 aspect（不能自造），整套至少覆盖 3 个不同 aspect，单 aspect 最多 2 题，"
+        "生理周期与其他各最多 1 题；answers 的 key 必须与 questions 对应，只填用户实际说出的答案，"
+        "至少 1 题，不要推断或补写。同一套问题再次保存只更新答案；问题变化会新增一套并保留历史。"
         "不要传 user_id、固定题 key、日期或表名。"
     ),
     args_schema=SaveHealthProfileProbeIn,

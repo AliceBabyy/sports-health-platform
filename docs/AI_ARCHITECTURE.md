@@ -81,6 +81,8 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 中途提问（HITL）：`ask_user` 工具内调用 LangGraph `interrupt()` 挂起，Postgres checkpointer 保存执行位置；前端收到 `ask` 事件在同一 turn 里插入问答卡片。用户作答走后端同一条 `POST .../messages`，服务端先读图状态，识别到挂起的 interrupt 就用 `Command(resume=答案)` 从同一 thread 继续，不新增 HumanMessage——问答与后续正文留在原来那一轮。用户可点「跳过」：前端带 `skip_ask=true`，服务端以 `{answer:null, skipped:true}` 恢复，工具回传 `skipped=true`，模型按已有信息继续并说明缺少的依据，历史 ask 段标记 `skipped=true`。`GET .../messages` 会把 ask 段还原并把当前问题标记为 `pending`，刷新后仍可作答；等待回答期间 `regenerate` 返回 409。工具回答后以 ToolMessage 回到模型，历史里由 ask 段的 `answer`/`skipped` 承载，不额外显示工具行。
 - 模型失败返回 `error`，前端保留输入内容以便重试。
 - 重新生成：`POST /api/agent/conversations/{id}/messages/regenerate` 复用同一套 SSE 事件；服务端经 `aupdate_state` + `RemoveMessage` 移除最后一条用户消息之后的工具中转与上一条 AI 回答（保留该用户消息），再以空输入续跑覆盖本次回答，不追加重复的用户消息；仅最近一轮可重新生成。
+- 生成中状态：`GET .../messages` 额外返回 `generating`，取进程内运行句柄 `_runs[thread_id]` 且结束信号未置位（进程重启后自然为 false）；历史恢复时若仍在生成，前端在末尾追加“正在生成…”占位并每 2.5 秒重拉一次，生成结束后自动替换成完整回答。
+- 会话恢复：选中会话同步进 URL `?conversation_id=` 与 localStorage（`sh.agent.current`）；进入页面先按 URL、再按 localStorage 恢复，且只采用当前会话列表里存在的 id，切换页面或刷新不再退回“新建对话”态。
 - 历史消息读取（`GET .../messages`）：按一轮问答聚合为 `turns`，每轮含 `blocks`（按出现顺序排列的正文段，含带 `tool_calls` 的中转 AIMessage 正文）与 `tool_runs`（`tool/label/kind/call_id/args/data`），工具结果按 `call_id` 精确匹配、缺失时顺序兜底。前端把流式事件与历史结构灌进同一个 turn 对象并用同一套渲染器收口，切换会话后与当次流式视图一致；兼容早期无 ToolMessage 的历史数据（对应工具结果为空，仅显示“已查询”、不渲染明细），并合并工具调用后重插的重复用户消息。最近一轮停在中断处时该轮带 `interrupted=true`，前端据此显示“已停止生成”与「继续」；中断后被续写，两段正文在历史里拼回同一段。
 - 中断：流式期间发送按钮就地变为停止按钮，前端用 `AbortController` 立即断开 SSE，并调用 `POST .../messages/stop` 交给服务端收口。已流出正文只记在进程内运行句柄（`_runs[thread_id]["partial"]`）；停止信号用“下一帧 vs 停止信号”竞速打断 `astream`，被取消的生成器不写 checkpointer、不碰数据库。`stop` 在生成器收尾后用自己的请求 session 收口：回滚“工具调用没配齐结果”的尾部消息（已完整执行完的工具轨迹保留），并把已流出正文写成一条 `additional_kwargs={"interrupted": true}` 的 AIMessage；8 秒内未收尾（如响应头发出前就断连）返回 `settled=false` 并释放占位，避免会话被永久锁住。无进行中的生成时返回 `stopped=false`。
 - 续写：`POST .../messages/continue` 不新增 HumanMessage，在既有状态上以 `configurable.run_mode=续写` 再跑一次 agent；`agent_chat.v7` 的「续写模式」段要求模型接着被中断的半截回答往下写、不重复不重开场。最近一轮已完成或为空返回 400，正等待回答返回 409。前端「继续」按钮与输入框只发“继续/接着/continue”这类短语时都走这条路径；刷新后由 `GET .../messages` 的 `interrupted` 标记恢复该按钮。
@@ -89,16 +91,16 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 ### 4.3 多角色 Persona
 
 - 角色本身只提供一段提示词，影响语气、关注重点与表达风格；不改变数据事实、安全与免责规则，用户角色定义也不承载代码、SQL、数据源或工具授权。工具与技能可见性由服务端控制：`TOOL_PERSONA_SCOPES` 提供默认角色范围，角色表 `tool_grants` / `skill_grants` 提供管理员显式白名单。
-- 平台内置角色为 `nutrition`（营养师）、`e_trainer`（电子私教）与 `health_profile_test`（健康档案测试），`scope=system`，普通用户只读；平台管理员可在 `/system/personas` 增删改查、排序、启停、编辑提示词并勾选工具/技能。内置角色由 `scripts/seed_agent_personas.py` 从 `persona_nutrition.v1` / `persona_e_trainer.v1` / `persona_health_profile_test.v1` 幂等写入；`health_profile_test` 另追加 `persona_health_profile_test_guard.v1` 运行约束，独立于角色版本生效；用户角色 `scope=user`，只有名称、键、定位和提示词，仅创建者可见。
+- 平台内置角色为 `nutrition`（营养师）、`e_trainer`（电子私教）与 `health_profile_test`（健康档案测试），`scope=system`，普通用户只读；平台管理员可在 `/system/personas` 增删改查、排序、启停、编辑提示词并勾选工具/技能。内置角色由 `scripts/seed_agent_personas.py` 从 `persona_nutrition.v1` / `persona_e_trainer.v1` / `persona_health_profile_test.v2` 幂等写入；`health_profile_test` 另追加 `persona_health_profile_test_guard.v2` 运行约束，独立于角色版本生效；用户角色 `scope=user`，只有名称、键、定位和提示词，仅创建者可见。`health_profile_test` 是正式内置角色名（“测试”是产品命名），两个 v2 提示词均被运行时依赖，不是测试夹具或可清理的废弃提示词。
 - 角色级白名单口径：`tool_grants` / `skill_grants` 为 `NULL` 时沿用默认范围（未登记工具全开、专用工具只在注册角色可用、平台技能全开）；非空数组（含空数组）表示显式白名单，空数组即不使用任何工具/技能。管理员可以把专用工具显式勾给其他角色，也可以在 `/system/personas` 选择「恢复默认范围」写回 `NULL`。用户角色目前不开放白名单编辑，沿用默认范围。
 - 角色会话在 `POST /api/agent/conversations` 传入 `persona_id` 创建，同时写入 `persona_version_no`；创建后整段会话固定该角色，**不提供切换接口**。普通会话两列为空，行为与未上线前完全一致。
 - 角色版本只增不改：用户角色保存即生成新版本并立即生效（无草稿/发布两步）；平台角色文案变化由种子脚本新增版本。历史角色会话按创建时版本读取，不随角色改版漂移。
 - 角色停用只禁止新建角色会话，已绑定会话仍按快照继续；删除角色前必须删除引用它的会话，否则 409。
-- 提示词分层：`agent_chat.v7` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。`health_profile_test` 的 `persona_block` 在角色提示词后追加 `persona_health_profile_test_guard.v1`，包含“一次只做一套、保存后立即结束、至少覆盖 3 个主题、单主题最多 2 题、生理周期与近期事件最多 1 题、历史覆盖优先”等运行约束；旧版本角色会话也受该约束。
+- 提示词分层：`agent_chat.v7` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。`health_profile_test` 的 `persona_block` 在角色提示词后追加 `persona_health_profile_test_guard.v2`，明确健康档案以饮食、运动、训练、作息、生活、目标、伤病、心理、环境、偏好等全貌基础画像为目标；包含“一次只做一套、保存后立即结束、至少覆盖 3 个 aspect、单 aspect 最多 2 题、生理周期与近期事件各最多 1 题、优先补覆盖少的方面”等运行约束；旧版本角色会话也受该约束。
 - 工具可见性：`app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 是代码基线，当前登记 `save_health_profile_probe → {health_profile_test}`；未登记的工具默认对所有角色与普通会话可用。运行时 `tools_for_persona` 先看角色的显式 `tool_grants`，非空时完全按白名单；为 `NULL` 时再回落到 `TOOL_PERSONA_SCOPES`。技能侧同理：`available_skills` 先看显式 `skill_grants`，为 `NULL` 时沿用 `TOOL_PERSONA_SCOPES` 中的 `skill_<key>` 基线与平台技能全开。过滤发生在服务端装配阶段，不依赖提示词；过滤后 `capabilities` 只列当前角色可用项。显式白名单或默认专用工具会进入图缓存 key。
 - 页面为 `/agent/personas`（侧栏「AI助手」→「角色管理」）：左侧平台角色/我的角色，右侧提示词编辑；平台角色普通用户只读，用户角色可保存、启停、删除。管理员页面为 `/system/personas`（侧栏「系统设置」→「内置角色」），可新建/编辑/删除内置角色、调整排序与状态，并按工具/技能的稳定清单勾选白名单。对话页「新建角色会话」点击后弹出角色选择弹窗，从 `INIT_PERSONAS` 选择启用且已发布的角色；侧栏角色会话带「人形图标 + 角色名」徽标。
 - 相关 API：普通用户角色列表/详情/创建/保存/启停/删除 6 个接口；管理员内置角色列表/选项/创建/详情/保存/删除 6 个接口，统一在 `/api/system/system-personas` 下并受 `/api/system` 管理员门禁保护。平台角色普通用户编辑 403、非本人用户角色 403、被会话引用删除 409。
-- `tests/test_agent_personas.py` 覆盖定义字段/长度、创建与版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束；`tests/test_system_personas.py` 覆盖内置角色 CRUD、版本化、键不可改、工具/技能白名单校验与运行时过滤；`tests/test_health_profile_probe.py` 覆盖定制问题校验、多套历史、主题覆盖统计、固定题保留、页面合并、专用工具边界与调用，以及保存成功后的 `finalize_probe_save` 收口与旧版角色仍追加运行约束。
+- `tests/test_agent_personas.py` 覆盖定义字段/长度、创建与版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束；`tests/test_system_personas.py` 覆盖内置角色 CRUD、版本化、键不可改、工具/技能白名单校验与运行时过滤；`tests/test_health_profile_probe.py` 覆盖定制问题校验（固定 aspect、至少 3 个方面、单方面配额）、多套历史、方面覆盖统计、固定题保留、页面合并、专用工具边界与调用，以及保存成功后的 `finalize_probe_save` 收口与旧版角色仍追加运行约束；`tests/test_ai_foundation.py` 校验提示词注册表与 `app/ai/prompts` 目录文件一一对应，防止遗留测试提示词或废弃提示词。
 
 ## 五、技能系统
 
@@ -162,7 +164,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | `get_body_measurements` | 基础、期望、围度、目标四组身材数据及指定指标趋势 |
 | `get_state_records` | 食欲、肌肉疼痛、炎症、情绪四类状态记录 |
 | `get_cycle_records` | 周期参考值、月经记录、派生长度、每日疼痛与 note、当前阶段 |
-| `get_profile_info` | 昵称、性别、年龄、账号状态、注册时间，健康/运动档案固定题、最新定制问答、全部历史定制问答（按生成时间倒序、含未答项、带 group）与主题覆盖统计，不含密码等敏感字段 |
+| `get_profile_info` | 昵称、性别、年龄、账号状态、注册时间，健康/运动档案固定题、最新定制问答、全部历史定制问答（按生成时间倒序、含未答项、带 aspect）与方面覆盖统计，不含密码等敏感字段 |
 
 工具时间范围支持 `days_back` 或 `start_date + end_date`，明细工具支持 `limit`；不传范围参数时查询全部历史。`user_id` 由 `RunnableConfig` 注入，模型不可填写；统计和派生值复用现有业务口径。
 
@@ -181,11 +183,11 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 默认只在「健康档案测试」角色可用，定义于 `app/modules/agent/tools/health_profile_actions.py`；默认范围由 `TOOL_PERSONA_SCOPES` 限定，管理员也可通过 `/system/personas` 的显式 `tool_grants` 勾给其他内置角色。普通会话、营养师、电子私教和用户角色在默认配置下拿不到该工具。
 
-- 角色先读 `profile_info`（含固定档案、最新定制问答、全部历史定制问答与 `custom_health_profile_group_coverage` 主题覆盖统计）及运动/身体/周期数据，先通读历史、观察用户过去回答、未答项和主题覆盖缺口，再按当前缺口设计 3~10 个问题。每个问题单独调用一次 `ask_user` 提问（每题一张问答卡片，不在正文一次性列全部问题）；用户回答后从同一 thread 继续，模型再问下一题。LangGraph 的多次 `interrupt()` 顺序恢复已由 `tests/test_agent_ask.py` 覆盖。全部问完后用 `ask_user` 确认是否保存，再调用专用工具静默写入。保存成功后图进入 `finalize_probe_save` 直接结束本轮，不自动开始下一套。
-- 入参经 Pydantic 严格校验（`extra=forbid`）：问题 key 只允许 `q1~q10`，标题 ≤48、提示/占位 ≤120、分组 ≤24、单题答案长度 50~255；answers 的 key 必须对应问题，至少 1 题，只记录用户实际回答。
+- 角色先读 `profile_info`（含固定档案、最新定制问答、全部历史定制问答与 `custom_health_profile_aspect_coverage` 方面覆盖统计）及运动/身体/周期数据，先通读历史、观察用户过去回答、未答项和方面覆盖缺口，再按当前缺口设计 3~10 个问题。每个问题必须属于固定 aspect，整套至少覆盖 3 个方面；每个问题单独调用一次 `ask_user` 提问（每题一张问答卡片，不在正文一次性列全部问题）；用户回答后从同一 thread 继续，模型再问下一题。LangGraph 的多次 `interrupt()` 顺序恢复已由 `tests/test_agent_ask.py` 覆盖。全部问完后用 `ask_user` 确认是否保存，再调用专用工具静默写入。保存成功后图进入 `finalize_probe_save` 直接结束本轮，不自动开始下一套。
+- 入参经 Pydantic 严格校验（`extra=forbid`）：问题 key 只允许 `q1~q10`，`aspect` 必须是固定模板 key，标题 ≤48、提示/占位 ≤120、单题答案长度 50~255；服务层再强制至少 3 个不同 aspect、单 aspect ≤2 题、生理周期 ≤1 题、其他 ≤1 题；answers 的 key 必须对应问题，至少 1 题，只记录用户实际回答。
 - `user_id` 从 `RunnableConfig` 注入，模型不能传；不接受固定题 key、日期、表名或 SQL，固定题答案永不被该工具覆盖。
-- 落库复用 `profile.service.save_probe_health_profile`。一套问题对应一个 `set_id`，答案 key 存为 `probe_<set_id>_<qN>`，问题定义存 `health_profile.custom_questions.sets`；与最新一套问题签名相同则更新该套答案，签名变化则新增一套并保留历史，最多 20 套，超出删除最旧一套及其答案。
-- 返回 `created`（新增一套）、`updated`（同套补答案）、`already_exists`（同套同答案不重复写）；成功后图由 `finalize_probe_save` 固定收口并结束本轮，不再回到模型续问。页面默认只展示最新一套，`profile_info` 返回最新一套、全部历史（按生成时间倒序）与按 `group` 的主题覆盖统计，历史套仍保留在库中。
+- 落库复用 `profile.service.save_probe_health_profile`。一套问题对应一个 `set_id`，问题定义与答案都写 `health_profile` 行：`item_key` 为 `probe_<set_id>_<qN>`，`aspect`、`label`、`hint`、`placeholder`、`max_length`、`sort_order`、`set_generated_at` 同存一行，未答项 `answer=NULL`。与最新一套问题签名相同则更新该套答案，签名变化则新增一套并保留历史，最多 20 套，超出删除最旧套的行。
+- 返回 `created`（新增一套）、`updated`（同套补答案）、`already_exists`（同套同答案不重复写）；成功后图由 `finalize_probe_save` 固定收口并结束本轮，不再回到模型续问。页面默认只展示最新一套，`profile_info` 返回最新一套、全部历史（按生成时间倒序）与按 `aspect` 的覆盖统计，历史套仍保留在库中。
 - 专用工具的使用边界不写进用户可编辑的角色定义，也不依赖提示词约束；默认范围在 `TOOL_PERSONA_SCOPES` 登记，管理员显式白名单落库到 `agent_personas.tool_grants` / `skill_grants`，两者都在装配阶段过滤。
 
 ## 七、AI 运动报告（周报/月报）
@@ -324,15 +326,15 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | 工具定义（只读） | `app/modules/agent/tools/definitions.py` |
 | 受控写工具 | `app/modules/agent/tools/action_definitions.py`、`health_profile_actions.py` |
 | 受控查询 | `app/modules/agent/tools/queries.py` |
-| 健康档案定制问题 | `app/modules/profile/probe.py`、`app/modules/profile/service.py` |
+| 健康档案定制问题 | `app/modules/profile/aspects.py`、`app/modules/profile/probe.py`、`app/modules/profile/service.py` |
 | AI 页面 | `app/templates/agent/`、`app/static/js/agent.js`、`agent_skills.js`、`agent_personas.js`、`app/static/css/pages/agent.css`、`agent_skills.css`、`agent_personas.css` |
 | 内置角色管理页 | `app/templates/system/personas.html`、`app/static/js/system_personas.js`、`app/static/css/pages/system_personas.css` |
 | 技能种子与迁移 | `scripts/seed_agent_skills.py`、`scripts/migrate_agent_skills.py` |
 | 角色定义/管理/运行时 | `app/modules/agent/personas/definition.py`、`management.py`、`runtime.py` |
 | 角色工具可见性 | `app/modules/agent/tools/policy.py`、`catalog.py` |
 | 内置角色管理服务/API/页面 | `app/modules/system/personas/` |
-| 角色种子与迁移 | `scripts/seed_agent_personas.py`、`scripts/migrate_agent_personas.py`、`scripts/migrate_agent_persona_grants.py` |
-| 角色模板 | `app/ai/prompts/persona_nutrition_v1.txt`、`persona_e_trainer_v1.txt`、`persona_health_profile_test_v1.txt`、`persona_health_profile_test_guard_v1.txt` |
+| 角色种子与迁移 | `scripts/seed_agent_personas.py`、`scripts/migrate_agent_personas.py`、`scripts/migrate_agent_persona_grants.py`、`scripts/migrate_health_profile_entries.py` |
+| 角色模板 | `app/ai/prompts/persona_nutrition_v1.txt`、`persona_e_trainer_v1.txt`、`persona_health_profile_test_v2.txt`、`persona_health_profile_test_guard_v2.txt` |
 | 报告事实快照 / 叙事 / 服务 / 模型 | `app/modules/report/facts.py`、`ai.py`、`service.py`、`models.py` |
 | 报告提示词 | `app/ai/prompts/weekly_report_v1.txt`、`monthly_report_v1.txt` |
 | 报告页面 | `app/templates/report/`、`app/static/js/report.js`、`app/static/css/pages/report.css` |

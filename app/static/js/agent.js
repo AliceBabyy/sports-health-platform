@@ -13,6 +13,7 @@
   const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false };
 
   const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
+  const CURRENT_KEY = "sh.agent.current";
 
   const ICON_COPY =
     '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">' +
@@ -99,6 +100,25 @@
 
   function current() {
     return conversations.find(c => c.id === currentId) || null;
+  }
+
+  /* 选中会话持久化：URL 优先（刷新、复制链接都能回到同一会话），localStorage 兜底 */
+  function rememberConversation(id) {
+    if (id == null) localStorage.removeItem(CURRENT_KEY);
+    else localStorage.setItem(CURRENT_KEY, String(id));
+    const url = new URL(window.location.href);
+    if (id == null) url.searchParams.delete("conversation_id");
+    else url.searchParams.set("conversation_id", String(id));
+    window.history.replaceState(null, "", url);
+  }
+
+  function restoreConversationId() {
+    const raw = new URL(window.location.href).searchParams.get("conversation_id");
+    const candidates = [];
+    if (raw) candidates.push(Number(raw));
+    const stored = Number(localStorage.getItem(CURRENT_KEY));
+    if (stored) candidates.push(stored);
+    return candidates.find(id => conversations.some(c => c.id === id)) || null;
   }
 
   function conversationTitle(conv) {
@@ -559,20 +579,55 @@
     turn.bubble.appendChild(note);
   }
 
+  /* ---------- 生成中占位与轮询 ---------- */
+  let pollTimer = 0;
+  let renderedConvId = null; // 上一次整表渲染的会话，用于首次进入时滚到底
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearTimeout(pollTimer);
+      pollTimer = 0;
+    }
+  }
+
+  function schedulePoll(conv) {
+    stopPolling();
+    pollTimer = setTimeout(() => {
+      pollTimer = 0;
+      if (!conv || currentId !== conv.id || streaming || stopping) return;
+      loadMessages(conv);
+    }, 2500);
+  }
+
+  function appendGenerating() {
+    const wrap = document.createElement("div");
+    wrap.innerHTML =
+      '<div class="msg-row assistant is-generating">' +
+        '<div class="msg-avatar">AI</div>' +
+        '<div class="msg-body"><div class="msg-bubble">' +
+          '<div class="msg-generating">' +
+            '<span class="dots"><i></i><i></i><i></i></span><span>正在生成…</span>' +
+          '</div>' +
+        '</div></div>' +
+      '</div>';
+    els.messageList.appendChild(wrap.firstElementChild);
+  }
+
   async function loadMessages(conv) {
+    stopPolling();
     if (!conv) {
       els.messageList.innerHTML = "";
       syncWelcome(true);
       return;
     }
+    const nearBottom =
+      els.messageScroll.scrollHeight - els.messageScroll.scrollTop - els.messageScroll.clientHeight < 80;
+    const initialRender = conv.id !== renderedConvId;
+    renderedConvId = conv.id;
     try {
       const res = await App.api("/api/agent/conversations/" + conv.id + "/messages");
       const turns = res.turns || [];
-      if (!turns.length) {
-        els.messageList.innerHTML = "";
-        syncWelcome(true);
-        return;
-      }
+      const generating = !!res.generating;
       els.messageList.innerHTML = "";
       activeAsk = null;
       interruptedTurn = null;
@@ -585,8 +640,15 @@
           if (item.interrupted) interruptedTurn = turn;
         }
       });
+      // 后端还在生成：占位提示并开始轮询，生成结束后自动刷新成完整回答
+      if (generating) appendGenerating();
+      if (!turns.length && !generating) {
+        syncWelcome(true);
+        return;
+      }
       syncWelcome(false);
-      scrollBottom();
+      if (nearBottom || initialRender) scrollBottom();
+      if (generating) schedulePoll(conv);
     } catch (err) {
       App.toast(err.message, true);
     }
@@ -596,6 +658,7 @@
     if (streaming) { App.toast("请等待当前回复完成"); return; }
     closeSkillSuggest();
     currentId = id;
+    rememberConversation(id);
     const conv = current();
     els.chatTitle.textContent = conversationTitle(conv);
     syncModelSelect(conv);
@@ -618,6 +681,7 @@
     if (conv) return conv;
     const created = await createConversation();
     currentId = created.id;
+    rememberConversation(created.id);
     return created;
   }
 
@@ -713,6 +777,7 @@
       conversations.splice(conversations.findIndex(c => c.id === id), 1);
       if (currentId === id) {
         currentId = conversations.length ? conversations[0].id : null;
+        rememberConversation(currentId);
         const c = current();
         els.chatTitle.textContent = conversationTitle(c);
         syncModelSelect(c);
@@ -1375,9 +1440,16 @@
 
   /* ---------- 初始化 ---------- */
   function init() {
+    const restored = restoreConversationId();
+    currentId = restored;
+    if (restored !== null) rememberConversation(restored);
+    else if (new URL(window.location.href).searchParams.has("conversation_id")) {
+      // URL 指向的会话已不存在（被删除/换账号）：清掉参数，回到新建态
+      rememberConversation(null);
+    }
     renderSessions();
     const c = current();
-    els.chatTitle.textContent = "";
+    els.chatTitle.textContent = c ? conversationTitle(c) : "";
     syncModelSelect(c);
     els.welcomeTitle.textContent = greeting() + "，我能帮什么忙吗？";
     loadMessages(c);

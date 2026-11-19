@@ -25,12 +25,13 @@ def _make_user(db, name="hp_probe_user") -> User:
     return user
 
 
-def _questions(labels=None):
+def _questions(labels=None, aspects=None):
     labels = labels or ["最近三个月体重变化的主要原因？", "睡眠质量如何？", "训练后恢复情况？"]
+    aspects = aspects or ["goal", "sleep", "medical"]
     return [
         {
             "key": f"q{i + 1}",
-            "group": "本次定制",
+            "aspect": aspects[i],
             "label": label,
             "hint": "按实际情况写",
             "placeholder": "如：训练量下降",
@@ -82,7 +83,10 @@ def test_duplicate_answers_are_idempotent(db):
 def test_new_questions_keep_history_and_latest_wins(db):
     user = _make_user(db)
     service.save_probe_health_profile(db, user.id, _questions(), {"q1": "第一套答案"})
-    second = _questions(["新的饮食问题？", "新的作息问题？", "新的疼痛问题？"])
+    second = _questions(
+        ["新的饮食问题？", "新的作息问题？", "新的疼痛问题？"],
+        ["diet", "sleep", "medical"],
+    )
     result = service.save_probe_health_profile(db, user.id, second, {"q2": "第二套答案"})
     assert result["status"] == "created"
 
@@ -103,6 +107,18 @@ def test_probe_validation_rejects_bad_payload(db):
         service.save_probe_health_profile(db, user.id, _questions(), {"goal": "覆盖固定题"})
     with pytest.raises(AppError):
         service.save_probe_health_profile(db, user.id, _questions(), {"q1": "x" * 201})
+    with pytest.raises(AppError):
+        service.save_probe_health_profile(
+            db, user.id, _questions(aspects=["goal", "goal", "sleep"]), {"q1": "x"}
+        )
+    with pytest.raises(AppError):
+        service.save_probe_health_profile(
+            db, user.id, _questions(aspects=["goal", "sleep", "made_up"]), {"q1": "x"}
+        )
+    with pytest.raises(AppError):
+        service.save_probe_health_profile(
+            db, user.id, _questions(aspects=["cycle", "cycle", "goal"]), {"q1": "x"}
+        )
 
 
 def test_page_save_accepts_custom_key_and_clears_it(db):
@@ -126,7 +142,10 @@ def test_profile_info_returns_all_health_profile_history(db):
     user = _make_user(db, "hp_probe_history_user")
     service.save_health_profile(db, user, {"goal": "减脂"})
     service.save_probe_health_profile(db, user.id, _questions(), {"q1": "旧答案"})
-    second = _questions(["新的饮食问题？", "新的作息问题？", "新的疼痛问题？"])
+    second = _questions(
+        ["新的饮食问题？", "新的作息问题？", "新的疼痛问题？"],
+        ["diet", "sleep", "medical"],
+    )
     service.save_probe_health_profile(db, user.id, second, {"q2": "新答案"})
 
     result = queries.profile_info(db, user.id)
@@ -142,10 +161,14 @@ def test_profile_info_returns_all_health_profile_history(db):
     assert older["qa"][0]["answer"] == "旧答案"
     assert older["qa"][1]["answer"] == ""
     assert result["custom_health_profile"][0]["label"] == "新的作息问题？"
-    assert result["custom_health_profile_history"][0]["qa"][0]["group"] == "本次定制"
-    assert result["custom_health_profile_group_coverage"] == [
-        {"group": "本次定制", "question_count": 6, "set_count": 2}
-    ]
+    assert result["custom_health_profile_history"][0]["qa"][0]["group"] == "饮食营养"
+    coverage = result["custom_health_profile_aspect_coverage"]
+    assert {(item["aspect"], item["question_count"], item["set_count"]) for item in coverage} == {
+        ("medical", 2, 2),
+        ("sleep", 2, 2),
+        ("diet", 1, 1),
+        ("goal", 1, 1),
+    }
 
 
 def test_special_tool_is_bound_to_health_profile_test_only(db, monkeypatch):
@@ -223,12 +246,13 @@ def test_health_profile_test_persona_block_always_has_guard():
         scope="system", version_no=1, prompt="旧版角色提示词，不含新的覆盖规则。",
     )
     block = render_persona_block(persona)
-    assert "至少覆盖 3 个不同主题" in block
-    assert "同一主题最多 2 题" in block
+    assert "至少覆盖 3 个不同 aspect" in block
+    assert "同一 aspect 最多 2 题" in block
     assert "保存成功后本轮立即结束" in block
+    assert "custom_health_profile_aspect_coverage" in block
 
     nutrition = ResolvedPersona(
         id=2, key="nutrition", name="营养师", description="",
         scope="system", version_no=1, prompt="只负责饮食建议。",
     )
-    assert "至少覆盖 3 个不同主题" not in render_persona_block(nutrition)
+    assert "至少覆盖 3 个不同 aspect" not in render_persona_block(nutrition)

@@ -329,6 +329,7 @@ async def get_messages(db: Session, user_id: int, conversation_id: int, runtime:
     )
     return {
         "conversation_id": row.id,
+        "generating": _is_generating(str(row.thread_id)),
         "turns": build_turns(
             state.values.get("messages", []), skills, pending_ask=_pending_ask(state),
         ),
@@ -671,6 +672,15 @@ def _pending_ask(state) -> dict | None:
         if isinstance(value, dict) and value.get("question"):
             return value
     return None
+
+
+def _is_generating(thread_id: str) -> bool:
+    """该会话是否正在本进程生成：有运行句柄且结束信号尚未置位。
+
+    进程重启后内存态清空，读到的就是 False；此时库里可能停在半途，由“继续”入口处理。
+    """
+    run = _runs.get(thread_id)
+    return run is not None and not run["done"].is_set()
 
 
 async def _stream_graph(graph, stream_input, config, skills: list[ResolvedSkill], run: dict | None = None):

@@ -113,3 +113,22 @@ def test_leading_ai_without_human_is_skipped():
     assert len(turns) == 1
     assert turns[0]["user"] == "你好"
     assert [b["content"] for b in turns[0]["blocks"]] == ["你好，有什么可以帮你？"]
+
+
+def test_is_generating_follows_run_handle():
+    """GET messages 的 generating 只看进程内运行句柄：结束信号置位即视为结束。"""
+    import threading
+
+    from app.modules.agent import service
+
+    thread_id = "thread-generating-test"
+    service._runs.pop(thread_id, None)
+    assert service._is_generating(thread_id) is False
+
+    run = {"done": threading.Event()}
+    service._runs[thread_id] = run
+    assert service._is_generating(thread_id) is True
+
+    run["done"].set()
+    assert service._is_generating(thread_id) is False
+    service._runs.pop(thread_id, None)

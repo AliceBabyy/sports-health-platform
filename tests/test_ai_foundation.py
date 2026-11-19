@@ -1,11 +1,12 @@
 """V2.0 model boundary, prompt validation, and probe authorization."""
+from importlib.resources import files
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.ai.models.registry import MODELS, ModelConfigurationError, get_model
-from app.ai.prompts.loader import load_prompt
+from app.ai.prompts.loader import PROMPTS, load_prompt
 from app.core.deps import get_current_user
 from app.modules.electronic_trainer.router_api import ProbeOut
 from database import get_db
@@ -47,6 +48,15 @@ def test_prompt_version_and_variables():
         load_prompt("foundation_probe.v1")
     with pytest.raises(ValueError):
         load_prompt("../config.py", purpose="check")
+
+
+def test_prompt_registry_and_files_are_in_sync():
+    """所有注册提示词都必须是真实文件，目录里也不得留无注册的废弃提示词。"""
+    prompt_files = {
+        item.name for item in files("app.ai.prompts").iterdir()
+        if item.name.endswith(".txt")
+    }
+    assert set(PROMPTS.values()) == prompt_files
 
 
 def test_probe_requires_login():

@@ -29,7 +29,7 @@ from app.modules.cycle.models import PeriodLog, PeriodRecord
 from app.modules.dance import service as dance_service
 from app.modules.dance.models import DanceRecord
 from app.modules.overview.service import fitness_minutes
-from app.modules.profile.models import HealthProfile
+from app.modules.profile import service as profile_service
 from app.modules.state_record import service as state_service
 from app.modules.swim import service as swim_service
 from app.modules.swim.models import SwimRecord
@@ -438,8 +438,8 @@ def _health_profile_block(db: Session, user_id: int) -> dict:
     文本只作模型参考，不做结构化解析，也不参与 hard_limits 判定：
     安全边界由代码固定的记录事实决定，不靠模型理解自由文本。
     """
-    row = db.query(HealthProfile).filter(HealthProfile.user_id == user_id).first()
-    return dict(row.answers or {}) if row else {}
+    row = profile_service.get_health_profile(db, user_id)
+    return dict(row.answers) if row else {}
 
 
 def build_facts(db: Session, user, day: date | None = None) -> dict:

@@ -28,11 +28,17 @@ def test_save_creates_row_and_merges_partial_answers(db):
     row = service.save_health_profile(db, user, {"goal": "先减到 70 公斤"})
     assert row is not None
     assert row.answers["goal"] == "先减到 70 公斤"
+    assert len(row.entries) == 1
+    assert row.entries[0].aspect == "goal"
+    assert row.entries[0].item_key == "goal"
+    assert row.entries[0].source == "fixed"
 
     row = service.save_health_profile(db, user, {"weekly": "3 次左右"})
     assert row.answers["goal"] == "先减到 70 公斤"
     assert row.answers["weekly"] == "3 次左右"
     assert set(row.answers) == {"goal", "weekly"}
+    assert {entry.aspect for entry in row.entries} == {"goal", "training"}
+    assert len(row.entries) == 2
 
 
 def test_empty_string_clears_single_answer(db):

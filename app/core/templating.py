@@ -30,8 +30,8 @@ NAV_GROUPS = [
     {"key": "cycle", "url": "/cycle", "label": "生理周期", "short": "周期", "children": []},
     {"key": "agent", "url": "/agent", "label": "AI助手", "short": "AI", "children": [
         {"key": "agent_chat", "url": "/agent", "label": "对话", "short": "对话"},
-        {"key": "agent_skills", "url": "/agent/skills", "label": "技能", "short": "技能"},
-        {"key": "agent_personas", "url": "/agent/personas", "label": "角色", "short": "角色"},
+        {"key": "agent_skills", "url": "/agent/skills", "label": "技能管理", "short": "技能管理"},
+        {"key": "agent_personas", "url": "/agent/personas", "label": "角色管理", "short": "角色管理"},
     ]},
     {"key": "profile", "url": "/profile", "label": "个人信息", "short": "我的", "children": [
         {"key": "profile_basic", "url": "/profile", "label": "账号资料", "short": "资料"},

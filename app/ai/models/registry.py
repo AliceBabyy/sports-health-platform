@@ -27,7 +27,7 @@ MODELS = {
                  "qwen4-max",
                  "qwen3.8-flash",
                  "kimi-k3.1-pro",
-                 "gkm-5.3")
+                 "glm-5.3")
 }
 MODELS["qwen3-vl-plus"] = ModelSpec("qwen3-vl-plus", frozenset({"text", "vision", "structured_output", "tools"}))
 

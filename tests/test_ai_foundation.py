@@ -20,7 +20,7 @@ def test_model_registry_and_capability(monkeypatch):
         "qwen3.8-2.4t-a95b",
         "qwen4-max",
         "kimi-k3.1-pro",
-        "gkm-5.3",
+        "glm-5.3",
         "qwen3-vl-plus",
     }
     assert get_model("qwen3.8-flash").model_name == "qwen3.8-flash"

@@ -37,7 +37,8 @@ class ModelConfigurationError(ValueError):
 
 
 def get_model(name: str | None = None, *, required: Capability = "text",
-              timeout: float | None = None) -> ChatOpenAI:
+              timeout: float | None = None,
+              extra_body: dict | None = None) -> ChatOpenAI:
     selected = name or settings.ai_default_model
     spec = MODELS.get(selected)
     if spec is None:
@@ -52,4 +53,5 @@ def get_model(name: str | None = None, *, required: Capability = "text",
         base_url=settings.ai_base_url,
         timeout=timeout or settings.ai_timeout_seconds,
         max_retries=settings.ai_max_retries,
+        extra_body=extra_body,
     )

@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     report_auto_enabled: bool = True
     report_model: str = ""  # 留空用 ai_default_model
     report_timeout_seconds: float = 60.0
+    # 报告走非流式结构化输出，长思考模型会顶满读超时；默认对 qwen* 关闭思考
+    report_enable_thinking: bool = False
     report_max_attempts: int = 3
     # 侧栏每日训练建议（V2.8）：00:01 生成当天一份；启动后补跑当天缺失的行
     advice_auto_enabled: bool = True

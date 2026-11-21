@@ -26,9 +26,11 @@ def invoke_structured(
     input_text: str,
     variables: dict[str, str],
     timeout: float | None = None,
+    extra_body: dict | None = None,
 ) -> T:
     started = time.monotonic()
-    model = get_model(model_name, required="structured_output", timeout=timeout)
+    model = get_model(model_name, required="structured_output", timeout=timeout,
+                      extra_body=extra_body)
     prompt = load_prompt(prompt_id, **variables)
     try:
         # json_schema lets the provider enforce the schema while decoding.
@@ -36,11 +38,13 @@ def invoke_structured(
         result = chain.invoke({"input_text": input_text})
         return schema.model_validate(result)
     except (ValidationError, ValueError, TypeError) as exc:
-        logger.warning("AI output validation failed: model=%s prompt=%s", model_name, prompt_id)
+        logger.warning("AI output validation failed: model=%s prompt=%s err=%s",
+                       model_name, prompt_id, type(exc).__name__, exc_info=True)
         raise AIServiceError("模型返回格式无效") from exc
     except Exception as exc:
-        logger.warning("AI call failed: model=%s prompt=%s elapsed_ms=%d",
-                       model_name, prompt_id, int((time.monotonic() - started) * 1000))
+        logger.warning("AI call failed: model=%s prompt=%s elapsed_ms=%d err=%s",
+                       model_name, prompt_id, int((time.monotonic() - started) * 1000),
+                       type(exc).__name__, exc_info=True)
         raise AIServiceError("模型服务暂不可用") from exc
 
 

@@ -26,6 +26,7 @@ def test_model_registry_and_capability(monkeypatch):
     }
     assert get_model("qwen3.8-flash").model_name == "qwen3.8-flash"
     assert get_model("qwen3-vl-plus", required="vision").model_name == "qwen3-vl-plus"
+    assert get_model("qwen4-max", extra_body={"enable_thinking": False}).extra_body == {"enable_thinking": False}
     with pytest.raises(ModelConfigurationError):
         get_model("unknown")
     # 文本模型不声明视觉能力，避免没验证过就接图片

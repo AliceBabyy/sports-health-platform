@@ -164,8 +164,7 @@
       '<div class="rp-hero-actions">' +
       (r.status === 'ready' ? '<button type="button" class="btn btn-sm" data-action="regenerate">重新生成</button>' : '') +
       '<button type="button" class="btn btn-sm btn-danger" data-del="' + r.id + '">删除</button>' +
-      '</div>' +
-      (r.model_name ? '<span class="rp-hero-meta">' + esc(r.model_name) + '</span>' : '');
+      '</div>';
 
     if (r.status === 'generating') {
       headline.textContent = '正在生成本期报告';

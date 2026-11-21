@@ -257,3 +257,13 @@ def test_sanitize_evidence_filters_and_drops():
     assert len(cleaned.highlights) == 1
     assert cleaned.highlights[0].evidence == ["total.records"]
     assert warnings
+
+
+# ---------- 思考模式开关 ----------
+def test_extra_body_only_disables_qwen_thinking(monkeypatch):
+    monkeypatch.setattr(ai.settings, "report_enable_thinking", False)
+    monkeypatch.setattr(ai.settings, "report_model", "qwen4-max")
+    assert ai._extra_body(None) == {"enable_thinking": False}
+    assert ai._extra_body("deepseek-v4.1-flash") is None
+    monkeypatch.setattr(ai.settings, "report_enable_thinking", True)
+    assert ai._extra_body(None) is None

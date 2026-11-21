@@ -207,6 +207,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 提示词：`weekly_report.v1`、`monthly_report.v1`，变量严格为 `{today}`、`{period_range}`、`{period_label}`、`{status_note}`，在 `loader.py` 的 `PROMPTS` 注册。
 - 输入：`facts` 的 JSON 字符串；`{today}` 取事实截止日（进行中周期为 `as_of`）。
 - 超时：`REPORT_TIMEOUT_SECONDS`（默认 60s）经 `invoke_structured(timeout=...)` 传给 `get_model`；模型默认 `AI_DEFAULT_MODEL`，可用 `REPORT_MODEL` 覆盖。
+- 思考模式：报告走非流式 `json_schema` 结构化输出，服务端在整段 JSON 完成前不返回任何字节，长思考模型会直接顶满读超时（`qwen4-max` 开启思考实测 90~120s，失败耗时约等于 `60s × 2` 次重试，最终在库里只留下 `模型服务暂不可用`）。因此报告链路默认关闭思考（`REPORT_ENABLE_THINKING=False`），经 `get_model(extra_body=...)` 传 `enable_thinking=False`，实测 20~30s；该参数只对 `qwen*` 模型生效，换用其他厂商模型时不传。
 - evidence 校验：`evidence` 只能取 `facts.metrics` 中存在的键；无效键删除并记 warnings；一条内容的 evidence 全部无效时整条丢弃，避免编造依据留在页面。
 
 ### 7.3 周期与过期
@@ -232,7 +233,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 ### 7.5 接口与页面
 
 - 页面 `GET /reports?type=weekly|monthly&anchor=YYYY-MM-DD`；API `GET /api/reports`、`POST /api/reports/generate`、`GET /api/reports/history`、`DELETE /api/reports/{id}`（软删除）。
-- 页面结构：4 张事实卡 → 叙事（亮点/留意/下阶段建议/周期视角/数据说明）→ 判断依据 → 历史报告。前端只渲染 facts 与 narrative，不自行算数。
+- 页面结构：4 张事实卡 → 叙事（亮点/留意/下阶段建议/周期视角/数据说明）→ 判断依据 → 历史报告。前端只渲染 facts 与 narrative，不自行算数。hero 右侧只显示生成时间与操作，不展示 `model_name`（该字段仅存库备查，避免历史报告残留旧模型名）。
 
 ### 7.6 测试
 

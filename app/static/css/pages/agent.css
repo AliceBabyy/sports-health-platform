@@ -777,6 +777,37 @@
   padding: 6px 8px;
   font-size: 12.5px;
 }
+/* 联网开关：默认关闭，开启后用强调色填充；固定在输入框底行左端 */
+.web-toggle {
+  flex: none;
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.web-toggle:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+.web-toggle[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+.web-toggle:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
 .send-btn {
   flex: none;
   width: 38px;

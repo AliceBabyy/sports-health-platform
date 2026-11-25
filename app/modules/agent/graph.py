@@ -22,12 +22,21 @@ from app.modules.agent.personas.runtime import DEFAULT_PERSONA_BLOCK
 from app.modules.agent.tools import ALL_TOOLS
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
 from app.modules.agent.tools.interaction import ASK_TOOL_NAME
+from app.modules.agent.tools.web_search import WEB_SEARCH_TOOL_NAME
 
 MAX_HISTORY_MESSAGES = 20
 
-# 续写模式取值：写入 agent_chat.v7 的 {run_mode}，具体规则由提示词定义，代码只负责传递模式
+# 续写模式取值：写入 agent_chat.v8 的 {run_mode}，具体规则由提示词定义，代码只负责传递模式
 RUN_MODE_NORMAL = "常规"
 RUN_MODE_CONTINUE = "续写"
+
+# 联网工具只在用户打开输入框「联网」开关的那一轮 bind 给模型，同时写进 capabilities；
+# 未开启时不列入能力清单，避免模型误以为可以检索外部信息。
+WEB_SEARCH_CAPABILITY = (
+    "## 联网搜索（本轮已开启）\n"
+    "- web_search：检索外部网页与新闻（Tavily）；只用于平台外的实时信息，"
+    "回答需保留来源标题与链接。"
+)
 
 
 def _should_continue(state: MessagesState) -> str:
@@ -99,7 +108,7 @@ def default_capabilities(tools=None) -> str:
     readonly: list[str] = []
     actions: list[str] = []
     for tool in tools:
-        if tool.name.startswith("skill_"):
+        if tool.name.startswith("skill_") or tool.name == WEB_SEARCH_TOOL_NAME:
             continue
         entry = f"- {tool.name}：{(tool.description or '').splitlines()[0]}"
         if tool.name == ASK_TOOL_NAME:
@@ -120,19 +129,28 @@ def default_capabilities(tools=None) -> str:
 
 def make_agent_node(tools, capabilities: str):
     async def agent_node(state: MessagesState, config) -> dict:
-        model_name = config["configurable"].get("model_name")
-        model = get_model(model_name, required="tools").bind_tools(tools)
+        configurable = config["configurable"]
+        model_name = configurable.get("model_name")
+        web_on = bool(configurable.get("web_search")) and any(
+            tool.name == WEB_SEARCH_TOOL_NAME for tool in tools
+        )
+        bound_tools = tools if web_on else [
+            tool for tool in tools if tool.name != WEB_SEARCH_TOOL_NAME
+        ]
+        model = get_model(model_name, required="tools").bind_tools(bound_tools)
 
         now = datetime.now()
-        configurable = config["configurable"]
         persona_block = configurable.get("persona_block") or DEFAULT_PERSONA_BLOCK
         run_mode = configurable.get("run_mode") or RUN_MODE_NORMAL
+        cap_text = capabilities
+        if web_on:
+            cap_text = f"{capabilities}\n\n{WEB_SEARCH_CAPABILITY}"
         system_text = load_system_prompt(
-            "agent_chat.v7",
+            "agent_chat.v8",
             today=now.date().isoformat(),
             weekday="周" + "一二三四五六日"[now.weekday()],
             now_time=now.strftime("%H:%M"),
-            capabilities=capabilities,
+            capabilities=cap_text,
             persona_block=persona_block,
             run_mode=run_mode,
         )

@@ -609,6 +609,7 @@ BASE_TOOL_LABELS = {
     "get_cycle_records": "生理周期",
     "get_profile_info": "个人资料",
     "save_today_workout_plan": "保存今日计划",
+    "web_search": "联网搜索",
 }
 
 ACTION_TOOL_NAMES = {tool.name for tool in ACTION_TOOLS}
@@ -808,6 +809,8 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
             "persona_version_no": persona.version_no if persona else None,
             "persona_block": render_persona_block(persona),
             "run_mode": RUN_MODE_NORMAL,
+            # 联网开关只作用于本轮生成，默认关闭；由前端每次请求显式传入
+            "web_search": bool(getattr(payload, "web_search", False)),
         },
         "recursion_limit": 10,
     }

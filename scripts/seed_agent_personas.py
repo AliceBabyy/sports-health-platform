@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.ai.prompts.loader import load_system_prompt
 from app.modules.agent.models import AgentPersona, AgentPersonaVersion
+from app.modules.agent.personas.definition import validate_definition
 import models_registry  # noqa: F401  确保 users 等关联表注册到 Base
 from database import SessionLocal
 
@@ -51,6 +52,11 @@ def main() -> None:
     try:
         for item in PLATFORM_PERSONAS:
             definition = {"schema_version": 1, "prompt": load_system_prompt(item["prompt_id"])}
+            errors, _ = validate_definition(definition)
+            if errors:
+                raise RuntimeError(
+                    f"内置角色提示词不合法（{item['key']} / {item['prompt_id']}）：{errors}"
+                )
             new_hash = _hash(definition)
             persona = (
                 db.query(AgentPersona)

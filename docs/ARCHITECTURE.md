@@ -6,7 +6,7 @@
 
 ## AI 子模块概述
 
-项目 AI 能力由模型注册与调用、提示词管理、结构化 AI 导入、AI Agent 会话、只读数据工具、受控写工具、对话中途提问和技能系统组成。相关能力位于 `app/ai/`、`app/modules/electronic_trainer/` 和 `app/modules/agent/`，使用独立的 AI 运行时与 LangGraph checkpointer；详细实现见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。AI 功能不改动既有业务表字段；Agent 消息由 `langgraph` schema 中的 checkpointer 表持久化，会话元数据由 `agent_conversations` 保存，技能定义与审计由 `agent_skills` / `agent_skill_versions` / `agent_skill_runs` 保存，多角色定义与版本由 `agent_personas` / `agent_persona_versions` 保存。
+项目 AI 能力由模型注册与调用、提示词管理、结构化 AI 导入、AI Agent 会话、只读数据工具、按轮开启的联网搜索、受控写工具、对话中途提问和技能系统组成。相关能力位于 `app/ai/`、`app/modules/electronic_trainer/` 和 `app/modules/agent/`，使用独立的 AI 运行时与 LangGraph checkpointer；详细实现见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。AI 功能不改动既有业务表字段；Agent 消息由 `langgraph` schema 中的 checkpointer 表持久化，会话元数据由 `agent_conversations` 保存，技能定义与审计由 `agent_skills` / `agent_skill_versions` / `agent_skill_runs` 保存，多角色定义与版本由 `agent_personas` / `agent_persona_versions` 保存。
 ## 1. 技术栈
 
 - **后端**：FastAPI（SSR 单体）+ SQLAlchemy 2.0（Mapped 声明式）+ PostgreSQL；ORM 用 psycopg2，AI Agent checkpointer 用 psycopg3 异步 + LangGraph
@@ -58,8 +58,8 @@
 | state_record | state_appetite_record / state_myalgia_record / state_inflammation_record / state_mood_record | 食欲/肌肉疼痛/炎症/情绪按天记录；四表 CRUD + 跨表合并分页 + 当日聚合；月历复用周期阶段三档归并；跨表批量删除带类型定位 |
 | report | reports | AI 运动周报/月报：/reports 单页周/月切换；事实层确定性计算（三运动 + 身材 + 状态 + 周期）→ 叙事层结构化输出 → 依据层；同周期快照复用、过期检测、软删除；空数据走规则文案不调模型；由 system/scheduler 子包按周一/每月 1 日 cron 触发 |
 | daily_advice | daily_advice | 侧栏「今日训练建议」：/api/daily-advice 读取与重新生成；事实层确定性计算（基础信息 + 身材 + 昨日/近 7 天负荷 + 状态 + 当天计划 + 女性周期）→ 硬约束由代码降档 → 模型只解释；一天一条，00:01 由 system/scheduler 子包触发，启动补跑缺失行 |
-| system | scheduled_jobs / job_runs / agent_personas | 系统管理区：聚合页面前缀 `/system` 与 API 前缀 `/api/system`，**仅管理员可访问**（AdminGateMiddleware 按前缀拦截），子模块以相对前缀 router 挂入；当前含 `scheduler/`（定时任务）与 `personas/`（内置角色 CRUD + 工具/技能白名单），页面 `/system/scheduler`、`/system/personas` |
-| agent | agent_conversations / agent_personas / agent_persona_versions / agent_skills / agent_skill_versions / agent_skill_runs | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；平台只读代码/声明式技能 + 用户私有提示词技能；斜杠自然语言触发、参数解析与追问续接；按用户技能集与角色授权装配图；多角色（营养师/电子私教/健康档案测试内置 + 用户自定义提示词角色，角色会话创建时固定版本、不可切换，角色定义只提供提示词；工具/技能默认范围由 `TOOL_PERSONA_SCOPES` 提供，管理员可写显式白名单；健康档案测试专用写工具默认仅该角色可用）；SSE 流式（含工具/技能事件）；会话 CRUD/归属隔离；模型下拉；最近一轮可重新生成并覆盖；生成中途可停止并保留半截回答，停止后可「继续」续写或重新生成；硬删除 |
+| system | scheduled_jobs / job_runs / agent_personas / agent_skills | 系统管理区：聚合页面前缀 `/system` 与 API 前缀 `/api/system`，**仅管理员可访问**（AdminGateMiddleware 按前缀拦截），子模块以相对前缀 router 挂入；当前含 `scheduler/`（定时任务）、`personas/`（内置角色 CRUD + 工具/技能白名单）与 `skills/`（平台内置技能管理：代码技能只读+启停，声明式技能 CRUD/版本/校验/试运行/运行记录），页面 `/system/scheduler`、`/system/personas`、`/system/skills` |
+| agent | agent_conversations / agent_personas / agent_persona_versions / agent_skills / agent_skill_versions / agent_skill_runs | LangGraph 多会话/多轮问答；工具循环（agent ⇄ ToolNode）；8 个只读工具覆盖身材/状态记录/健身/游泳/舞蹈/生理周期/个人资料，范围与条数按意图可选、不传即全量；平台只读代码/声明式技能 + 用户私有提示词技能；斜杠自然语言触发、参数解析与追问续接；按用户技能集与角色授权装配图；多角色（营养师/电子私教/健康档案测试内置 + 用户自定义提示词角色，角色会话创建时固定版本、不可切换，角色定义只提供提示词；工具/技能默认范围由 `TOOL_PERSONA_SCOPES` 提供，管理员可写显式白名单；健康档案测试专用写工具默认仅该角色可用）；SSE 流式（含工具/技能事件）；会话 CRUD/归属隔离；模型下拉；最近一轮可重新生成并覆盖；生成中途可停止并保留半截回答，停止后可「继续」续写或重新生成；按轮开启的 Tavily 联网搜索（默认关闭，未开启时不装配 `web_search`）；硬删除 |
 
 ## 5. 认证与会话机制
 
@@ -128,10 +128,11 @@
 - 总览页周期切换（2026-11-08）：顶部 `‹ ›` 按当前视图步进锚点并重拉 `/api/overview`（日 ±1 天、周 ±7 天、月 ±1 月；跨月在目标月把日号夹到最后一天，如 1/31 → 2/28）。右上标签显示当前区间（日=`月日 周几`、周=`起止月日`、月=`年月`，跨年补年份），区间不含今天时显示「回到今天」。周视图每日卡在周几右侧带灰色「月/日」（`11/2`）。切视图不改锚点，`?mode=&date=` 始终同步；「今天」取浏览器本地日期，不依赖服务端启动日。
 - 弹窗多行文本框自适应（2026-11-10）：`base.css` 给 `.modal textarea` 统一 `resize:none`、`overflow-y:auto`、`max-height:min(300px,42vh)`；`common.js` 的 `autoGrowTextareas` 以 `rows` 撑起的初始高度为下限、CSS `max-height` 为上限，在输入（含中文输入法组字结束）、弹窗打开、弹窗内动态插入条目时重算高度。个别字段用更具体的 `max-height` 收窄上限（如总览单日详情备注框 84px）。新增弹窗无需额外代码，只要把多行输入用 `textarea` 写进 `.modal`。
 - 个人信息：侧栏「个人信息」为分组，子项「账号资料」（`/profile`）与「健康/运动档案」（`/profile/health-profile`）。账号资料页保持左栏只读概览 + 右栏基本资料/修改密码；健康/运动档案页未填写时直接展示问卷（按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组卡片逐题文本框），已填写时展示只读答案卡，提供「编辑档案 / 清空档案」，编辑态可「清空重写」；存在「健康档案测试」生成的定制问题时，只读态与编辑态都追加「定制问题」卡片（只展示最新一套，带生成时间）。保存为合并语义（未传的题保留、空串清空），全部清空即删除该用户档案行回到问卷态。固定题 key 与文案由 `app/modules/profile/questions.py` 单一维护，固定题 aspect 映射与全量模板由 `app/modules/profile/aspects.py` 维护，定制问题由 `app/modules/profile/probe.py` 管理；数据库已改为一行一条的 `health_profile` 行式表，页面仍通过 service 聚合出的 `answers` 与最新一套问题渲染；页级脚本 `health_profile.js`、样式 `pages/health_profile.css`。
-- AI 助手页 `/agent`：提供多会话、多轮问答、工具/技能调用和 SSE 流式交互；生成中发送按钮切换为停止按钮，可随时中断，中断后可就地「继续」续写；顶部「新建会话」与「新建角色会话」，后者点击弹出角色选择弹窗，创建后整段会话固定该角色、不可切换，侧栏会话显示「人形图标 + 角色名」徽标；输入框支持 `/技能名 自然语言`，输入 `/` 会浮出可用技能建议并支持键盘选择；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
+- AI 助手页 `/agent`：提供多会话、多轮问答、工具/技能调用和 SSE 流式交互；生成中发送按钮切换为停止按钮，可随时中断，中断后可就地「继续」续写；顶部「新建会话」与「新建角色会话」，后者点击弹出角色选择弹窗，创建后整段会话固定该角色、不可切换，侧栏会话显示「人形图标 + 角色名」徽标；输入框支持 `/技能名 自然语言`，输入 `/` 会浮出可用技能建议并支持键盘选择；输入框底行左端是「联网」开关（默认关闭，开启后本轮才可检索外部网页，未配置密钥时置灰）；详细页面交互、事件协议和工具状态展示见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)。
 - 技能管理页 `/agent/skills`：整页白底铺满、左侧平台/我的技能列表 + 右侧编辑区；用户技能只提供提示词文本域，平台代码/声明式技能只读展示；校验/保存/发布/停用/删除/试运行/运行记录；平台技能只读。页面挂在侧栏「AI助手」分组下，`active=agent_skills`。
 - 角色管理页 `/agent/personas`：挂在侧栏「AI助手 → 角色管理」（`active=agent_personas`），布局与技能页一致；左侧平台角色（营养师/电子私教/健康档案测试）与我的角色，右侧角色名、角色键、定位与提示词编辑区；平台角色普通用户只读，用户角色保存即生成新版本并生效，支持启停与删除（被会话引用时提示先删会话）。
 - 内置角色管理页 `/system/personas`：挂在侧栏「系统设置 → 内置角色」（`active=system_personas`），仅管理员可见；左侧内置角色列表，右侧角色名/键/排序/状态/提示词编辑，以及按只读、交互、写入分组的工具勾选和按代码/声明式分组的平台技能勾选。支持新建、保存、删除、恢复默认范围；被会话引用删除返回 409。页级脚本 `app/static/js/system_personas.js`，样式 `css/pages/system_personas.css`，模板 `app/templates/system/personas.html`。
+- 内置技能管理页 `/system/skills`：挂在侧栏「系统设置 → 内置技能」（`active=system_skills`），仅管理员可见；左侧代码/声明式技能分组，右侧技能名/键/别名/分类/状态/能力描述与定义编辑。代码技能定义只读、仅可启停；声明式技能可新建、编辑、版本化保存、校验、试运行、启停与删除；被内置角色显式白名单引用时删除返回 409。保存/启停/删除后重建常驻系统图并清空按用户图缓存，立即生效。页级脚本 `app/static/js/system_skills.js`，样式 `css/pages/system_skills.css`，模板 `app/templates/system/skills.html`。
 - 报告页 `/reports`：周报/月报单页（`?type=weekly|monthly&anchor=YYYY-MM-DD`），侧栏「运动训练/计划」第四项；顶部周期步进 + 进行中标记 + 生成/重新生成；4 张事实卡 → 叙事（亮点/留意/建议/周期视角/数据说明）→ 判断依据（运动/身体/状态/周期/完整度）→ 历史报告（软删除）。总览页顶部提供「周报」「月报」入口。页级脚本 `app/static/js/report.js`，样式 `css/pages/report.css`。
 - 定时任务页 `/system/scheduler`：挂在侧栏「系统设置」分组下（`active=scheduler`）；任务卡列表（任务名与说明、表达式中文化、下次执行、上次结果与累计次数、启用状态）+ 新建/编辑弹窗（触发类型 cron/interval/date、表达式、时区、参数）+ 执行历史（时间/来源/结果/耗时/摘要，分页）；卡片操作「立即执行 / 编辑 / 停用启用 / 删除」。页级脚本 `app/static/js/system_scheduler.js`，样式 `css/pages/system_scheduler.css`，模板 `app/templates/system/scheduler.html`。
 
@@ -159,7 +160,7 @@ sports-health-platform/
 │  │  ├─ state_record/ # 状态记录：食欲/肌肉疼痛/炎症/情绪四表 CRUD + 月历阶段归并
 │  │  ├─ report/       # AI 运动报告：reports 表 + 事实快照 + 叙事 + 自动生成
 │  │  ├─ daily_advice/ # 侧栏每日训练建议：facts + sanitize + service + /api/daily-advice
-│  │  ├─ system/       # 系统管理区：聚合 /system 页面与 /api/system API；scheduler/ 子包为定时任务（APScheduler + scheduled_jobs/job_runs）
+│  │  ├─ system/       # 系统管理区：聚合 /system 页面与 /api/system API；scheduler/ 定时任务、personas/ 内置角色、skills/ 内置技能
 │  │  └─ agent/        # AI 助手：LangGraph 图 + checkpointer + 会话/SSE + skills 技能子系统
 │  ├─ templates/       # Jinja2 页面
 │  └─ static/          # css / js / vendor(echarts) / img
@@ -172,7 +173,7 @@ sports-health-platform/
 
 ## 12. 测试与运维
 
-- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合、状态记录四表 CRUD/合并分页/跨表批量删除、报告周期归一/事实快照/生成/软删除/扫描/evidence 校验、每日建议事实/硬约束/清洗/生成状态机/扫描/任务表达式等）。
+- 单元测试：`pytest tests/ -q`（趋势聚合、配速划频、周期阶段、训练状态机、个人信息、总览聚合、状态记录四表 CRUD/合并分页/跨表批量删除、报告周期归一/事实快照/生成/软删除/扫描/evidence 校验、每日建议事实/硬约束/清洗/生成状态机/扫描/任务表达式、内置技能的声明式 CRUD/版本/代码只读/引用保护/试运行等）。
 - 建库/初始化：`python scripts/init_db.py`（幂等）；结构迁移按需执行 `scripts/migrate_*.py`；报告表迁移 `python scripts/migrate_reports.py`，建议表迁移 `python scripts/migrate_daily_advice.py`。
 - 报告自动生成：应用内调度器按 cron 触发（`report.weekly` 周一 08:00、`report.monthly` 每月 1 日 08:00，时区 Asia/Shanghai）；管理页 `/system/scheduler` 可改表达式、启停与立即执行；日志 `logs/scheduler.log`（命令行补跑）与 `job_runs` 表（所有触发来源）；`python scripts/generate_reports.py --scan --dry-run` 只列到期周期，`--type/--anchor/--user` 可手动生成单个周期。
 - 启动：`python main.py`（推荐；Windows 下 psycopg3 异步要求 SelectorEventLoop，命令行 `uvicorn main:app` 会在 import 本模块前用默认 ProactorEventLoop 建好 loop、导致启动失败，main.py 已内置显式 selector loop 的编程式启动）。

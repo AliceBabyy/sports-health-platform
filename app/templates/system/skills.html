@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}内置技能 · 系统设置 · 体序{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/pages/agent_skills.css?v=20261117t">
+<link rel="stylesheet" href="/static/css/pages/system_skills.css?v=20261124a">
+{% endblock %}
+{% block content %}
+<div class="skills-page system-skills-page">
+  <aside class="skills-rail">
+    <button class="rail-new" id="btnNewSkill" type="button">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+      </svg>
+      新建内置技能
+    </button>
+
+    <div class="rail-scroll">
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">代码技能</span>
+          <span class="skills-count" id="codeCount">0</span>
+        </div>
+        <div class="skills-list" id="codeList"></div>
+      </div>
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">声明式技能</span>
+          <span class="skills-count" id="declarativeCount">0</span>
+        </div>
+        <div class="skills-list" id="declarativeList"></div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="skills-work">
+    <header class="work-head">
+      <div class="work-identity">
+        <div class="work-kicker" id="editorKicker">内置技能</div>
+        <div class="work-name-row">
+          <h1 class="work-name" id="editorName">选择或新建技能</h1>
+          <code class="work-slash" id="editorSlash" hidden></code>
+        </div>
+      </div>
+      <div class="work-badges" id="editorBadges"></div>
+    </header>
+
+    <div class="work-scroll">
+      <div class="editor-empty" id="editorEmpty">
+        <div class="empty-graphic" aria-hidden="true">
+          <span>技能名</span><i></i><span>声明式定义</span><i></i><span>斜杠触发</span>
+        </div>
+        <div class="empty-title">左侧选择一个内置技能，或新建一个</div>
+        <div class="empty-sub">代码技能由代码注册，定义只读、仅可启停；声明式技能可在此编辑并版本化。</div>
+        <button class="btn btn-primary btn-sm" id="btnEmptyNew" type="button">新建内置技能</button>
+      </div>
+
+      <form class="skill-editor" id="skillForm" hidden>
+        <section class="editor-section">
+          <div class="section-head">基本信息</div>
+          <div class="field-grid">
+            <label class="field">
+              <span>技能名</span>
+              <input class="input" id="fName" maxlength="48" required>
+            </label>
+            <label class="field">
+              <span>技能键（工具名 skill_&lt;key&gt;，创建后不可修改）</span>
+              <input class="input mono" id="fKey" maxlength="48" placeholder="body_fat_month" required>
+            </label>
+            <label class="field">
+              <span>斜杠别名</span>
+              <input class="input" id="fAlias" maxlength="24" placeholder="体脂月报（可空）">
+            </label>
+            <label class="field">
+              <span>分类</span>
+              <select class="select" id="fCategory">
+                <option value="custom">自定义</option>
+                <option value="body">身材</option>
+                <option value="swim">游泳</option>
+                <option value="fitness">健身</option>
+                <option value="dance">舞蹈</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>状态</span>
+              <select class="select" id="fStatus">
+                <option value="active">启用</option>
+                <option value="disabled">停用</option>
+              </select>
+            </label>
+            <label class="field field-wide">
+              <span>能力描述（模型据此决定何时调用）</span>
+              <input class="input" id="fDescription" maxlength="200" placeholder="按教练视角点评训练">
+            </label>
+          </div>
+        </section>
+
+        <section class="editor-section">
+          <div class="section-head">
+            <span>技能定义</span>
+            <span class="grants-note" id="definitionNote"></span>
+          </div>
+          <div class="code-note" id="codeNote" hidden></div>
+          <textarea class="code-editor mono" id="fDefinition" spellcheck="false" rows="22"
+                    placeholder='{&#10;  "schema_version": 1,&#10;  "params": [...],&#10;  "sources": [...],&#10;  "steps": [...],&#10;  "outputs": [...],&#10;  "summary": "..."&#10;}'></textarea>
+          <div class="editor-hint" id="definitionHint">平台声明式 DSL：参数 date/int/bool/enum，数据源与算子走白名单，输出只支持数值、引用与 + - * /。</div>
+        </section>
+
+        <section class="editor-section">
+          <div class="section-head"><span>试运行参数 JSON</span></div>
+          <textarea class="code-editor mono" id="fTestArgs" rows="3" spellcheck="false"
+                    placeholder='{"start_date":"2026-11-01","end_date":"2026-11-23"}'></textarea>
+          <div class="editor-hint">试运行使用已保存的版本；修改定义后请先保存，再试运行。参数缺省时按定义中的默认值补齐。</div>
+        </section>
+
+        <div class="editor-result" id="editorResult"></div>
+
+        <section class="run-panel" id="runPanel" hidden>
+          <div class="section-head">
+            <span>运行记录</span>
+            <div class="section-tools">
+              <button class="btn btn-ghost btn-sm" type="button" id="btnCloseRuns">关闭</button>
+            </div>
+          </div>
+          <div class="run-table-head" aria-hidden="true">
+            <span>时间</span><span>状态</span><span>触发与参数</span><span>耗时</span>
+          </div>
+          <div id="runList"></div>
+        </section>
+      </form>
+    </div>
+
+    <footer class="work-actions" id="workActions" hidden>
+      <span class="work-hint" id="versionHint"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnValidate">校验定义</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnTest">试运行</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnRuns">运行记录</button>
+      <button class="btn btn-ghost btn-sm danger" type="button" id="btnDelete">删除</button>
+      <button class="btn btn-primary btn-sm" type="button" id="btnSave">保存并生效</button>
+    </footer>
+  </section>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.INIT_SYSTEM_SKILLS = {{ skills | tojson }};
+</script>
+<script src="/static/js/system_skills.js?v=20261124a"></script>
+{% endblock %}

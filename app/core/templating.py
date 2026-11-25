@@ -47,6 +47,7 @@ NAV_GROUPS = [
         "children": [
             {"key": "scheduler", "url": "/system/scheduler", "label": "定时任务", "short": "定时"},
             {"key": "system_personas", "url": "/system/personas", "label": "内置角色", "short": "角色"},
+            {"key": "system_skills", "url": "/system/skills", "label": "内置技能", "short": "技能"},
         ],
     },
 ]

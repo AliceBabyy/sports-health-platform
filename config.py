@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     agent_pool_max_size: int = 10
     # 多角色（V2.4）：用户私有角色配额与人设提示词长度上限
     agent_persona_max_per_user: int = 10
-    agent_persona_max_chars: int = 2000
+    agent_persona_max_chars: int = 3000
     # AI 运动报告（2026-11-17）：周报周一生成上周、月报每月 1 日生成上月；
     # 自动触发由应用内调度器完成（见下方 scheduler_*），不再依赖操作系统计划任务。
     report_auto_enabled: bool = True
@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     # 角色与管理员区（2026-11-19）：`/system` 与 `/api/system` 仅管理员可访问；
     # 无管理员时启动自动提升 user_id 最小的启用账号，配置项可按登录名追加指定管理员（逗号分隔）
     admin_usernames: str = ""
+    # 联网搜索（V2.13，2026-11-24）：Tavily 检索外部网页；
+    # 默认关闭，只对会话页输入框打开「联网」开关的那一轮生效
+    web_search_enabled: bool = True
+    tavily_api_key: str = ""
+    tavily_search_url: str = "https://api.tavily.com/search"
+    web_search_timeout_seconds: float = 15.0
+    web_search_max_results: int = 5
+    web_search_snippet_chars: int = 1200
     # 应用内定时任务（2026-11-17）：APScheduler 后台线程 + scheduled_jobs 表
     scheduler_enabled: bool = True
     scheduler_timezone: str = "Asia/Shanghai"

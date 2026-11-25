@@ -10,7 +10,11 @@ from app.modules.agent.models import (
     AgentPersona,
     AgentPersonaVersion,
 )
-from app.modules.agent.personas.definition import PersonaInvalid, parse_persona_definition
+from app.modules.agent.personas.definition import (
+    PersonaInvalid,
+    parse_persona_definition,
+    validate_definition,
+)
 from app.modules.agent.personas.management import (
     PersonaValidationError,
     bindable_persona,
@@ -221,15 +225,30 @@ def test_tool_policy_is_noop_now_and_seam_works(monkeypatch):
     assert policy.persona_graph_fingerprint(type("P", (), {"key": "e_trainer"})) == ""
 
 
-def test_prompt_v7_persona_block_and_v6_removed():
+def test_platform_persona_prompts_fit_definition_limit():
+    """内置角色必须通过与用户角色相同的定义校验，避免种子写入无法被运行时解析的版本。"""
+    for prompt_id in (
+        "persona_nutrition.v1",
+        "persona_e_trainer.v1",
+        "persona_health_profile_test.v2",
+    ):
+        errors, _ = validate_definition(
+            {"schema_version": 1, "prompt": load_system_prompt(prompt_id)}
+        )
+        assert not errors, f"{prompt_id}: {errors}"
+
+
+def test_prompt_v8_persona_block_and_v7_removed():
     assert "agent_chat.v6" not in PROMPTS
+    assert "agent_chat.v7" not in PROMPTS
     text = load_system_prompt(
-        "agent_chat.v7", today="2026-11-18", weekday="周三", now_time="09:00",
+        "agent_chat.v8", today="2026-11-18", weekday="周三", now_time="09:00",
         capabilities="只读工具", persona_block="当前角色：营养师（v1）。", run_mode="常规",
     )
     assert "角色设定" in text and "当前角色：营养师（v1）" in text
     assert text.index("规则优先级") > text.index("角色设定")
     assert "本轮模式：常规" in text
+    assert "联网搜索" in text
 
 
 def test_conversation_persona_pair_constraint(db):

@@ -10,6 +10,7 @@
   let interruptedTurn = null; // 最近一次被用户停止、可用「继续」接写的回答
   let lastUserText = "";
   let activeAsk = null; // 当前唯一等待回答的卡片，主输入框也复用它作答
+  let webSearchOn = false; // 本轮联网开关：默认关闭，只对下一次发送（含重生成/续写/作答）生效
   const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false };
 
   const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
@@ -63,9 +64,35 @@
     welcomeTitle: document.getElementById("welcomeTitle"),
     chatInput: document.getElementById("chatInput"),
     btnSend: document.getElementById("btnSend"),
+    btnWebSearch: document.getElementById("btnWebSearch"),
     skillSuggest: document.getElementById("skillSuggest"),
     suggestList: document.getElementById("suggestList"),
   };
+
+  /* ---------- 联网开关 ---------- */
+  // 默认不联网；开关只在本次页面会话内有效，刷新后回到关闭态
+  const WEB_TITLE_OFF = "开启联网：本轮会检索外部网页（Tavily）";
+  const WEB_TITLE_ON = "本轮已开启联网：回答会标注外部来源";
+  const WEB_TITLE_UNAVAILABLE = "联网搜索未配置：请先在服务端配置 TAVILY_API_KEY";
+
+  function webAvailable() {
+    return window.WEB_SEARCH_AVAILABLE !== false;
+  }
+
+  function setWebSearch(on) {
+    webSearchOn = !!on && webAvailable();
+    els.btnWebSearch.setAttribute("aria-pressed", webSearchOn ? "true" : "false");
+    els.btnWebSearch.title = !webAvailable()
+      ? WEB_TITLE_UNAVAILABLE
+      : (webSearchOn ? WEB_TITLE_ON : WEB_TITLE_OFF);
+    els.btnWebSearch.disabled = !webAvailable();
+  }
+
+  // 只有开启时才带 web_search=true；默认请求体保持不变
+  function withWebFlag(payload) {
+    if (webSearchOn) payload.web_search = true;
+    return payload;
+  }
 
   /* 局域网 IP + HTTP 属非安全上下文，crypto.randomUUID 不存在；按 getRandomValues/Math.random 降级 */
   function newClientMsgId() {
@@ -433,7 +460,7 @@
     renderAskCard(turn, block);
     setStreamingUI(true);
 
-    const payload = { content: skipped ? "跳过" : text, client_msg_id: newClientMsgId() };
+    const payload = withWebFlag({ content: skipped ? "跳过" : text, client_msg_id: newClientMsgId() });
     if (skipped) payload.skip_ask = true;
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
     await runStream("/api/agent/conversations/" + conv.id + "/messages", payload, turn);
@@ -1178,7 +1205,7 @@
     interruptedTurn = null;
     setStreamingUI(true);
 
-    const payload = { client_msg_id: newClientMsgId() };
+    const payload = withWebFlag({ client_msg_id: newClientMsgId() });
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
     await runStream("/api/agent/conversations/" + conv.id + "/messages/continue", payload, turn);
@@ -1237,7 +1264,7 @@
     autoGrow();
     setStreamingUI(true);
 
-    const payload = { content: text, client_msg_id: newClientMsgId() };
+    const payload = withWebFlag({ content: text, client_msg_id: newClientMsgId() });
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
     await runStream("/api/agent/conversations/" + conv.id + "/messages", payload, turn);
@@ -1278,7 +1305,7 @@
     const turn = createTurn(aiNode);
     setStreamingUI(true);
 
-    const payload = { client_msg_id: newClientMsgId() };
+    const payload = withWebFlag({ client_msg_id: newClientMsgId() });
     if (els.chatModel.value) payload.model_name = els.chatModel.value;
 
     await runStream("/api/agent/conversations/" + conv.id + "/messages/regenerate", payload, turn);
@@ -1455,6 +1482,7 @@
     loadMessages(c);
     applySidebar(localStorage.getItem(SIDEBAR_KEY) === "1");
     autoGrow();
+    setWebSearch(false);
     loadSkillOptions();
 
     els.btnNewChat.addEventListener("click", newChat);
@@ -1477,6 +1505,7 @@
       if (streaming) stopStream();
       else send();
     });
+    els.btnWebSearch.addEventListener("click", () => setWebSearch(!webSearchOn));
     els.chatInput.addEventListener("input", () => {
       autoGrow();
       refreshSkillSuggest();

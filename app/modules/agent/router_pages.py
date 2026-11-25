@@ -9,6 +9,7 @@ from app.modules.agent import service
 from app.modules.agent.personas.management import list_personas
 from app.modules.agent.skills.management import list_skills
 from app.modules.agent.tools.policy import TOOL_PERSONA_SCOPES
+from app.modules.agent.tools.web_search import web_search_available
 from app.modules.auth.models import User
 from config import settings
 from database import get_db
@@ -43,6 +44,7 @@ def agent_page(
             "model_options": list(MODELS.keys()),
             "default_model": settings.ai_default_model,
             "personas": _selectable_personas(db, user.id),
+            "web_search_available": web_search_available(),
         },
     )
 

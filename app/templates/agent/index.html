@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}AI 助手 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261119c">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/agent.css?v=20261124a">{% endblock %}
 {% block content %}
 <div class="agent-workbench" id="agentWorkbench">
   <!-- 会话列表 -->
@@ -51,6 +51,14 @@
         <div class="chat-input">
           <textarea class="input" id="chatInput" rows="1" placeholder="输入你的问题，使用 / 可选择skill"></textarea>
           <div class="composer-row">
+            <button class="web-toggle" id="btnWebSearch" type="button" aria-pressed="false" aria-label="联网搜索">
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.2" fill="none"/>
+                <ellipse cx="8" cy="8" rx="2.9" ry="6.2" stroke="currentColor" stroke-width="1.2" fill="none"/>
+                <path d="M2.1 8h11.8" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+              <span>联网</span>
+            </button>
             <select class="select chat-model" id="chatModel" aria-label="选择模型">
               <option value="">默认模型</option>
               {% for m in model_options %}
@@ -87,6 +95,7 @@ window.INIT_CONVERSATIONS = {{ conversations | tojson }};
 window.INIT_PERSONAS = {{ personas | tojson }};
 window.MODEL_OPTIONS = {{ model_options | tojson }};
 window.DEFAULT_MODEL = {{ default_model | tojson }};
+window.WEB_SEARCH_AVAILABLE = {{ web_search_available | tojson }};
 </script>
-<script src="/static/js/agent.js?v=20261119d"></script>
+<script src="/static/js/agent.js?v=20261124a"></script>
 {% endblock %}

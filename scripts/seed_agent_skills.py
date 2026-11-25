@@ -36,8 +36,10 @@ def main() -> None:
                 skill.description = code.description
                 skill.kind = "code"
                 skill.category = code.category
-                skill.status = "active"
                 skill.current_version_no = code.version
+                # 管理员在 /system/skills 停用的代码技能不因种子脚本被强行重新启用
+                if skill.status in ("draft", "archived", None):
+                    skill.status = "active"
 
             version = (
                 db.query(AgentSkillVersion)

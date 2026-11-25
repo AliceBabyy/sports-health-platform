@@ -27,6 +27,8 @@ AI 能力分为两种运行方式：
 | V2.9 对话中途提问 | `ask_user` 工具 + LangGraph `interrupt()` 暂停、问答卡片、作答后用 `Command(resume)` 在同一轮继续 | 已实现 |
 | V2.10 中断生成与续写 | 发送按钮就地变停止按钮、`AbortController` 断流 + 服务端收口、半截回答保留为中断态；「继续」在原轮次接着写（不重复不重开场），刷新后可恢复 | 已实现 |
 | V2.11 会话恢复与生成中状态 | 选中会话写入 URL/localStorage、切页或刷新后自动恢复；`GET messages` 返回 `generating`，前端占位并轮询到生成结束 | 已实现 |
+| V2.12 内置技能管理 | 系统设置新增 `/system/skills`：平台代码技能只读+启停，声明式技能新增/编辑/版本/校验/试运行/运行记录/删除；保存后重建系统图立即生效，角色引用删除保护 | 已实现 |
+| V2.13 联网搜索 | Tavily 检索接入会话页「联网」开关（默认关闭、按轮开启），未开启不 bind 工具；结果带来源链接，密钥与参数由服务端固定 | 已实现 |
 
 ## V2.0 基础骨架（已实现）
 
@@ -123,7 +125,7 @@ Tool（V2.4）                               角色专用写工具，仅授权�
 5. 图装配：启动时构建系统图；用户有私有技能、角色显式工具/技能白名单或角色专用工具时，按 `(user_id, 技能版本指纹, 角色指纹)` 编译独立图并缓存（上限 32）。技能工具名 `skill_<key>`，执行前再次校验 active/current version/owner。
 6. 对话链路：`/技能名 自由文本` 命中 key/name/alias 后解析参数；齐全时注入 `AIMessage(tool_calls)` 并 `aupdate_state(..., as_node="agent")` 续跑，缺参数则追问；SSE 工具事件携带 `label/kind/origin/version/skill`。对话页输入 `/` 时按 `GET /api/agent/skills` 的 active 技能浮出建议，按 name/key/slash_alias 过滤并支持键盘插入。
 7. 管理页：`/agent/skills` 挂在“AI助手”分组下，整页白底铺满、左侧列表 + 右侧编辑区；提供平台/我的技能列表、用户提示词文本域、平台声明式只读展示、校验、保存、发布、停用、删除、试运行和运行记录；平台技能字段只读。
-8. 提示词：当前为 `agent_chat.v7`（V2.9 起，V2.10 增加 `run_mode`），使用 `today/weekday/now_time/capabilities/persona_block/run_mode`，日期与时刻按每次调用时的本机时间实时注入（局域网 HTTP 下浏览器端不提供时钟，时间只能由服务端给）；`skill_arg_parse.v1` 负责参数抽取，参数定义逐行传递，避免 JSON 花括号被 `ChatPromptTemplate` 当作变量。旧 `agent_chat.v6`/`v5`/`v4` 已删除。
+8. 提示词：当前为 `agent_chat.v8`（V2.9 起，V2.10 增加 `run_mode`，V2.13 增加联网搜索规则），使用 `today/weekday/now_time/capabilities/persona_block/run_mode`，日期与时刻按每次调用时的本机时间实时注入（局域网 HTTP 下浏览器端不提供时钟，时间只能由服务端给）；`skill_arg_parse.v1` 负责参数抽取，参数定义逐行传递，避免 JSON 花括号被 `ChatPromptTemplate` 当作变量。旧 `agent_chat.v7`/`v6`/`v5`/`v4` 已删除。
 9. 提示词技能：定义 `{"schema_version":1,"prompt":"..."}`；包装为普通 `skill_<key>` 工具，执行时把提示词放入结果 `summary`（`outputs=[]`、`sample_size=0`），由 `capabilities`/工具描述要求模型把 summary 当指令遵循；斜杠路径不抽参数、不追问。
 10. 多角色数据层：`agent_personas`（`scope=system/user`、归属、键、名称、定位、状态、排序、当前版本、`tool_grants`、`skill_grants`）、`agent_persona_versions`（定义 `{schema_version:1,prompt}`、哈希、发布时间）；`agent_conversations` 增加 `persona_id` + `persona_version_no` 与两列一致性约束。迁移脚本 `scripts/migrate_agent_personas.py`、`scripts/migrate_agent_persona_grants.py`，种子脚本 `scripts/seed_agent_personas.py` 写入 `nutrition`（营养师）、`e_trainer`（电子私教）与 `health_profile_test`（健康档案测试）。
 11. 角色运行时：`personas/runtime.py` 按会话记录的角色版本读取定义并渲染 `persona_block`，普通会话传固定默认句；角色定义只提供提示词，不进入 checkpointer。角色级 `tool_grants` / `skill_grants` 由管理员配置，非空时进入图装配与缓存指纹；`NULL` 时沿用默认范围。角色改版后老会话仍用创建时版本；停用只禁新建，已绑定会话继续；删除被会话引用的角色返回 409。
@@ -141,7 +143,7 @@ Tool（V2.4）                               角色专用写工具，仅授权�
 - 多角色：平台两个角色种子幂等；用户角色创建/保存（仅内容变化才升版）/启停/删除、平台只读、越权 403、被会话引用删除 409；角色会话创建时写入版本号，角色改版后老会话仍读旧版本；普通会话两列为空、行为不变。
 - `tests/test_agent_personas.py` 覆盖定义字段/长度、版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束。
 - 健康档案测试：`tests/test_health_profile.py` 覆盖固定题行式落库与合并、清空、完成题数派生；`tests/test_health_profile_probe.py` 11 项覆盖固定 aspect 与至少 3 方面校验、单方面配额、多套历史与最新优先、方面覆盖统计、固定题保留、同套更新、幂等、页面定制题保存/清空、`profile_info` 读取全部历史、专用工具仅该角色可见且可调用、保存成功后 `finalize_probe_save` 收口不自动续问、旧版角色仍追加运行约束；`tests/test_agent_ask.py` 覆盖 `ask_user` 连续两次中断与恢复、同一轮多张 ask 卡片的历史还原。
-- 内置角色管理：`tests/test_system_personas.py` 6 项覆盖创建/列表、`NULL` 默认范围、显式白名单、键不可改、提示词版本化、未知工具/技能拒绝、被会话引用删除 409、运行时工具过滤与图指纹；健康档案行式化迁移已执行，全量 `pytest` 342 项通过。
+- 内置角色管理：`tests/test_system_personas.py` 6 项覆盖创建/列表、`NULL` 默认范围、显式白名单、键不可改、提示词版本化、未知工具/技能拒绝、被会话引用删除 409、运行时工具过滤与图指纹；健康档案行式化迁移已执行，全量 `pytest` 354 项通过。
 
 **未实现/后续**
 
@@ -403,6 +405,44 @@ CSS 需同时给 `.sidebar-nav` 加 `flex: 1 1 auto; min-height: 0; overflow-y: 
 `tests/test_agent_messages.py` 新增 `_is_generating` 用例：无句柄 false、有句柄且未结束 true、结束信号置位后 false。
 
 **未做**：生成长连接断线重连（当前是轮询）、跨进程/多 worker 的运行态（`_runs` 仍是进程内）。
+
+## V2.12 内置技能管理（已实现，2026-11-24）
+
+**目标**：把平台 `scope=system` 技能的维护从代码与脚本提升到「系统设置 → 内置技能」页面，同时保持代码技能不可被页面篡改、声明式技能继续受 DSL 白名单约束。
+
+### 实现要点
+
+1. 页面 `/system/skills`（`active=system_skills`），仅管理员可见；沿用 `/agent/skills` 左栏 + 右编辑区工作台，左侧按代码/声明式分组，右侧编辑基础信息与定义。
+2. 代码技能：定义由 `app/modules/agent/skills/platform.py` 注册，页面与 API 均只读定义，只允许启停；编辑/删除返回 400。种子脚本只补元数据，不再覆盖管理员设置的启停状态。
+3. 声明式技能：支持新建、编辑、校验、版本化保存、启停、删除、试运行与运行记录；`key` 创建后不可改，键/名/别名按平台全局唯一校验，定义继续复用 `definition.py` 的白名单与 `engine.py` 执行器。
+4. 保存/启停/删除后调用 `runtime.refresh_system_graph()` 重建常驻系统图并清空按用户图缓存，默认用户和角色会话下一次提问即生效；重建失败只记日志，重启兜底。
+5. 删除前检查 `agent_personas.skill_grants` 显式引用，命中返回 409；运行记录读取平台技能全部用户的审计，不返回用户身份。
+6. API 统一为 `/api/system/system-skills`，自动受 `AdminGateMiddleware` 保护；页面/接口计数同步维护在 `docs/API_REFERENCE.md`。
+
+### 测试
+
+`tests/test_system_skills.py` 覆盖：创建与列表、拒绝代码类型与非法 DSL、键/名/别名冲突、定义变化才升版本、代码技能只读/启停/禁删、角色白名单引用删除保护、定义校验、试运行成功与非法参数、跨用户运行记录、系统图重建并清空用户缓存。
+
+**未做**：声明式技能的可视化表单编辑、批量导入导出、运行记录按用户筛选与清理策略。
+
+## V2.13 联网搜索（已实现，2026-11-24）
+
+**目标**：让会话中的模型在需要外部实时信息时能真实检索网页，同时保持“默认不联网、由用户按轮决定”，并且不把联网结果混作平台个人数据。
+
+### 实现要点
+
+1. 新增 `app/modules/agent/tools/web_search.py`：Tavily `/search` 封装，工具名固定 `web_search`；密钥、接口地址、结果条数、超时、摘要长度全部来自 `.env`，模型与前端都不能传。
+2. 按轮开关：`MessageIn` / `RegenerateIn` / `ContinueIn` 增加 `web_search`（默认 `false`），服务端写入 `config.configurable["web_search"]`；`graph.make_agent_node` 只有开关为真时才把工具 `bind_tools`，并在 `capabilities` 末尾追加「联网搜索（本轮已开启）」段。未开启时模型既看不到工具，也不被告知可以联网。
+3. 客户端不可信：工具内部从 config 再校验一次开关、总开关与密钥；`query` 2~300 字、`topic ∈ {general, news}`、`days` 仅 news 且 1~365；异常统一返回 `{ok:false,error}`，不打断本轮 SSE。
+4. 装配位置：`runtime.build_user_graph` 在角色白名单过滤后追加联网工具，保证它不被角色 `tool_grants` 裁掉；服务端未配置密钥时工具不进入图，页面按钮置灰。
+5. 提示词升级 `agent_chat.v8`，新增「联网搜索：只在开启时可用」一节：区分外部信息与个人数据、保留来源标题与链接、未开启时不得假装检索、检索为空需如实说明；同步删除 `v7` 文件与 `PROMPTS` 映射。
+6. 前端：输入框底行左端新增「联网」胶囊按钮（地球图标 + 文案），默认关闭、开启后强调色；只存在内存，刷新回到关闭；发送、重新生成、续写与中途作答均携带当前开关。
+
+### 测试
+
+`tests/test_agent_web_search.py` 覆盖：请求 schema 默认关闭、密钥/总开关缺失、未开启拒绝检索、`query`/`days` 非法参数、结果收敛（丢弃无链接项、正文截断、标题回退为链接）、空结果提示、超时与异常收敛、工具从 config 读取开关，以及默认能力清单不列联网工具。
+
+**未做**：检索结果缓存与配额统计、多轮追问式检索、按站点白名单/黑名单过滤、结果质量排序与去重。
 
 ## 拓展功能设想
 

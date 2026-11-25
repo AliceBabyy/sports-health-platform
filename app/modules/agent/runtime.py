@@ -20,6 +20,7 @@ from app.modules.agent.tools import ALL_TOOLS, ask_user
 from app.modules.agent.tools.action_definitions import ACTION_TOOLS
 from app.modules.agent.tools.policy import persona_graph_fingerprint, tools_for_persona
 from app.modules.agent.tools.skill_definitions import build_skill_tool
+from app.modules.agent.tools.web_search import web_search, web_search_available
 from config import settings
 from database import SessionLocal
 
@@ -48,6 +49,9 @@ def build_user_graph(saver, skills: list[ResolvedSkill], persona=None):
         *(build_skill_tool(skill) for skill in skills),
     ]
     tools = tools_for_persona(tools, persona)
+    # 联网工具不受角色白名单裁剪：它由每轮会话开关控制，开启时所有会话/角色都可用
+    if web_search_available():
+        tools.append(web_search)
     return build_graph(saver, tools, _capabilities(skills, tools))
 
 
@@ -107,6 +111,20 @@ def graph_for_user(db: Session, user_id: int, runtime: dict, persona=None):
         runtime["graphs"].pop(next(iter(runtime["graphs"])))
     runtime["graphs"][key] = graph
     return graph
+
+
+def refresh_system_graph(runtime: dict) -> None:
+    """平台内置技能增删改/启停后重建常驻系统图并清空按用户图缓存。
+
+    系统图在启动时只编译一次；管理员在 ``/system/skills`` 修改平台技能后调用本函数，
+    让默认用户的下一次提问直接使用最新技能集，无需重启服务。
+    """
+    with SessionLocal() as db:
+        system_skills = available_skills(db, 0)
+    graph = build_user_graph(runtime["saver"], system_skills)
+    runtime["system_graph"] = graph
+    runtime["graph"] = graph
+    runtime["graphs"].clear()
 
 
 async def close_agent_runtime(runtime: dict) -> None:

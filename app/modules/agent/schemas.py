@@ -22,17 +22,21 @@ class MessageIn(BaseModel):
     model_name: str | None = Field(default=None, max_length=64)
     # 仅当本会话停在 ask_user 等待回答时有效：跳过该问题，按已有信息继续
     skip_ask: bool = False
+    # 本轮的联网开关：只对本次生成生效，默认不联网
+    web_search: bool = False
 
 
 class RegenerateIn(BaseModel):
     client_msg_id: str = Field(min_length=1, max_length=64)
     model_name: str | None = Field(default=None, max_length=64)
+    web_search: bool = False
 
 
 class ContinueIn(BaseModel):
     """继续生成：最近一轮被用户中断时，从已输出的片段接着写。"""
     client_msg_id: str = Field(min_length=1, max_length=64)
     model_name: str | None = Field(default=None, max_length=64)
+    web_search: bool = False
 
 
 class SkillIn(BaseModel):

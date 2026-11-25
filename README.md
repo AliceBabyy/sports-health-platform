@@ -82,7 +82,7 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 **V2.4 多角色（2026-11-18）**：对话页「新建会话」旁新增「新建角色会话」，点击弹出角色选择弹窗（显示名称、来源与定位），从启用且已发布的角色中
 选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`、健康档案测试 `health_profile_test`，以及用户自定义角色）。角色会话创建时把
 `persona_id + persona_version_no` 一并落库，整段会话固定该角色、不提供切换；侧栏显示角色名徽标，
-历史消息与 SSE `done` 均携带角色快照。角色定义只提供提示词（`agent_chat.v7` 末尾「角色设定」+
+历史消息与 SSE `done` 均携带角色快照。角色定义只提供提示词（`agent_chat.v8` 末尾「角色设定」+
 「规则优先级（最高）」）；工具/技能默认范围由服务端 `TOOL_PERSONA_SCOPES` 提供，管理员可在
 `/system/personas` 给内置角色配置显式 `tool_grants` / `skill_grants` 白名单（`NULL` 表示沿用默认范围，空数组表示不使用），
 装配阶段按白名单过滤。角色改版后老会话仍读创建时版本。普通用户角色管理页
@@ -108,11 +108,28 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 在固定问卷下展示最新一套定制问题，可编辑、清空。迁移
 `python scripts/migrate_health_profile_entries.py`（旧命令 `migrate_health_profile.py` / `migrate_health_profile_probe.py` 仍兼容）。
 
+**V2.12 内置技能管理（2026-11-24）**：系统设置新增「内置技能」页 `/system/skills`，管理员可统一查看平台
+`scope=system` 的代码/声明式技能。代码技能定义由代码注册，页面只读且仅可启停；声明式技能支持新建、编辑、
+校验、版本化保存、试运行、启停与删除。定义变化生成 `agent_skill_versions` 新版本并立即生效；保存/启停/删除后
+重建常驻系统图并清空按用户图缓存，无需重启。被内置角色显式 `skill_grants` 引用的技能禁止删除（409），避免
+角色配置静默失效。API 统一为 `/api/system/system-skills`，自动受管理员门禁保护；种子脚本只补代码技能元数据，
+不覆盖管理员设置的启停状态。测试 `tests/test_system_skills.py`。
+
+**V2.13 联网搜索（2026-11-24）**：会话页输入框底行新增「联网」开关，默认关闭，开启后只对下一轮生效（发送、重新生成、
+续写与中途作答都携带该开关）。后端 `app/modules/agent/tools/web_search.py` 封装 Tavily `/search`，只有服务端配置
+`TAVILY_API_KEY` 且 `WEB_SEARCH_ENABLED=true` 时才装配工具；未开启那轮既不 `bind_tools`，也不写进 `capabilities`，
+模型无法假装检索。`query` 2~300 字、`topic ∈ {general, news}`、`days` 仅 news 且 1~365；结果条数、超时与摘要长度
+全部由服务端配置固定，模型不能传密钥、地址或任意参数。检索结果含标题、链接、摘要与可选发布时间，回答需保留来源；
+超时、HTTP 异常与空结果收敛为结构化错误，不打断本轮。工具不受角色 `tool_grants` 裁剪，开关随请求生效，无需重建图。
+提示词升级为 `agent_chat.v8`（新增「联网搜索：只在开启时可用」一节，删除 v7 文件与映射）。配置见
+`WEB_SEARCH_ENABLED`、`TAVILY_API_KEY`、`TAVILY_SEARCH_URL`、`WEB_SEARCH_TIMEOUT_SECONDS`、`WEB_SEARCH_MAX_RESULTS`、
+`WEB_SEARCH_SNIPPET_CHARS`；测试 `tests/test_agent_web_search.py`。
+
 **V2.9 对话中途提问（2026-11-18）**：AI 可在回答中途调用 `ask_user` 停下来提问（问题 + 最多 4 个选项，
 可多选，也可跳过），用户作答后从同一轮继续，不必重新解释请求。停点由 LangGraph `interrupt()` 与 Postgres
 checkpointer 承载；作答仍走 `POST .../messages`，服务端识别到挂起后以 `Command(resume=答案)` 恢复，
 问答与后续正文留在原轮次，刷新页面后卡片仍可继续作答。等待回答期间不可重新生成。提示词升到
-`agent_chat.v7`，新增 SSE `ask` 事件。
+`agent_chat.v7`（现为 `v8`），新增 SSE `ask` 事件。
 
 **V2.10 中断生成与续写（2026-11-19）**：流式生成期间发送按钮就地变为停止按钮（方形图标 + 深色底），再次点击即中断
 本轮；前端用 `AbortController` 立即断开 SSE，并调用 `POST /api/agent/conversations/{id}/messages/stop` 交给服务端收口。
@@ -120,7 +137,7 @@ checkpointer 承载；作答仍走 `POST .../messages`，服务端识别到挂�
 轨迹保留），8 秒内未收尾则释放占位，避免会话被永久锁住。中断后可点「继续」，或直接发“继续/接着/continue”：
 `POST .../messages/continue` 不新增用户消息，以 `run_mode=续写` 在原轮次接着写（不重复、不重开场），也可改用「重新生成」
 整段重写；刷新后由历史消息的 `interrupted` 标记恢复「继续」。中断只结束会话消息，不撤销已落库的业务写入。提示词
-`agent_chat.v7` 新增 `{run_mode}` 变量。
+`agent_chat.v7` 新增 `{run_mode}` 变量（现为 `v8`）。
 
 **V2.5 AI 运动报告（2026-11-17）**：新增 `/reports` 单页（周报/月报 tab 切换），侧栏挂在
 「运动训练/计划」第四项，总览页顶部提供周报/月报入口。三层结构：事实层由代码确定性计算
@@ -158,7 +175,7 @@ V1 范围：注册/登录认证 + 模块（身材数据 BD / 状态记录 SR / �
 
 健康/运动档案（2026-11-17，2026-11-19 行式化）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，与账号资料页并列。固定问卷按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组开放式文本框收集目标、每周可练次数、场地器材、习惯偏好与伤病限制。答案存 `health_profile` 行式表：`id` 主键、`user_id` 非唯一外键、每行一条 `aspect` 记录，固定题 key 与文案定义在 `app/modules/profile/questions.py`，固定题必须映射固定 aspect；未填写时整页即问卷，已填写展示答案并支持编辑、清空与清空重写。角色定制问题按 `set_id` 分组存同一张表，`profile_info` 与页面聚合回 `answers`；文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_entries.py`。
 
-账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。当前无管理员角色或管理员接口；管理员恢复需通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
+账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。管理员角色已用于 `/system` 管理区（定时任务、内置角色、内置技能）；停用账号的恢复与清除仍通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。
 
 > 2026-11 改版：**运动训练/计划统一「计划/记录」两态 + 跨运动总览（日/周/月）+ 单日详情跳转**。

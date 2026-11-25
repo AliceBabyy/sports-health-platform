@@ -1,0 +1,106 @@
+/* 系统内置技能：复用技能工作台布局，补只读代码说明与试运行结果 */
+.system-skills-page .grants-note,
+.system-skills-page .work-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.system-skills-page .work-hint {
+  font-size: 12.5px;
+}
+
+.system-skills-page .field-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.system-skills-page .field-wide {
+  grid-column: 1 / -1;
+}
+
+.system-skills-page .rail-scroll {
+  overflow-x: hidden;
+}
+
+.system-skills-page #fDefinition {
+  min-height: 380px;
+}
+
+.system-skills-page #fDefinition.is-readonly {
+  height: 132px;
+  min-height: 132px;
+  resize: none;
+}
+
+.system-skills-page .code-note {
+  margin-bottom: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-section);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.system-skills-page .result-caveats {
+  margin-top: 8px;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.system-skills-page .result-outputs {
+  margin-top: 10px;
+  max-width: 560px;
+}
+
+.system-skills-page .result-outputs table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.system-skills-page .result-outputs th,
+.system-skills-page .result-outputs td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.system-skills-page .result-outputs th {
+  width: 46%;
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+
+.system-skills-page .result-outputs td {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1080px) {
+  .system-skills-page .field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .system-skills-page .field-grid {
+    grid-template-columns: 1fr;
+  }
+  .system-skills-page .field-wide {
+    grid-column: auto;
+  }
+  .system-skills-page #fDefinition {
+    min-height: 260px;
+  }
+}
+
+@media (max-width: 640px) {
+  .system-skills-page .rail-scroll {
+    overflow: visible;
+  }
+}

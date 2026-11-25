@@ -46,8 +46,8 @@
 | AI 助手 agent | `/agent`、`/api/agent` | 3 | 27 | 30 |
 | AI 运动报告 report | `/reports`、`/api/reports` | 1 | 4 | 5 |
 | 每日训练建议 daily_advice | `/api/daily-advice` | 0 | 2 | 2 |
-| 系统管理 system | `/system/scheduler`、`/system/personas`、`/api/system/scheduler`、`/api/system/system-personas` | 2 | 12 | 14 |
-| **合计** | — | **20** | **122** | **142** |
+| 系统管理 system | `/system/scheduler`、`/system/personas`、`/system/skills`、`/api/system/scheduler`、`/api/system/system-personas`、`/api/system/system-skills` | 3 | 21 | 24 |
+| **合计** | — | **21** | **131** | **152** |
 
 ## 2. 全局与认证
 
@@ -231,10 +231,10 @@
 | `PUT /api/agent/conversations/{conversation_id}` | 路径参数 + JSON | 路径 `conversation_id`；体 `title`（1~64） | 会话对象（A.11） | 重命名会话；不存在 404 |
 | `DELETE /api/agent/conversations/{conversation_id}` | 路径参数 | 路径 `conversation_id` | `{ok}` | 硬删除会话与 checkpointer 线程；生成中 409，不存在 404 |
 | `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, generating, turns:[{user, interrupted（可空）, blocks:[{type:"text", content} \| {type:"ask", question, options[], multiple, answer（可空）, skipped（可空）, pending（可空）, call_id}], tool_runs:[{tool, label, kind, call_id（可空）, args, data（可空）}]}]}` | 按一轮问答聚合读取历史：`blocks` 为按出现顺序排列的正文段与中途提问段，`tool_runs` 携带工具标签与类别并按 `call_id` 配对结果；`generating=true` 表示该会话正在本进程生成；当前正等待回答的 ask 段带 `pending=true`，用户跳过的 ask 段带 `skipped=true` 且 `answer` 为空；最近一轮被用户中断时带 `interrupted=true` |
-| `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选）、`skip_ask`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；若该会话正等待 `ask_user` 回答，则 `content` 作为答案用 `Command(resume)` 恢复同一轮，不新增用户消息；`skip_ask=true` 表示跳过该问题，服务端以 `{answer:null, skipped:true}` 恢复，模型按已有信息继续；前置校验失败以 JSON 返回 400/404/409 |
-| `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；该会话正等待回答时返回 409；前置校验失败以 JSON 返回 400/404/409 |
+| `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选）、`skip_ask`（可选，默认 false）、`web_search`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；若该会话正等待 `ask_user` 回答，则 `content` 作为答案用 `Command(resume)` 恢复同一轮，不新增用户消息；`skip_ask=true` 表示跳过该问题，服务端以 `{answer:null, skipped:true}` 恢复，模型按已有信息继续；`web_search=true` 表示本轮开启联网，服务端才把 `web_search` 工具 bind 给模型；前置校验失败以 JSON 返回 400/404/409 |
+| `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选）、`web_search`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；该会话正等待回答时返回 409；前置校验失败以 JSON 返回 400/404/409 |
 | `POST /api/agent/conversations/{conversation_id}/messages/stop` | 路径参数 | 路径 `conversation_id` | `{conversation_id, stopped, settled, closed, title, last_message_at（可空）, partial}` | 中断该会话当前生成：置停止信号、等生成器收尾后回滚断在半途的工具调用，并把已流出正文作为一条中断回答留下；无进行中的生成时 `stopped=false`；8 秒内未收尾则 `settled=false` 并释放占位 |
-| `POST /api/agent/conversations/{conversation_id}/messages/continue` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选） | `text/event-stream`，事件见 12.1 | 续写最近一轮被中断的回答：不新增用户消息，在既有状态上以「续写」模式再跑一次模型；最近一轮已完成或为空返回 400，正等待回答返回 409 |
+| `POST /api/agent/conversations/{conversation_id}/messages/continue` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选）、`web_search`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 续写最近一轮被中断的回答：不新增用户消息，在既有状态上以「续写」模式再跑一次模型；最近一轮已完成或为空返回 400，正等待回答返回 409 |
 | `GET /api/agent/personas` | 无 | 无 | `{list:[角色对象（A.20）]}` | 平台内置角色（2 个）+ 当前用户私有角色 |
 | `GET /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | 角色对象（A.20） | 角色详情；不存在 404，非本人用户角色 403 |
 | `POST /api/agent/personas` | JSON | `name`（1~48）、`key`（1~48）、`description`（≤200）、`definition{schema_version,prompt}` | 角色对象（A.20） | 创建用户私有角色，保存即生成 v1 并生效；定义或键/名冲突 400 |
@@ -260,13 +260,14 @@
 | --- | --- | --- |
 | `start` | `conversation_id`、`thread_id`、`resume` | 开始生成；`resume=true` 表示本次是在回答上一轮的 `ask`，从同一 thread 恢复 |
 | `delta` | `content` | 正文增量 token |
-| `tool_start` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`args`、`call_id`（可空） | 模型或斜杠链路发起工具/技能调用；`ask_user` 不发送该事件 |
-| `tool_result` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`data`、`call_id`（可空） | 工具/技能返回结果（对象或 `{text}`），按 `call_id` 与调用配对；技能结果含 `outputs/caveats/meta`；`ask_user` 不发送该事件 |
+| `tool_start` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`args`、`call_id`（可空） | 模型或斜杠链路发起工具/技能调用；`ask_user` 不发送该事件；联网检索为 `tool=web_search`、`label=联网搜索`、`kind=base` |
+| `tool_result` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`data`、`call_id`（可空） | 工具/技能返回结果（对象或 `{text}`），按 `call_id` 与调用配对；技能结果含 `outputs/caveats/meta`；联网结果为 `{ok, query, result_count, results:[{title, url, content, published_date（可空）}]}`，失败为 `{ok:false, error}`；`ask_user` 不发送该事件 |
 | `ask` | `question`、`options[]`、`multiple` | 本轮中途向用户提问并暂停，等回答后再继续；同期回答走 `POST .../messages` |
 | `done` | `conversation_id`、`title`、`last_message_at`、`persona`（可空，`{id,key,name,version_no}`） | 生成完成或本轮暂停等待回答；首条消息自动取前 12 字作标题 |
 | `error` | `message` | 生成失败（固定文案） |
 
 > 同一会话同时只允许一个生成；重复 `client_msg_id` 返回 409。`X-Accel-Buffering: no`、`Cache-Control: no-cache`。消息内容以 `/技能名 自由文本` 开头时走技能解析；缺参数先返回一条追问 delta 并写入历史，下一条普通文本自动合并原命令继续解析。中断后前端会立刻断开 SSE 并调用 `stop` 收口；`continue` 走同一套 SSE 事件，失败收口语义见 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) 第 4.2 节。
+> 联网默认关闭：只有请求体 `web_search=true` 的那一轮才向模型 bind `web_search` 工具；服务端未配置 `TAVILY_API_KEY` 时工具根本不会装配，页面按钮置灰。
 
 ## 13. AI 运动报告 report
 
@@ -291,12 +292,13 @@
 
 ## 15. 系统管理 system
 
-> 系统管理区为页面前缀 `/system` 与 API 前缀 `/api/system` 的聚合命名空间，由 `app/modules/system` 统一挂载；当前含 `scheduler/`（定时任务）与 `personas/`（内置角色管理）。
+> 系统管理区为页面前缀 `/system` 与 API 前缀 `/api/system` 的聚合命名空间，由 `app/modules/system` 统一挂载；当前含 `scheduler/`（定时任务）、`personas/`（内置角色管理）与 `skills/`（内置技能管理）。
 
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
 | `GET /system/scheduler` | 无 | 无 | HTML 页面 | 任务卡列表、新建/编辑弹窗与执行历史 |
 | `GET /system/personas` | 无 | 无 | HTML 页面 | 内置角色列表、编辑区、工具/技能勾选 |
+| `GET /system/skills` | 无 | 无 | HTML 页面 | 内置技能列表、声明式定义编辑、基础信息与试运行/运行记录 |
 | `GET /api/system/scheduler/jobs` | 无 | 无 | `{list[], total}`，元素为 `scheduled_job`（A.17） | 任务列表：表达式、下次执行、上次结果与累计次数 |
 | `POST /api/system/scheduler/jobs` | JSON | `job_key`（必填，须存在于代码注册表）、`trigger_type`（`cron`/`date`/`interval`）、`trigger_expr`（必填）、`timezone`（可空，默认 Asia/Shanghai）、`params`（对象，默认 `{}`）、`enabled`（默认 true）、`misfire_grace_seconds`（可空，0~86400） | `scheduled_job`（201） | 新建任务；表达式与参数在此校验，保存即注册内存作业 |
 | `PATCH /api/system/scheduler/jobs/{job_id}` | JSON | 上述字段均可选且可空（`job_key` 不可改） | `scheduled_job` | 改表达式 / 启停 / 改名；停用即移除内存作业 |
@@ -309,10 +311,21 @@
 | `GET /api/system/system-personas/{persona_id}` | 路径参数 | 无 | `system_persona`（A.21） | 内置角色详情 |
 | `PUT /api/system/system-personas/{persona_id}` | JSON | 同创建字段；`key` 可传但必须与原键一致 | `system_persona` | 保存名称/定位/状态/排序/提示词/白名单；提示词变化才新增版本；键不可改 |
 | `DELETE /api/system/system-personas/{persona_id}` | 路径参数 | 无 | `{ok:true}` | 删除内置角色及其版本；被角色会话引用时 409 |
+| `GET /api/system/system-skills` | 无 | 无 | `{list[]}`，元素为 `system_skill`（A.22） | 平台技能列表：类型、版本、状态、定义与累计运行次数 |
+| `POST /api/system/system-skills/validate` | JSON | `kind`（仅 `declarative`）、`definition` | `{ok, errors[], warnings[]}` | 校验声明式定义，不落库；白名单与表达式规则同技能引擎 |
+| `POST /api/system/system-skills` | JSON | `key`、`name`、`slash_alias`（可空）、`description`、`category`、`kind`（仅 `declarative`）、`definition`、`status` | `system_skill`（201） | 新建声明式技能并立即发布 v1；键/名/别名全局唯一 |
+| `GET /api/system/system-skills/{skill_id}` | 路径参数 | 无 | `system_skill`（A.22） | 内置技能详情 |
+| `PUT /api/system/system-skills/{skill_id}` | 路径参数 + JSON | 同创建字段；`key` 必须与原键一致 | `system_skill` | 保存声明式技能；定义变化才新增版本；代码技能 400 |
+| `POST /api/system/system-skills/{skill_id}/status` | 路径参数 + JSON | `status`（`active`/`disabled`） | `system_skill` | 启用/停用；代码技能也可启停 |
+| `DELETE /api/system/system-skills/{skill_id}` | 路径参数 | 无 | `{ok:true}` | 删除声明式技能及版本/运行记录；代码技能 400，被角色白名单引用 409 |
+| `POST /api/system/system-skills/{skill_id}/test` | 路径参数 + JSON | `args`（对象，默认 `{}`） | 技能结果契约（A.15） | 以管理员身份试运行并写运行审计；参数缺失返回 `invalid_args` |
+| `GET /api/system/system-skills/{skill_id}/runs` | 路径参数 + Query | `limit`（默认 20，最大 100） | `{list:[技能运行记录（A.15）]}` | 平台技能最近运行审计（跨用户，不返回用户身份） |
 
 > 表达式口径：cron 为标准五段式（分 时 日 月 星期），**星期字段只接受 mon~sun 英文缩写**，数字写法返回 400；interval 形如 `10m`/`2h`/`1d`（最小 60 秒）；date 形如 `2026-11-20 15:40` 且必须晚于当前时间。任务参数结构由代码注册表约束，多余字段返回 422。任务为实例级配置，不按用户隔离。本模块全部页面与接口仅 `管理员` 可访问（401/403 口径见 1.2）。「立即执行」为同步执行，耗时较长时请求会等待。
 >
 > 内置角色口径：`scope=system`，普通用户只读，管理员可增删改查。`tool_grants` / `skill_grants` 为 `null` 时沿用平台默认范围；非空数组（含空数组）为显式白名单，空数组表示不使用任何工具/技能。`key` 创建后不可修改；删除被 `agent_conversations.persona_id` 引用的角色返回 409。
+>
+> 内置技能口径：平台技能固定 `scope=system`，普通用户在 `/agent/skills` 只读，管理员在 `/system/skills` 维护。代码技能定义由 `app/modules/agent/skills/platform.py` 注册，接口只允许启停，编辑/删除返回 400；声明式技能可新建、编辑并被版本化，定义仍走既有 DSL 白名单。保存/启停/删除后服务端重建常驻系统图并清空按用户图缓存，立即生效。删除被内置角色 `skill_grants` 显式引用的技能返回 409；`key` 创建后不可修改。
 
 ## 16. 响应对象字典
 
@@ -452,7 +465,7 @@
 | `kind` | `code` 平台代码技能 / `declarative` 平台声明式技能 / `prompt` 用户提示词技能 |
 | `status` | `draft` / `active` / `disabled` / `archived` |
 | `current_version_no` / `version_no` | 当前发布版本 / 本次返回版本 |
-| `published` / `can_edit` / `can_delete` | 是否已发布 / 当前用户是否可编辑 / 当前用户是否可删除；平台技能均为否，用户提示词技能可编辑，用户历史声明式技能只可删除 |
+| `published` / `can_edit` / `can_delete` | 是否已发布 / 当前调用方是否可编辑 / 是否可删除；普通用户接口的平台技能均为否；平台声明式技能在管理员接口可编辑、删除；用户提示词技能可编辑，用户历史声明式技能只可删除 |
 | `definition` | 平台声明式 DSL 或用户提示词定义 `{schema_version,prompt}`；平台代码技能为 `{kind:"code", code_key}` 或空 |
 | `updated_at` | 更新时间 |
 
@@ -549,6 +562,19 @@
 | `tool_count` / `skill_count` | 实际生效数量 |
 | `conversation_count` | 已绑定该角色的会话数；大于 0 时不可删除 |
 | `can_edit` / `can_delete` | 管理员接口固定 `can_edit=true`；`can_delete=conversation_count==0` |
+| `updated_at` | 更新时间 |
+
+### A.22 内置技能管理对象 SystemSkill
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` / `scope` / `key` / `tool_name` | 主键、固定 `system`、稳定技能键、模型工具名 `skill_<key>` |
+| `name` / `slash_alias` / `description` / `category` | 显示名、斜杠别名（可空）、能力描述、分类（`body`/`swim`/`fitness`/`dance`/`custom`） |
+| `kind` / `status` | `code` 平台代码技能 / `declarative` 平台声明式技能；`active` / `disabled` |
+| `current_version_no` / `version_no` / `published` | 当前生效版本、本次返回版本、是否已发布 |
+| `definition` | 声明式原始 DSL；代码技能固定 `{kind:"code", code_key}` |
+| `run_count` | 跨用户累计运行次数（只读审计，不返回用户身份） |
+| `can_edit` / `can_delete` | 代码技能均为 `false`；声明式技能均为 `true` |
 | `updated_at` | 更新时间 |
 
 ## 17. 维护

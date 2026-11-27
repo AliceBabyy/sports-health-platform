@@ -248,11 +248,19 @@ def test_tool_policy_is_noop_now_and_seam_works(monkeypatch):
     assert policy.persona_graph_fingerprint(type("P", (), {"key": "e_trainer"})) == ""
 
 
+def test_custom_fitness_plan_is_only_visible_to_training_coach():
+    tool_name = "skill_custom_fitness_plan"
+    assert policy.tool_visible(tool_name, "training_coach") is True
+    assert policy.tool_visible(tool_name, "e_trainer") is False
+    assert policy.tool_visible(tool_name, None) is False
+
+
 def test_platform_persona_prompts_fit_definition_limit():
     """内置角色必须通过与用户角色相同的定义校验，避免种子写入无法被运行时解析的版本。"""
     for prompt_id in (
         "persona_nutrition.v1",
-        "persona_e_trainer.v1",
+        "persona_e_trainer.v3",
+        "persona_training_coach.v2",
         "persona_health_profile_test.v3",
     ):
         errors, _ = validate_definition(

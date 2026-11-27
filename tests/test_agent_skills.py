@@ -277,6 +277,20 @@ def test_prompt_definition_accepts_and_validates():
                       type(parse_prompt_definition({"schema_version": 1, "prompt": "ok"})))
 
 
+def test_custom_fitness_plan_prompt_skill_definition():
+    from app.ai.prompts.loader import load_system_prompt
+    from app.modules.agent.skills.prompt_skills import PLATFORM_PROMPT_SKILLS
+
+    meta = PLATFORM_PROMPT_SKILLS["custom_fitness_plan"]
+    prompt = load_system_prompt(meta.prompt_id)
+    defn = parse_prompt_definition({"schema_version": 1, "prompt": prompt})
+    assert defn.prompt == prompt.strip()
+    assert "profile_fitness" in prompt
+    assert "profile_posture" in prompt
+    assert "save_today_workout_plan" in prompt
+    assert "用户未确认、拒绝或要求修改时，绝不调用" in prompt
+
+
 def test_prompt_skill_create_publish_and_execute(db):
     from app.modules.agent.models import AgentSkillRun
 

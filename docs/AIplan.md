@@ -33,6 +33,7 @@ AI 能力分为两种运行方式：
 | V2.15 平台提示词技能 | `/system/skills` 增加 `kind=prompt`：管理员新建/编辑/版本化/试运行/启停/删除平台提示词技能，所有用户可用；代码技能仍只读定义，声明式保留 | 已实现 |
 | V2.16 内置技能元数据可编辑 | `/system/skills` 的代码技能可改名称/描述/分类/斜杠别名/启停，技能键与代码定义只读；种子脚本不再覆盖管理员改过的元数据 | 已实现 |
 | V2.17 问答回溯与单空会话 | 问答卡片带题号、「上一题/修改」就地回改（`ask-update` 原地覆盖同 id 消息并保持挂起）；新建会话不落库，同类会话只保留一个空会话 | 已实现 |
+| V2.18 教练角色与定制计划 | 电子私教改为目标导向；新增健身教练角色，围绕健身档案、形体矫正与训练数据指导；新增 `custom_fitness_plan` 提示词技能，文字方案后确认再保存今日计划，默认仅健身教练可用 | 已实现 |
 
 ## V2.0 基础骨架（已实现）
 
@@ -70,7 +71,7 @@ AI 能力分为两种运行方式：
 
 **目标**：模型识别问题是否需要用户真实数据，需要时调用只读工具查询，再基于返回事实回答。例如“最近一周运动了几次”“最近 10 次游泳表现怎样”。
 
-**架构**：图从 V2.2 的线性单节点升级为工具循环——`START → agent ⇄ tools → END`。`agent` 节点用 `bind_tools` 后的模型，条件边判断最后一条消息是否带 `tool_calls`：有则进 `ToolNode` 执行工具、结果作为 `ToolMessage` 回到 agent 再判断，无则结束。`recursion_limit=10` 限制循环轮数。`MessagesState` 无需扩展，工具消息随 checkpointer 一并持久化、可追溯。
+**架构**：图从 V2.2 的线性单节点升级为工具循环——`START → agent ⇄ tools → END`。`agent` 节点用 `bind_tools` 后的模型，条件边判断最后一条消息是否带 `tool_calls`：有则进 `ToolNode` 执行工具、结果作为 `ToolMessage` 回到 agent 再判断，无则结束。`recursion_limit=30` 限制循环轮数；健身档案 6~10 题加确认和保存需要更多轮次。`MessagesState` 无需扩展，工具消息随 checkpointer 一并持久化、可追溯。
 
 **工具层（`app/modules/agent/tools/`，全部只读，无新表）**
 
@@ -524,6 +525,20 @@ CSS 需同时给 `.sidebar-nav` 加 `flex: 1 1 auto; min-height: 0; overflow-y: 
 6. 测试：`tests/test_agent_ask.py` 用真实 StateGraph + ToolNode 验证「挂起时改历史答案 → 仍挂起同一题 → 继续作答」，并按题号/越界/已收口三种情况覆盖服务函数；`tests/test_agent_personas.py` 覆盖空会话复用与角色会话互不复用。
 
 **未做**：跨轮次回改（答案已落库后回改需重新跑专项）、一次提交多题的表单式提问、历史空会话的自动清理。
+
+## V2.18 教练角色与定制计划（已实现，2026-11-27）
+
+**目标**：让电子私教聚焦“用户档案中的目标”，新增健身档案/形体矫正驱动的健身教练，并把一次个性化计划从阅读数据到保存今日计划串成可确认的流程。
+
+### 实现要点
+
+1. 电子私教 `persona_e_trainer.v3`：先读目标、健身、形体矫正、伤病与训练/状态/周期数据，围绕最优先目标给阶段判断、动作、强度、恢复与进退阶；不把计划当记录，不做诊断。
+2. 健身教练 `persona_training_coach.v2`：以健身档案、形体矫正、伤病和最近训练/身体数据为依据，把体态结论转成动作选择、活动范围、负荷与替代动作约束；需要完整单次计划时走定制健身计划技能。
+3. 新增平台提示词技能 `custom_fitness_plan`（名称「定制健身计划」，斜杠 `/定制健身计划`）：读取 `profile_fitness/profile_posture/profile_goal/profile_medical`、最近健身记录、身体测量、状态与周期，输出“今日重点/热身/主训练/形体矫正/放松/注意”文字方案；最后用 `ask_user` 询问是否保存，只有确认后才调用 `save_today_workout_plan`，未确认不写库。
+4. 权限：`skill_custom_fitness_plan` 默认只对 `training_coach` 可见；健身教练显式开放档案/运动只读工具、`ask_user` 与 `save_today_workout_plan`，技能只授权 `custom_fitness_plan`。电子私教和其他角色默认看不到该技能。
+5. 种子与文档：`seed_agent_personas.py` 写入四个内置角色及授权；`seed_agent_skills.py` 写入提示词技能并按 prompt 内容版本化；新增 `tests/test_agent_skills.py` 的提示词定义校验与 `tests/test_agent_personas.py` 的角色可见性校验。
+
+**未做**：把计划保存后的训练动作自动回填到健身记录、计划模板/周计划、按角色拆分更多专用技能。
 
 ## 拓展功能设想
 

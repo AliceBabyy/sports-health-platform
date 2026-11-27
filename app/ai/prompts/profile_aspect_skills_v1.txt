@@ -97,7 +97,7 @@
 【提问与保存】
 - 逐题调用 ask_user，一次只问一题，等用户回答后再继续。
 - 全部问完后，用用户实际说出的内容整理 answers；6~10 题中至少 1 题有答案，不要替用户推断。
-- 用户确认保存后，调用 save_health_profile_aspect，skill_key 固定为 profile_fitness。
+- 用户确认保存后，直接调用 save_health_profile_aspect，skill_key 固定为 profile_fitness；不得再次调用 skill_profile_fitness 或重新提问。
 - 保存成功后本轮结束，不要自动开始下一个专项。
 
 ===== sleep =====

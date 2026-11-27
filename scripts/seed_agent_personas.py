@@ -1,4 +1,4 @@
-"""平台内置角色种子（幂等）：营养师、电子私教、健康档案测试。
+"""平台内置角色种子（幂等）：营养师、电子私教、健康档案测试、健身教练。
 
 用法：
     python scripts/seed_agent_personas.py
@@ -31,6 +31,19 @@ PROFILE_TEST_READ_TOOLS = [
     "save_health_profile_aspect",
 ]
 
+TRAINING_COACH_TOOLS = [
+    "ask_user",
+    "get_profile_info",
+    "get_body_measurements",
+    "get_workout_summary",
+    "get_fitness_records",
+    "get_swim_records",
+    "get_dance_records",
+    "get_state_records",
+    "get_cycle_records",
+    "save_today_workout_plan",
+]
+
 PLATFORM_PERSONAS = [
     {
         "key": "nutrition",
@@ -43,8 +56,17 @@ PLATFORM_PERSONAS = [
         "key": "e_trainer",
         "name": "电子私教",
         "description": "围绕训练计划、动作质量与恢复给建议",
-        "prompt_id": "persona_e_trainer.v1",
+        "prompt_id": "persona_e_trainer.v3",
         "sort_order": 2,
+    },
+    {
+        "key": "training_coach",
+        "name": "健身教练",
+        "description": "围绕健身档案、形体矫正与训练数据给针对性指导",
+        "prompt_id": "persona_training_coach.v2",
+        "sort_order": 4,
+        "tool_grants": TRAINING_COACH_TOOLS,
+        "skill_grants": ["custom_fitness_plan"],
     },
     {
         "key": "health_profile_test",

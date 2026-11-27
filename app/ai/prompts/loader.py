@@ -13,7 +13,8 @@ PROMPTS = {
     "sport_import_dance.v1": "sport_import_dance_v1.txt",
     "agent_chat.v8": "agent_chat_v8.txt",
     "persona_nutrition.v1": "persona_nutrition_v1.txt",
-    "persona_e_trainer.v1": "persona_e_trainer_v1.txt",
+    "persona_e_trainer.v3": "persona_e_trainer_v3.txt",
+    "persona_training_coach.v2": "persona_training_coach_v2.txt",
     "persona_health_profile_test.v3": "persona_health_profile_test_v3.txt",
     "persona_health_profile_test_guard.v3": "persona_health_profile_test_guard_v3.txt",
     "profile_aspect_goal.v1": ("profile_aspect_skills_v1.txt", "goal"),
@@ -30,6 +31,7 @@ PROMPTS = {
     "weekly_report.v1": "weekly_report_v1.txt",
     "monthly_report.v1": "monthly_report_v1.txt",
     "daily_advice.v4": "daily_advice_v4.txt",
+    "skill_custom_fitness_plan.v1": "skill_custom_fitness_plan_v1.txt",
 }
 
 

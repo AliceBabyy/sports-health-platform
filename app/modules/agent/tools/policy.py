@@ -12,6 +12,9 @@
 健康档案专项：十个 ``skill_profile_*`` 与保存工具 ``save_health_profile_aspect``
 只允许 ``health_profile_test``，这是运行时的硬边界，角色显式白名单也不能绕开；
 其他角色仍可读 ``get_profile_info``，但不能执行专项技能或写入档案。
+
+定制健身计划：``skill_custom_fitness_plan`` 默认只对 ``training_coach`` 可见；
+管理员如后续显式授权其他角色，仍按角色白名单执行。
 """
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ from collections.abc import Iterable
 from app.modules.profile.aspect_skills import PROFILE_SKILL_KEYS
 
 PROFILE_TEST_PERSONA = "health_profile_test"
+TRAINING_COACH_PERSONA = "training_coach"
 PROFILE_TEST_ONLY_TOOLS: frozenset[str] = frozenset({
     "save_health_profile_aspect",
     *(f"skill_{key}" for key in PROFILE_SKILL_KEYS),
@@ -34,6 +38,7 @@ TOOL_PERSONA_SCOPES: dict[str, frozenset[str]] = {
         f"skill_{key}": frozenset({PROFILE_TEST_PERSONA})
         for key in PROFILE_SKILL_KEYS
     },
+    "skill_custom_fitness_plan": frozenset({TRAINING_COACH_PERSONA}),
 }
 
 SKILL_TOOL_PREFIX = "skill_"

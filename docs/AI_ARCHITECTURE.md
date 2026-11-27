@@ -67,7 +67,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 当前数据问答图为 `START → agent ⇄ tools → END`；模型通过 `bind_tools` 选择是否进入 `ToolNode`，工具结果以 `ToolMessage` 返回 Agent。健康档案测试的保存工具 `save_health_profile_aspect` 成功后由条件边直接进入 `finalize_profile_save` 固定收口，不再回到 `agent`，避免同一会话自动开始下一个专项。
 - 图按用户技能集与角色授权装配：启动时用系统技能构建常驻 `system_graph`；存在用户私有技能、角色显式工具/技能白名单或角色专用工具时，按 `(user_id, 技能版本指纹, 角色指纹)` 编译独立图并缓存（上限 32）。管理员在 `/system/skills` 保存、启停或删除平台技能后，`refresh_system_graph` 重建常驻系统图并清空按用户图缓存。角色提示词本身只影响 system prompt；`tool_grants` / `skill_grants` 非空时参与图装配，为空（NULL）时沿用 `TOOL_PERSONA_SCOPES` 等代码基线。
 - `agent_chat.v8` 提示词的变量为 `today/weekday/now_time/capabilities/persona_block/run_mode`；日期、星期与当前时刻由 `graph.py` 在每次模型调用时用本机时间注入（`%H:%M`，24 小时制），随会话实时变化；`capabilities` 由交互工具（`ask_user` 单独成组）、基础只读工具、受控写工具（单独分组）与当前用户可用技能共同生成，不再在提示词里硬编码工具数量；本轮开启联网时，`graph.py` 还会在 `capabilities` 末尾追加「联网搜索（本轮已开启）」段并把 `web_search` bind 给模型；`persona_block` 由会话绑定的角色版本渲染，普通会话为固定默认句；`run_mode` 取「常规」或「续写」，只由续写接口置为「续写」。
-- `recursion_limit=10` 限制循环轮数，`MessagesState` 不扩展。
+- `recursion_limit=30` 限制工具循环轮数；健身档案 6~10 题加确认、保存需要超过 10 轮，统一留出余量。`MessagesState` 不扩展。
 - 会话元数据存放在 `agent_conversations`（含角色会话的 `persona_id` 与创建时版本号）；消息由独立 `langgraph` schema 的 4 张 checkpointer 表按 `thread_id` 持久化；角色定义存放在 `agent_personas` / `agent_persona_versions`。
 - 前端使用 `fetch` + `ReadableStream` 手动解析 SSE，不使用 EventSource。
 
@@ -93,13 +93,13 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 ### 4.3 多角色 Persona
 
 - 角色本身只提供一段提示词，影响语气、关注重点与表达风格；不改变数据事实、安全与免责规则，用户角色定义也不承载代码、SQL、数据源或工具授权。工具与技能可见性由服务端控制：`TOOL_PERSONA_SCOPES` 提供默认角色范围，角色表 `tool_grants` / `skill_grants` 提供管理员显式白名单。
-- 平台内置角色为 `nutrition`（营养师）、`e_trainer`（电子私教）与 `health_profile_test`（健康档案测试），`scope=system`，普通用户只读；平台管理员可在 `/system/personas` 增删改查、排序、启停、编辑提示词并勾选工具/技能。内置角色由 `scripts/seed_agent_personas.py` 从 `persona_nutrition.v1` / `persona_e_trainer.v1` / `persona_health_profile_test.v3` 幂等写入；种子阶段先走与用户角色相同的 `validate_definition`，提示词超过 `agent_persona_max_chars`（当前 3000 字）直接失败，避免写入运行时无法解析的版本。`health_profile_test` 另追加 `persona_health_profile_test_guard.v3` 运行约束，独立于角色版本生效；用户角色 `scope=user`，只有名称、键、定位和提示词，仅创建者可见。`health_profile_test` 是正式内置角色名（“测试”是产品命名），两个 v3 提示词均被运行时依赖，不是测试夹具或可清理的废弃提示词。
+- 平台内置角色为 `nutrition`（营养师）、`e_trainer`（电子私教）、`health_profile_test`（健康档案测试）与 `training_coach`（健身教练），`scope=system`，普通用户只读；平台管理员可在 `/system/personas` 增删改查、排序、启停、编辑提示词并勾选工具/技能。内置角色由 `scripts/seed_agent_personas.py` 从 `persona_nutrition_v1` / `persona_e_trainer_v3` / `persona_training_coach_v2` / `persona_health_profile_test_v3` 幂等写入；种子阶段先走与用户角色相同的 `validate_definition`，提示词超过 `agent_persona_max_chars`（当前 3000 字）直接失败，避免写入运行时无法解析的版本。`training_coach` 显式只开放档案与运动数据只读工具、`ask_user` 和 `save_today_workout_plan`，技能只授权 `custom_fitness_plan`。`health_profile_test` 另追加 `persona_health_profile_test_guard.v3` 运行约束，独立于角色版本生效；用户角色 `scope=user`，只有名称、键、定位和提示词，仅创建者可见。`health_profile_test` 是正式内置角色名（“测试”是产品命名），其 v3 角色提示词与 v3 guard 均被运行时依赖，不是测试夹具或可清理的废弃提示词。
 - 角色级白名单口径：`tool_grants` / `skill_grants` 为 `NULL` 时沿用默认范围（未登记工具全开、专用工具只在注册角色可用、平台技能全开）；非空数组（含空数组）表示显式白名单，空数组即不使用任何工具/技能。管理员可以给普通工具配置显式白名单，也可以在 `/system/personas` 选择「恢复默认范围」写回 `NULL`；但健康档案 10 个专项技能与 `save_health_profile_aspect` 是硬边界，只允许 `health_profile_test`，其他角色即使写入白名单也会在运行时被过滤，管理端提交时直接报错。用户角色目前不开放白名单编辑，沿用默认范围。
 - 角色会话在 `POST /api/agent/conversations` 传入 `persona_id` 创建，同时写入 `persona_version_no`；创建后整段会话固定该角色，**不提供切换接口**。普通会话两列为空，行为与未上线前完全一致。
 - 角色版本只增不改：用户角色保存即生成新版本并立即生效（无草稿/发布两步）；平台角色文案变化由种子脚本新增版本。历史角色会话按创建时版本读取，不随角色改版漂移。
 - 角色停用只禁止新建角色会话，已绑定会话仍按快照继续；删除角色前必须删除引用它的会话，否则 409。
-- 提示词分层：`agent_chat.v8` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。`health_profile_test` 的 `persona_block` 在角色提示词后追加 `persona_health_profile_test_guard.v3`，明确健康档案拆成 10 个专项、一次只做一个专项、每个专项由 AI 在提示词约束下生成 3~10 题（健身档案 6~10 题）、逐题提问、保存后立即结束；禁止把目标、饮食、运动、健身、睡眠、生活方式、生理期、形体、伤病、补充混成一套“大杂烩”问卷；旧版本角色会话也受该约束。
-- 工具可见性：`app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 是代码基线，当前登记 10 个 `skill_profile_*` 与 `save_health_profile_aspect → {health_profile_test}`；10 个专项技能与保存工具同时列入 `PROFILE_TEST_ONLY_TOOLS` 硬边界，任何角色显式白名单都不能绕开。未登记的工具默认对所有角色与普通会话可用。运行时 `tools_for_persona` 先检查硬边界，再看角色的显式 `tool_grants`，非空时完全按白名单；为 `NULL` 时再回落到 `TOOL_PERSONA_SCOPES`。技能侧同理：`available_skills` 先排除非 `health_profile_test` 的专项技能，再看显式 `skill_grants`，为 `NULL` 时沿用 `TOOL_PERSONA_SCOPES` 中的 `skill_<key>` 基线与平台技能全开；`include_restricted=True` 只给 `/system/personas` 管理页与校验层列出全平台技能，不代表可执行权限。过滤发生在服务端装配阶段，不依赖提示词；过滤后 `capabilities` 只列当前角色可用项。显式白名单或默认专用工具会进入图缓存 key。
+- 提示词分层：`agent_chat.v8` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。`health_profile_test` 的 `persona_block` 在角色提示词后追加 `persona_health_profile_test_guard.v3`，明确健康档案拆成 10 个专项、一次只做一个专项、每个专项由 AI 在提示词约束下生成 3~10 题（健身档案 6~10 题）、逐题提问、保存后立即结束；用户确认保存后必须直接调用 `save_health_profile_aspect`，不得再次调用 `skill_*` 或重新提问；禁止把目标、饮食、运动、健身、睡眠、生活方式、生理期、形体、伤病、补充混成一套“大杂烩”问卷；旧版本角色会话也受该约束。
+- 工具可见性：`app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 是代码基线，当前登记 10 个 `skill_profile_*` 与 `save_health_profile_aspect → {health_profile_test}`，以及 `skill_custom_fitness_plan → {training_coach}`；10 个专项技能与保存工具同时列入 `PROFILE_TEST_ONLY_TOOLS` 硬边界，任何角色显式白名单都不能绕开。未登记的工具默认对所有角色与普通会话可用。运行时 `tools_for_persona` 先检查硬边界，再看角色的显式 `tool_grants`，非空时完全按白名单；为 `NULL` 时再回落到 `TOOL_PERSONA_SCOPES`。技能侧同理：`available_skills` 先排除非 `health_profile_test` 的专项技能，再看显式 `skill_grants`，为 `NULL` 时沿用 `TOOL_PERSONA_SCOPES` 中的 `skill_<key>` 基线；未登记技能对普通角色与普通会话可见。`include_restricted=True` 只给 `/system/personas` 管理页与校验层列出全平台技能，不代表可执行权限。过滤发生在服务端装配阶段，不依赖提示词；过滤后 `capabilities` 只列当前角色可用项。显式白名单或默认专用工具会进入图缓存 key。
 - 页面为 `/agent/personas`（侧栏「AI助手」→「角色管理」）：左侧平台角色/我的角色，右侧提示词编辑；平台角色普通用户只读，用户角色可保存、启停、删除。管理员页面为 `/system/personas`（侧栏「系统设置」→「内置角色」），可新建/编辑/删除内置角色、调整排序与状态，并按工具/技能的稳定清单勾选白名单。对话页「新建角色会话」点击后弹出角色选择弹窗，从 `INIT_PERSONAS` 选择启用且已发布的角色；侧栏角色会话带「人形图标 + 角色名」徽标。
 - 相关 API：普通用户角色列表/详情/创建/保存/启停/删除 6 个接口；管理员内置角色列表/选项/创建/详情/保存/删除 6 个接口，统一在 `/api/system/system-personas` 下并受 `/api/system` 管理员门禁保护。平台角色普通用户编辑 403、非本人用户角色 403、被会话引用删除 409。
 - `tests/test_agent_personas.py` 覆盖定义字段/长度、创建与版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束，以及内置角色提示词必须通过运行时同口径定义校验；`tests/test_system_personas.py` 覆盖内置角色 CRUD、版本化、键不可改、工具/技能白名单校验与运行时过滤；`tests/test_profile_aspect.py` 覆盖 10 个专项提示词加载、专项归属校验、3~10 题与 q1~q10、同专项最多 3 套、cycle 仅女性、页面逐题保存/清空、`profile_info` 新结构、保存工具边界、受限技能按角色过滤、保存成功后的 `finalize_profile_save` 收口与 v3 guard；`tests/test_ai_foundation.py` 校验提示词注册表与 `app/ai/prompts` 目录文件一一对应，防止遗留测试提示词或废弃提示词。
@@ -108,7 +108,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 ### 5.1 平台技能与用户技能
 
-- `scope=system`：平台技能，对普通用户只读、可版本化，支持代码实现（`kind=code`）、平台内部声明式 DSL（`kind=declarative`）与平台提示词（`kind=prompt`）；当前内置 `lose_weight_analyse`（减重分析）、`recent_swim_review`（游泳复盘），以及 10 个健康档案专项技能 `profile_goal` / `profile_diet` / `profile_exercise` / `profile_fitness` / `profile_sleep` / `profile_lifestyle` / `profile_cycle` / `profile_posture` / `profile_medical` / `profile_extra`，由 `scripts/seed_agent_skills.py` 幂等写入。10 个专项技能带固定斜杠别名（`/目标档案`、`/饮食档案`、`/运动档案`、`/健身档案`、`/睡眠档案`、`/生活方式`、`/生理期档案`、`/形体矫正`、`/伤病档案`、`/档案补充`），展示名统一加 `测试-` 前缀（如 `测试-目标档案`），斜杠命令保持原样；输入参数只有 `mode ∈ {补齐, 更新}`，执行时返回该专项提示词和已有答案上下文；仅 `health_profile_test` 角色可见可调用。普通用户在 `/agent/skills` 只读；管理员可在 `/system/skills` 维护：代码技能定义由代码注册、只读，名称/描述/分类/斜杠别名/启停可调整；提示词技能与声明式技能可新建、编辑、版本化与删除。平台声明式 DSL 仍只作为平台内部能力维护，不对用户开放创建或编辑；平台提示词技能对所有用户生效，只由管理员维护。
+- `scope=system`：平台技能，对普通用户只读、可版本化，支持代码实现（`kind=code`）、平台内部声明式 DSL（`kind=declarative`）与平台提示词（`kind=prompt`）；当前内置 `lose_weight_analyse`（减重分析）、`recent_swim_review`（游泳复盘）、`custom_fitness_plan`（定制健身计划，提示词技能）、以及 10 个健康档案专项技能 `profile_goal` / `profile_diet` / `profile_exercise` / `profile_fitness` / `profile_sleep` / `profile_lifestyle` / `profile_cycle` / `profile_posture` / `profile_medical` / `profile_extra`，由 `scripts/seed_agent_skills.py` 幂等写入。`custom_fitness_plan` 读取健身档案、形体矫正、伤病与训练数据，先输出文字计划，用户确认后才调用保存今日计划工具；默认只对 `training_coach` 可见，其他角色需管理员显式授权。10 个专项技能带固定斜杠别名（`/目标档案`、`/饮食档案`、`/运动档案`、`/健身档案`、`/睡眠档案`、`/生活方式`、`/生理期档案`、`/形体矫正`、`/伤病档案`、`/档案补充`），展示名统一加 `测试-` 前缀（如 `测试-目标档案`），斜杠命令保持原样；输入参数只有 `mode ∈ {补齐, 更新}`，执行时返回该专项提示词和已有答案上下文；仅 `health_profile_test` 角色可见可调用。普通用户在 `/agent/skills` 只读；管理员可在 `/system/skills` 维护：代码技能定义由代码注册、只读，名称/描述/分类/斜杠别名/启停可调整；提示词技能与声明式技能可新建、编辑、版本化与删除。平台声明式 DSL 仍只作为平台内部能力维护，不对用户开放创建或编辑；平台提示词技能由管理员维护，未配置角色范围的技能对所有用户生效，`custom_fitness_plan` 按角色基线默认只对 `training_coach` 生效。
 - 管理员保存/启停/删除平台技能后，`runtime.refresh_system_graph()` 重建常驻系统图并清空按用户图缓存，默认用户与角色会话的下一次提问即使用最新技能集，无需重启；图重建失败只记日志，重启后仍按数据库最新状态加载。被内置角色显式 `skill_grants` 引用的技能删除返回 409，避免角色白名单静默失效。
 - `scope=user`：用户私有技能，只支持提示词（`kind=prompt`），仅本人可见、可编辑；不能写代码、SQL、表名或任意列名。声明式 DSL 不对用户开放。
 - 用户技能绑定 `owner_user_id`，斜杠别名和技能键均按用户唯一；系统技能按 `skill_key` 全局唯一。数据库用 `scope-kind` 联合约束保证平台只存 `code/declarative/prompt`、用户只存 `prompt`；API 与管理页不再提供用户类型切换。
@@ -181,7 +181,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - 动作明细经 Pydantic 严格校验（`extra=forbid`），约束对齐训练模块 `PlanItemIn`：动作名必填（1–128）、部位可空（≤32）、重量 0–1000 且禁 NaN/inf、组数 1–99、次数为字符串可空（≤32）；
 - 落库复用 `training.service.create_plan`，不新造写入通道；今日已有完全相同的 planned 计划时返回 `already_exists`，不重复落库。
 
-“先询问再写入”是 human-in-the-loop：提示词要求给出动作方案后先询问、用户明确肯定后才调用；工具核心逻辑 `save_today_plan(db, user_id, payload)` 可注入 db 单测。SSE 事件中该工具 `kind=action`，前端显示“正在保存/已保存”。
+“先询问再写入”是 human-in-the-loop：提示词要求给出动作方案后先询问、用户明确肯定后才调用；工具核心逻辑 `save_today_plan(db, user_id, payload)` 可注入 db 单测。SSE 事件中该工具 `kind=action`，前端显示“正在保存/已保存”。`custom_fitness_plan` 技能把这一流程固定为：先读档案与训练数据 → 输出文字计划 → `ask_user` 询问是否保存 → 用户确认后调用保存工具；未确认不写库。该技能默认只装配给 `training_coach`。
 
 ## 六补二、健康档案专项技能与写工具（save_health_profile_aspect）
 
@@ -369,7 +369,8 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | 内置技能管理页 | `app/templates/system/skills.html`、`app/static/js/system_skills.js`、`app/static/css/pages/system_skills.css` |
 | 内置技能测试 | `tests/test_system_skills.py` |
 | 角色种子与迁移 | `scripts/seed_agent_personas.py`、`scripts/migrate_agent_personas.py`、`scripts/migrate_agent_persona_grants.py`、`scripts/migrate_health_profile_aspects.py`、`scripts/migrate_health_profile_sport.py`、`scripts/migrate_profile_fitness_merge.py` |
-| 角色模板 | `app/ai/prompts/persona_nutrition_v1.txt`、`persona_e_trainer_v1.txt`、`persona_health_profile_test_v3.txt`、`persona_health_profile_test_guard_v3.txt` |
+| 角色模板 | `app/ai/prompts/persona_nutrition_v1.txt`、`persona_e_trainer_v3.txt`、`persona_training_coach_v2.txt`、`persona_health_profile_test_v3.txt`、`persona_health_profile_test_guard_v3.txt` |
+| 平台提示词技能 | `app/ai/prompts/skill_custom_fitness_plan_v1.txt`（`custom_fitness_plan`，默认仅 `training_coach`） |
 | 报告事实快照 / 叙事 / 服务 / 模型 | `app/modules/report/facts.py`、`ai.py`、`service.py`、`models.py` |
 | 报告提示词 | `app/ai/prompts/weekly_report_v1.txt`、`monthly_report_v1.txt` |
 | 报告页面 | `app/templates/report/`、`app/static/js/report.js`、`app/static/css/pages/report.css` |

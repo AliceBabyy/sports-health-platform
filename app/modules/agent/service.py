@@ -931,7 +931,7 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
             # 联网开关只作用于本轮生成，默认关闭；由前端每次请求显式传入
             "web_search": bool(getattr(payload, "web_search", False)),
         },
-        "recursion_limit": 10,
+        "recursion_limit": 30,
     }
     content = human_content or getattr(payload, "content", "") or ""
     run = _runs.get(thread_id)

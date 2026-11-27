@@ -9,7 +9,7 @@ checkpointer，支持多会话、多轮对话、SSE 流式与 PostgreSQL 持久�
 V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用 8 个**只读工具**查询现有
 业务表后基于事实回答，不新建表、不写数据。**V2.4 技能系统**已实现平台代码/声明式/提示词技能、用户私有
 提示词技能、斜杠自然语言触发、参数解析与追问续接、技能管理页和运行审计；**V2.4 多角色**已实现
-3 个平台内置角色（营养师、电子私教、健康档案测试）与用户自定义提示词角色，按「一整个会话归属一种角色」创建，
+4 个平台内置角色（营养师、电子私教、健身教练、健康档案测试）与用户自定义提示词角色，按「一整个会话归属一种角色」创建，
 会话内不可切换；管理员可在「系统设置 → 内置角色」中增删改查内置角色并勾选工具/技能。后续建设 LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6）。
 
 AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
@@ -86,7 +86,7 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 提示词技能折叠区只显示指令已加载。
 
 **V2.4 多角色（2026-11-18）**：对话页「新建会话」旁新增「新建角色会话」，点击弹出角色选择弹窗（显示名称、来源与定位），从启用且已发布的角色中
-选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`、健康档案测试 `health_profile_test`，以及用户自定义角色）。角色会话创建时把
+选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`、健身教练 `training_coach`、健康档案测试 `health_profile_test`，以及用户自定义角色）。角色会话创建时把
 `persona_id + persona_version_no` 一并落库，整段会话固定该角色、不提供切换；侧栏显示角色名徽标，
 历史消息与 SSE `done` 均携带角色快照。角色定义只提供提示词（`agent_chat.v8` 末尾「角色设定」+
 「规则优先级（最高）」）；工具/技能默认范围由服务端 `TOOL_PERSONA_SCOPES` 提供，管理员可在
@@ -148,6 +148,8 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 `stream_reply` 一进入本轮就写下 `last_message_at`，发送失败或中途停止的会话不会退回空会话被复用；历史数据里
 「有 checkpointer 线程却没有活动时间」的会话按 `updated_at` 一次性订正。测试 `tests/test_agent_ask.py`、
 `tests/test_agent_personas.py`。
+
+**V2.18 教练角色与定制计划（2026-11-27）**：电子私教提示词改为目标导向，先读用户目标档案、健身档案、形体矫正、伤病与训练/状态/周期数据，围绕最优先目标给阶段判断、动作、强度、恢复与进退阶。新增平台内置「健身教练」角色，聚焦健身档案与形体矫正，把体态结论转成动作选择、活动范围、负荷与替代动作约束。新增平台提示词技能 `custom_fitness_plan`（「定制健身计划」，斜杠 `/定制健身计划`）：读取专项档案与最近训练/身体数据，输出“今日重点/热身/主训练/形体矫正/放松/注意”文字方案，最后用 `ask_user` 询问是否保存，只有用户确认后才调用 `save_today_workout_plan` 写入今日计划。该技能默认只对 `training_coach` 可见；健身教练显式开放档案/运动只读工具、`ask_user` 与保存工具，技能只授权 `custom_fitness_plan`。种子 `python scripts/seed_agent_personas.py`、`python scripts/seed_agent_skills.py`；测试 `tests/test_agent_personas.py`、`tests/test_agent_skills.py`。
 
 **V2.16 内置技能元数据可编辑（2026-11-27）**：`/system/skills` 的代码技能不再只能启停，管理员可修改名称、
 斜杠别名、描述、分类与状态，技能键和代码定义仍只读；保存走同一 `PUT /api/system/system-skills/{id}`，不新增

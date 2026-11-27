@@ -153,7 +153,7 @@ class AgentPersonaVersion(Base):
 
 SKILL_SCOPES = ("system", "user")
 SKILL_KINDS = ("code", "declarative", "prompt")
-SYSTEM_SKILL_KINDS = ("code", "declarative")
+SYSTEM_SKILL_KINDS = ("code", "declarative", "prompt")
 USER_SKILL_KINDS = ("prompt",)
 SKILL_STATUSES = ("draft", "active", "disabled", "archived")
 
@@ -164,7 +164,7 @@ class AgentSkill(Base):
     __table_args__ = (
         CheckConstraint("scope IN ('system', 'user')", name="ck_agent_skills_scope"),
         CheckConstraint(
-            "((scope = 'system' AND kind IN ('code', 'declarative')) "
+            "((scope = 'system' AND kind IN ('code', 'declarative', 'prompt')) "
             "OR (scope = 'user' AND kind = 'prompt'))",
             name="ck_agent_skills_scope_kind",
         ),
@@ -177,7 +177,7 @@ class AgentSkill(Base):
               postgresql_where=text("scope = 'user' AND slash_alias IS NOT NULL"),
               sqlite_where=text("scope = 'user' AND slash_alias IS NOT NULL")),
         Index("ix_agent_skills_owner", "owner_user_id"),
-        {"comment": "AI 技能（平台只读 code/declarative + 用户私有提示词技能）"},
+        {"comment": "AI 技能（平台 code/declarative/prompt + 用户私有提示词技能）"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
@@ -189,9 +189,9 @@ class AgentSkill(Base):
     skill_key: Mapped[str] = mapped_column(String(48), nullable=False, comment="稳定键，工具名为 skill_<key>")
     name: Mapped[str] = mapped_column(String(48), nullable=False, comment="技能显示名")
     description: Mapped[str] = mapped_column(String(200), nullable=False, default="", comment="能力描述，供模型选择与页面展示")
-    kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="prompt", comment="实现类型：system 为 code/declarative，user 为 prompt")
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="prompt", comment="实现类型：system 为 code/declarative/prompt，user 为 prompt")
     category: Mapped[str] = mapped_column(String(16), nullable=False, default="custom", server_default="custom",
-                                          comment="分类：body / swim / custom")
+                                          comment="分类：body / swim / fitness / dance / profile / custom")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft",
                                         comment="状态：draft / active / disabled / archived")
     slash_alias: Mapped[str | None] = mapped_column(String(24), nullable=True, comment="斜杠别名（可空，如 体脂腰围）")

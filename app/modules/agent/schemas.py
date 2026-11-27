@@ -26,6 +26,12 @@ class MessageIn(BaseModel):
     web_search: bool = False
 
 
+class AskUpdateIn(BaseModel):
+    """回改本轮某一道已回答的中途提问：只替换该题的工具结果，不新增用户消息。"""
+    ask_index: int = Field(ge=1, le=20)
+    answer: str = Field(min_length=1, max_length=settings.agent_max_input_chars)
+
+
 class RegenerateIn(BaseModel):
     client_msg_id: str = Field(min_length=1, max_length=64)
     model_name: str | None = Field(default=None, max_length=64)

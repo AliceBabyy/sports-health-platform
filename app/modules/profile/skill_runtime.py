@@ -51,7 +51,7 @@ def run_profile_aspect(
         f"- 允许的 aspect：{aspects}\n"
         f"- 模式：{mode}。{mode_text}\n"
         f"- 已有专项问答：\n{_existing_block(latest)}\n"
-        f"- 本轮只处理这个专项，不要混入其他专项；生成 3~6 题，全部题目的 aspect 必须在上面的允许列表内。\n"
+        f"- 本轮只处理这个专项，不要混入其他专项；生成 3~10 题（健身档案 6~10 题），全部题目的 aspect 必须在上面的允许列表内。\n"
         f"- 逐题使用 ask_user 采集答案；用户确认后再调用 save_health_profile_aspect，"
         f"skill_key 固定为 {skill_key}。"
     )

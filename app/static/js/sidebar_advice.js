@@ -1,13 +1,58 @@
-/* 侧栏「今日训练建议」：正文在「今天」卡内、周期标签上方；只处理刷新点击与生成中态 */
+/* 侧栏「今日训练建议」：正文在「今天」卡内、周期标签上方；默认收起 5 行，可展开/收起 */
 (function () {
   const textEl = document.getElementById('adviceCard');
   const btn = document.getElementById('adviceRefresh');
-  if (!textEl || !btn) return;
+  const wrap = document.getElementById('adviceWrap');
+  const toggle = document.getElementById('adviceToggle');
+  if (!textEl || !btn || !wrap || !toggle) return;
 
   let loading = false;
+  let expanded = false;
+  let measureTimer = 0;
+
+  function renderToggleState() {
+    toggle.hidden = false;
+    toggle.textContent = expanded ? '收起' : '展开';
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  }
+
+  function applyExpandedHeight() {
+    if (!expanded) {
+      textEl.style.maxHeight = '';
+      return;
+    }
+    const limit = Math.min(Math.round(window.innerHeight * 0.46), 420);
+    textEl.style.maxHeight = Math.min(textEl.scrollHeight, limit) + 'px';
+  }
+
+  function measure() {
+    measureTimer = 0;
+    if (expanded) {
+      applyExpandedHeight();
+      renderToggleState();
+      return;
+    }
+    textEl.classList.remove('is-expanded');
+    textEl.style.maxHeight = '';
+    wrap.classList.remove('is-clamped');
+    const overflow = textEl.scrollHeight > textEl.clientHeight + 2;
+    toggle.hidden = !overflow;
+    wrap.classList.toggle('is-clamped', overflow);
+    toggle.textContent = '展开';
+    toggle.setAttribute('aria-expanded', 'false');
+  }
+
+  function scheduleMeasure(delay) {
+    if (measureTimer) clearTimeout(measureTimer);
+    measureTimer = setTimeout(measure, delay || 40);
+  }
 
   function setText(text) {
     textEl.textContent = text || '';
+    expanded = false;
+    textEl.classList.remove('is-expanded');
+    textEl.style.maxHeight = '';
+    scheduleMeasure(260);
   }
 
   function render(data) {
@@ -17,6 +62,15 @@
     else setText('今日建议未生成');
     btn.disabled = data.status === 'generating';
   }
+
+  toggle.addEventListener('click', function () {
+    expanded = !expanded;
+    textEl.classList.toggle('is-expanded', expanded);
+    wrap.classList.remove('is-clamped');
+    applyExpandedHeight();
+    renderToggleState();
+    if (!expanded) scheduleMeasure(260);
+  });
 
   btn.addEventListener('click', function () {
     if (loading) return;
@@ -34,4 +88,10 @@
         btn.disabled = false;
       });
   });
+
+  window.addEventListener('resize', function () {
+    if (expanded) applyExpandedHeight();
+    else scheduleMeasure(180);
+  });
+  scheduleMeasure(40);
 })();

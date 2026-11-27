@@ -1,4 +1,4 @@
-"""系统内置技能管理请求模型：只允许平台声明式技能的创建与编辑。"""
+"""系统内置技能管理请求模型：平台提示词/声明式技能可完整编辑，代码技能可编辑元数据。"""
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -10,7 +10,7 @@ class SystemSkillCreateIn(BaseModel):
     slash_alias: str | None = Field(default=None, max_length=24)
     description: str = Field(default="", max_length=200)
     category: str = Field(default="custom", max_length=16)
-    kind: Literal["declarative"] = "declarative"
+    kind: Literal["prompt", "declarative"] = "prompt"
     definition: dict[str, Any]
     status: Literal["active", "disabled"] = "active"
 
@@ -21,8 +21,8 @@ class SystemSkillUpdateIn(BaseModel):
     slash_alias: str | None = Field(default=None, max_length=24)
     description: str = Field(default="", max_length=200)
     category: str = Field(max_length=16)
-    kind: Literal["code", "declarative"] | None = None
-    definition: dict[str, Any]
+    kind: Literal["code", "prompt", "declarative"] | None = None
+    definition: dict[str, Any] | None = None
     status: Literal["active", "disabled"]
 
 
@@ -31,7 +31,7 @@ class SystemSkillStatusIn(BaseModel):
 
 
 class SystemSkillValidateIn(BaseModel):
-    kind: Literal["declarative"] = "declarative"
+    kind: Literal["prompt", "declarative"] = "prompt"
     definition: dict[str, Any]
 
 

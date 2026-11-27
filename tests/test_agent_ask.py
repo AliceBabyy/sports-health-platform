@@ -15,6 +15,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
 
+from app.core.exceptions import AppError
 from app.modules.agent.service import _pending_ask, build_turns
 from app.modules.agent.tools.interaction import _clean_options, ask_user
 
@@ -174,6 +175,183 @@ def test_ask_user_skip_returns_skipped_flag():
         assert state["result"]["skipped"] is True
 
     asyncio.run(run())
+
+
+def test_ask_update_back_to_previous_question():
+    """回到上一题：挂起第 3 题时回改第 1 题，历史答案原地替换、当前问题仍保持挂起，后续作答正常。"""
+    from langchain_core.messages import ToolMessage as _ToolMessage
+    from langgraph.graph.message import MessagesState
+    from langgraph.prebuilt import ToolNode
+
+    async def agent_node(state):
+        asked = [
+            m for m in state["messages"]
+            if isinstance(m, _ToolMessage) and m.name == "ask_user"
+        ]
+        if len(asked) < 3:
+            n = len(asked) + 1
+            return {"messages": [AIMessage(content="", tool_calls=[_ask_call(f"第 {n} 题", [], f"call_q{n}")])]}
+        return {"messages": [AIMessage(content="已收集完三题。")]}
+
+    def route(state):
+        return "tools" if getattr(state["messages"][-1], "tool_calls", None) else END
+
+    graph = StateGraph(MessagesState)
+    graph.add_node("agent", agent_node)
+    graph.add_node("tools", ToolNode([ask_user]))
+    graph.add_edge(START, "agent")
+    graph.add_conditional_edges("agent", route, {"tools": "tools", END: END})
+    graph.add_edge("tools", "agent")
+    compiled = graph.compile(checkpointer=InMemorySaver())
+    cfg = {"configurable": {"thread_id": "ask-back"}}
+
+    async def stream(inp):
+        payloads = []
+        async for chunk in compiled.astream(inp, cfg, stream_mode="updates"):
+            if "__interrupt__" in chunk:
+                payloads.extend(item.value for item in chunk["__interrupt__"])
+        return payloads
+
+    async def run():
+        await stream({"messages": [HumanMessage(content="做健康档案测试")]})
+        await stream(Command(resume="晚饭变晚"))
+        payloads = await stream(Command(resume="经常熬夜"))
+        assert payloads[-1]["question"] == "第 3 题"
+
+        state = await compiled.aget_state(cfg)
+        first = state.values["messages"][2]
+        assert isinstance(first, _ToolMessage) and '"answer": "晚饭变晚"' in first.content
+
+        patch = _ToolMessage(
+            content='{"question": "第 1 题", "answer": "晚饭很早", "skipped": false}',
+            tool_call_id=first.tool_call_id, name="ask_user", id=first.id,
+        )
+        payloads = await stream(Command(update={"messages": [patch]}))
+        # 补丁后当前问题仍在挂起，题号不变
+        assert [p["question"] for p in payloads] == ["第 3 题"]
+
+        state = await compiled.aget_state(cfg)
+        answers = [m.content for m in state.values["messages"] if isinstance(m, _ToolMessage)]
+        assert len(answers) == 2, "回改不应新增消息"
+        assert '"answer": "晚饭很早"' in answers[0]
+        assert [item.value["question"] for item in state.interrupts] == ["第 3 题"]
+
+        state = await compiled.ainvoke(Command(resume="很少熬夜"), cfg)
+        answers = [m.content for m in state["messages"] if isinstance(m, _ToolMessage)]
+        assert len(answers) == 3
+        assert '"answer": "晚饭很早"' in answers[0]
+        assert '"answer": "很少熬夜"' in answers[2]
+        assert state["messages"][-1].content == "已收集完三题。"
+
+    asyncio.run(run())
+
+
+class _FakeAskGraph:
+    """只实现回改用到的两个方法：读状态、按 Command(update) 写回补丁。"""
+
+    def __init__(self, messages, interrupts=()):
+        self.messages = list(messages)
+        self.interrupts = interrupts
+        self.patch = None
+
+    async def aget_state(self, config):
+        return SimpleNamespace(values={"messages": self.messages}, interrupts=self.interrupts)
+
+    async def astream(self, inp, config=None, stream_mode=None):
+        self.patch = inp.update["messages"][0]
+        if False:  # 只需成为一个空异步生成器
+            yield
+
+    def apply(self):
+        patched = self.patch
+        self.messages = [
+            patched if getattr(m, "id", None) == patched.id else m for m in self.messages
+        ]
+
+
+def _ask_thread_messages():
+    return [
+        HumanMessage(content="做健康档案测试", id="h1"),
+        AIMessage(content="", tool_calls=[_ask_call("第 1 题：晚餐时间？", [], "call_q1")], id="a1"),
+        ToolMessage(
+            content='{"question": "第 1 题：晚餐时间？", "answer": "晚饭变晚", "skipped": false}',
+            tool_call_id="call_q1", name="ask_user", id="t1",
+        ),
+        AIMessage(content="", tool_calls=[_ask_call("第 2 题：睡眠如何？", [], "call_q2")], id="a2"),
+    ]
+
+
+def test_update_ask_answer_rewrites_by_index(monkeypatch):
+    """第 N 题按本轮 ask 结果顺序定位，原地替换同一条消息。"""
+    from app.modules.agent import service as svc
+    from app.modules.agent.schemas import AskUpdateIn
+
+    graph = _FakeAskGraph(
+        _ask_thread_messages(),
+        interrupts=(SimpleNamespace(value={"question": "第 2 题：睡眠如何？", "options": []}),),
+    )
+    row = SimpleNamespace(id=7, user_id=1, thread_id="thread-ask", persona_id=None,
+                          persona_version_no=None, model_name=None, title="新会话")
+    monkeypatch.setattr(svc, "get_conversation", lambda db, uid, cid: row)
+    monkeypatch.setattr(svc, "resolve_for_conversation", lambda db, conv, uid: None)
+    monkeypatch.setattr(svc, "graph_for_user", lambda db, uid, runtime, persona: graph)
+
+    result = asyncio.run(svc.update_ask_answer(
+        None, 1, 7, {"system_graph": graph, "graphs": {}},
+        AskUpdateIn(ask_index=1, answer="晚饭很早"),
+    ))
+    assert result["ok"] is True and result["ask_index"] == 1
+    assert result["pending"]["question"] == "第 2 题：睡眠如何？"
+    patch = graph.patch
+    assert patch.id == "t1", "必须按原消息 id 原地替换"
+    assert '"answer": "晚饭很早"' in patch.content
+    assert '"question": "第 1 题：晚餐时间？"' in patch.content
+
+
+def test_update_ask_answer_rejects_when_turn_closed(monkeypatch):
+    """本轮已结束（没有挂起提问）时不再允许回改：答案已进入业务落库，回改不会同步。"""
+    from app.modules.agent import service as svc
+    from app.modules.agent.schemas import AskUpdateIn
+    import pytest
+
+    graph = _FakeAskGraph(_ask_thread_messages(), interrupts=())
+    row = SimpleNamespace(id=7, user_id=1, thread_id="thread-ask", persona_id=None,
+                          persona_version_no=None, model_name=None, title="新会话")
+    monkeypatch.setattr(svc, "get_conversation", lambda db, uid, cid: row)
+    monkeypatch.setattr(svc, "resolve_for_conversation", lambda db, conv, uid: None)
+    monkeypatch.setattr(svc, "graph_for_user", lambda db, uid, runtime, persona: graph)
+
+    with pytest.raises(AppError) as exc:
+        asyncio.run(svc.update_ask_answer(
+            None, 1, 7, {"system_graph": graph, "graphs": {}},
+            AskUpdateIn(ask_index=1, answer="晚饭很早"),
+        ))
+    assert exc.value.status == 409
+    assert graph.patch is None
+
+
+def test_update_ask_answer_rejects_unknown_index(monkeypatch):
+    """题目序号超出本轮实际题数时按 404 拒绝。"""
+    from app.modules.agent import service as svc
+    from app.modules.agent.schemas import AskUpdateIn
+    import pytest
+
+    graph = _FakeAskGraph(
+        _ask_thread_messages(),
+        interrupts=(SimpleNamespace(value={"question": "第 2 题：睡眠如何？", "options": []}),),
+    )
+    row = SimpleNamespace(id=7, user_id=1, thread_id="thread-ask", persona_id=None,
+                          persona_version_no=None, model_name=None, title="新会话")
+    monkeypatch.setattr(svc, "get_conversation", lambda db, uid, cid: row)
+    monkeypatch.setattr(svc, "resolve_for_conversation", lambda db, conv, uid: None)
+    monkeypatch.setattr(svc, "graph_for_user", lambda db, uid, runtime, persona: graph)
+
+    with pytest.raises(AppError) as exc:
+        asyncio.run(svc.update_ask_answer(
+            None, 1, 7, {"system_graph": graph, "graphs": {}},
+            AskUpdateIn(ask_index=2, answer="只答过一题"),
+        ))
+    assert exc.value.status == 404
 
 
 def _ask_call(question, options, call_id="call_ask"):

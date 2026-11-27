@@ -136,6 +136,18 @@ async def regenerate_message(    conversation_id: int,
     )
 
 
+@router.post("/conversations/{conversation_id}/messages/ask-update")
+async def update_ask_answer(
+    conversation_id: int,
+    payload: schemas.AskUpdateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # 回改已答的一道中途提问：原地替换该题答案并重新挂起当前问题，不新增消息、不重跑模型
+    return await service.update_ask_answer(db, user.id, conversation_id, _runtime(request), payload)
+
+
 @router.post("/conversations/{conversation_id}/messages/stop")
 async def stop_message(
     conversation_id: int,

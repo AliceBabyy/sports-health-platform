@@ -59,7 +59,7 @@
 5. **页面**：确认模板筛选项与弹窗选项来自 `state_types`；在 `state_record.js` 只为新类型补 `TYPE_TAG`（可选）与 `BLOCK_PLACEHOLDER`（可选），新增块标题自动取「今日{标签}状况」；需要新配色时在 `tokens.css` + `base.css` 增加 `.tag-<type>`。
 6. **API 文档**：`docs/API_REFERENCE.md` 第 8 节 `type` 枚举、`/daily` 的 records 键、A.7 标签列表同步；**不新增接口、不改路由前缀、不改分页包**。
 7. **AI 与派生消费**：确认 `get_state_records` 枚举、声明式技能类型、每日建议 `state` 块、报告 `facts.state.types` 与报告事实面板均已自动覆盖；若新项要参与每日建议硬约束或报告专属指标，必须显式修改 `hard_limits` / `_state_facts` 并补测试，不能只靠提示词或“自动遍历”。
-8. **提示词**：提示词不得写死记录项数量或枚举；当前 `daily_advice.v3` 只描述“各记录项（type / 星级 / 备注，标签见 labels）”。若确需让模型对新项做特殊判断，按 `AGENTS.md` 二.6 升级提示词版本并删除旧版本文件与映射。
+8. **提示词**：提示词不得写死记录项数量或枚举；当前 `daily_advice.v4` 只描述“各记录项（type / 星级 / 备注，标签见 labels）”，并允许从疼痛备注识别部位做训练避让。若确需让模型对新项做特殊判断，按 `AGENTS.md` 二.6 升级提示词版本并删除旧版本文件与映射。
 9. **测试**：更新 `tests/test_state_record.py` 的类型全集断言、空日聚合键集合、CRUD/唯一/批量删除覆盖；更新 `tests/test_agent_tools.py` 的 `per_type` 断言；必要时补新项 roundtrip 测试。至少运行 `pytest tests/test_state_record.py tests/test_agent_tools.py -q`。
 10. **文档与自检**：更新 `README.md`、`docs/ARCHITECTURE.md`、`docs/FRONTEND_GUIDELINES.md`；全局搜索 `四类|四表|三类|三表` 确认无残留（历史变更记录除外）；确认七个通用接口仍全部可用（列表、`/daily`、`/calendar`、新建、编辑、单条删除、`/batch-delete`）。
 
@@ -85,3 +85,4 @@
 - 2026-11-11：状态记录模块建立（食欲 / 肌肉疼痛 / 炎症），按天记录、跨表合并分页、月历阶段归并。
 - 2026-11-13：新增情绪（`mood`）记录项，并补详情/批量删除。
 - 2026-11-26：新增恢复（`recovery`）记录项；类型注册、前端类型数组与服务端 `state_types` 统一为单一事实源；`daily_advice` 提示词升级 `v3`，状态字段说明改为类型无关，后续新增记录项无需再改提示词。
+- 2026-11-27：`daily_advice` 提示词升级 `v4`，允许从疼痛备注与健康档案识别部位做“哪疼就不练哪”的避让，并生成最近一次健身播报与个性化提示；当前记录项仍由 `state_types` 统一驱动。

@@ -51,7 +51,7 @@ COMMENT ON COLUMN health_profile.user_id IS '用户主键 + FK，删除账号时
 COMMENT ON COLUMN health_profile.set_id IS '一套专项问题的 id；同一用户内唯一标识一套';
 COMMENT ON COLUMN health_profile.skill_key IS '生成这套题的档案专项 skill key，见 app/modules/profile/aspect_skills.py';
 COMMENT ON COLUMN health_profile.aspect IS '档案方面，必须是该 skill 允许的 aspect';
-COMMENT ON COLUMN health_profile.local_key IS '套内题号 q1~q6';
+COMMENT ON COLUMN health_profile.local_key IS '套内题号 q1~q10';
 COMMENT ON COLUMN health_profile.label IS '题目标题';
 COMMENT ON COLUMN health_profile.hint IS '填写提示';
 COMMENT ON COLUMN health_profile.placeholder IS '占位文案';

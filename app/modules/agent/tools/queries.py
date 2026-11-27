@@ -427,7 +427,7 @@ def _profile_set_payload(question_set: dict) -> dict:
 
 
 def profile_info(db: Session, user_id: int) -> dict:
-    """个人基本信息 + 按九个专项组织的健康档案（最近一套 + 历史套）。
+    """个人基本信息 + 按十个专项组织的健康档案（最近一套 + 历史套）。
 
     不含密码等敏感字段；未答项保留空 answer；历史按生成时间正序，便于模型看变化。
     """
@@ -466,7 +466,7 @@ def profile_info(db: Session, user_id: int) -> dict:
         "aspect_questionnaires": questionnaires,
         "note": (
             "身高、体重等身体数据在身材数据中，不在基本资料里；"
-            "aspect_questionnaires 是九个健康档案专项的问答，latest 是最近一套，history 是最近三套；"
+            "aspect_questionnaires 是十个健康档案专项的问答，latest 是最近一套，history 是最近三套；"
             "qa 中未答项 answer 为空，只作背景，不要当作诊断结论；"
             "要补某个专项时，让用户触发对应 slash 专项命令，不要用一套题混合多个专项；"
             "本工具只读，不返回密码等敏感字段。"

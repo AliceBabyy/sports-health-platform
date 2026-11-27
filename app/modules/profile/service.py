@@ -210,6 +210,155 @@ def save_health_profile_items(
     return get_health_profile(db, user.id)
 
 
+def _page_set_questions(raw_questions, skill: dict) -> tuple[list[dict], dict[str, str | None]]:
+    """校验页面手工提交的一套题；允许 1~10 题，答案可以为空。"""
+    try:
+        normalized = questionnaire.normalize_page_questions(
+            raw_questions, frozenset(skill["aspects"])
+        )
+    except ValueError as exc:
+        raise AppError(400, str(exc)) from exc
+
+    answers: dict[str, str | None] = {}
+    for index, raw in enumerate(raw_questions):
+        raw_answer = _item_value(raw, "answer", "")
+        if raw_answer is None:
+            raw_answer = ""
+        if not isinstance(raw_answer, str):
+            raise AppError(400, f"{normalized[index]['local_key']} 的答案须为文本")
+        text = raw_answer.strip()
+        if len(text) > normalized[index]["max_length"]:
+            raise AppError(
+                400,
+                f"「{normalized[index]['label']}」最多 {normalized[index]['max_length']} 字",
+            )
+        answers[normalized[index]["local_key"]] = text or None
+    return normalized, answers
+
+
+def _check_profile_skill_access(db: Session, user_id: int, skill: dict) -> None:
+    if skill["female_only"]:
+        user = db.get(User, user_id)
+        if user is None or user.gender != "女":
+            raise AppError(400, "生理期档案仅适用于女性用户")
+
+
+def save_health_profile_page_set(
+    db: Session,
+    user: User,
+    skill_key: str,
+    questions: list[dict],
+) -> dict:
+    """页面新增档案：没有该专项时建一套，已有最近一套时直接编辑它。
+
+    页面允许 1~10 题，便于用户先建立一个专项再逐题补充；不创建重复套。
+    """
+    skill = PROFILE_SKILL_MAP.get(skill_key)
+    if skill is None:
+        raise AppError(400, "未知的档案专项")
+    _check_profile_skill_access(db, user.id, skill)
+    normalized, answers = _page_set_questions(questions, skill)
+
+    existing = questionnaire.latest_set(
+        questionnaire.sets_from_entries(_entries(db, user.id)), skill_key
+    )
+    if existing is not None:
+        return update_health_profile_page_set(
+            db, user, existing["set_id"], questions, skill_key=skill_key
+        )
+
+    set_id = questionnaire.new_set_id()
+    generated_at = datetime.now()
+    for question in normalized:
+        key = question["local_key"]
+        db.add(HealthProfile(
+            user_id=user.id,
+            set_id=set_id,
+            skill_key=skill_key,
+            aspect=question["aspect"],
+            local_key=key,
+            label=question["label"],
+            hint=question["hint"],
+            placeholder=question["placeholder"],
+            max_length=question["max_length"],
+            answer=answers.get(key),
+            sort_order=question["sort_order"],
+            set_generated_at=generated_at,
+        ))
+    db.commit()
+    return {
+        "ok": True,
+        "status": "created",
+        "skill_key": skill_key,
+        "skill_name": skill_name(skill_key),
+        "set_id": set_id,
+        "question_count": len(normalized),
+    }
+
+
+def update_health_profile_page_set(
+    db: Session,
+    user: User,
+    set_id: str,
+    questions: list[dict],
+    skill_key: str = "",
+) -> dict:
+    """页面编辑已有套：改问题文本、改答案，并在末尾追加 qN+1 新问题。"""
+    set_entries = [
+        entry for entry in _entries(db, user.id)
+        if entry.set_id == set_id
+    ]
+    if not set_entries:
+        raise AppError(400, "没有找到这套档案")
+    actual_skill_key = set_entries[0].skill_key
+    if skill_key and skill_key != actual_skill_key:
+        raise AppError(400, "专项与档案套不匹配")
+    skill = PROFILE_SKILL_MAP.get(actual_skill_key)
+    if skill is None:
+        raise AppError(400, "未知的档案专项")
+    _check_profile_skill_access(db, user.id, skill)
+    normalized, answers = _page_set_questions(questions, skill)
+
+    entry_map = {entry.local_key: entry for entry in set_entries}
+    generated_at = set_entries[0].set_generated_at
+    for question in normalized:
+        key = question["local_key"]
+        entry = entry_map.get(key)
+        if entry is None:
+            db.add(HealthProfile(
+                user_id=user.id,
+                set_id=set_id,
+                skill_key=actual_skill_key,
+                aspect=question["aspect"],
+                local_key=key,
+                label=question["label"],
+                hint=question["hint"],
+                placeholder=question["placeholder"],
+                max_length=question["max_length"],
+                answer=answers.get(key),
+                sort_order=question["sort_order"],
+                set_generated_at=generated_at,
+            ))
+            continue
+        entry.aspect = question["aspect"]
+        entry.label = question["label"]
+        entry.hint = question["hint"]
+        entry.placeholder = question["placeholder"]
+        entry.max_length = question["max_length"]
+        entry.answer = answers.get(key)
+        entry.sort_order = question["sort_order"]
+
+    db.commit()
+    return {
+        "ok": True,
+        "status": "updated",
+        "skill_key": actual_skill_key,
+        "skill_name": skill_name(actual_skill_key),
+        "set_id": set_id,
+        "question_count": len(normalized),
+    }
+
+
 def save_health_profile_aspect(
     db: Session,
     user_id: int,
@@ -219,7 +368,7 @@ def save_health_profile_aspect(
 ) -> dict:
     """健康档案测试专用：保存某个专项 skill 生成的一套问题与答案。
 
-    只做轻量结构约束：3~6 题、aspect 属于该 skill、至少 1 题有答案。
+    只做轻量结构约束：3~10 题（健身档案 6~10 题）、aspect 属于该 skill、至少 1 题有答案。
     同一专项同一套题（题号/标题/提示/aspect 完全相同）更新答案；
     题目变化则新增一套，同一专项只保留最近 3 套。
     """

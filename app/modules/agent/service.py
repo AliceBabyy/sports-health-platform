@@ -15,7 +15,7 @@ import time
 from datetime import date, datetime
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
 from langgraph.types import Command
 from sqlalchemy.orm import Session
 
@@ -117,6 +117,24 @@ def get_conversation(db: Session, user_id: int, conversation_id: int) -> AgentCo
     return row
 
 
+def _empty_conversation(db: Session, user_id: int, persona_id: int | None) -> AgentConversation | None:
+    """该用户同类会话里最近一个从未发过消息的空会话。
+
+    口径：标题仍为默认值且没有活动时间——`stream_reply` 一进入本轮就写下
+    `last_message_at`，所以发送失败或中途停止的会话都不会被当成空会话复用。
+    """
+    query = db.query(AgentConversation).filter(
+        AgentConversation.user_id == user_id,
+        AgentConversation.last_message_at.is_(None),
+        AgentConversation.title == DEFAULT_TITLE,
+    )
+    if persona_id is None:
+        query = query.filter(AgentConversation.persona_id.is_(None))
+    else:
+        query = query.filter(AgentConversation.persona_id == persona_id)
+    return query.order_by(AgentConversation.id.desc()).first()
+
+
 def create_conversation(db: Session, user_id: int, model_name: str | None, persona_id: int | None = None) -> dict:
     _validate_model(model_name)
     persona = None
@@ -124,6 +142,14 @@ def create_conversation(db: Session, user_id: int, model_name: str | None, perso
     if persona_id is not None:
         persona = bindable_persona(db, user_id, persona_id)
         persona_version_no = persona.current_version_no
+    # 同一用户同类会话最多只保留一个空会话：重复新建直接复用，避免列表堆出一排“新会话”
+    existing = _empty_conversation(db, user_id, persona.id if persona else None)
+    if existing is not None:
+        if model_name is not None and existing.model_name != model_name:
+            existing.model_name = model_name
+            db.commit()
+            db.refresh(existing)
+        return conversation_to_dict(existing, persona)
     row = AgentConversation(
         user_id=user_id, thread_id=uuid4(), model_name=model_name,
         persona_id=persona.id if persona else None,
@@ -172,11 +198,46 @@ def _message_text(content) -> str:
 
 def _ask_result(content) -> dict:
     """ask_user 返回的结构化结果：正常答案是文本，用户跳过时 answer 为空、skipped=true。"""
-    data = _normalize_tool_content(content)
-    if not isinstance(data, dict):
-        return {"answer": None, "skipped": False}
+    data = _ask_payload(content)
     text = str(data.get("answer") or "").strip()
     return {"answer": text or None, "skipped": bool(data.get("skipped"))}
+
+
+def _ask_payload(content) -> dict:
+    """ask_user 工具结果的内容（question/answer/skipped）；不可解析时返回空字典。"""
+    data = _normalize_tool_content(content)
+    return data if isinstance(data, dict) else {}
+
+
+def _ask_content(question: str, answer: str | None, skipped: bool) -> str:
+    """重写 ask_user 工具结果，字段与工具返回保持一致。"""
+    return json.dumps(
+        {"question": question, "answer": None if skipped else (answer or None), "skipped": skipped},
+        ensure_ascii=False,
+    )
+
+
+def _question_for_call(messages, call_id: str) -> str:
+    """工具结果缺问题时，从发起该调用的 AI 消息里取回题面。"""
+    for message in messages:
+        for call in getattr(message, "tool_calls", None) or []:
+            if call.get("id") == call_id:
+                return str((call.get("args") or {}).get("question") or "").strip()
+    return ""
+
+
+def _turn_ask_messages(messages) -> list:
+    """最近一轮里按顺序排列的 ask_user 工具结果：第 N 题即列表第 N 项。"""
+    start = next(
+        (i for i in range(len(messages) - 1, -1, -1) if messages[i].type == "human"),
+        None,
+    )
+    if start is None:
+        return []
+    return [
+        m for m in messages[start + 1:]
+        if m.type == "tool" and getattr(m, "name", None) == ASK_TOOL_NAME
+    ]
 
 
 def build_turns(
@@ -589,6 +650,59 @@ async def prepare_continue(db: Session, user_id: int, conversation_id: int, runt
     return row, thread_id
 
 
+async def update_ask_answer(db: Session, user_id: int, conversation_id: int, runtime: dict, payload) -> dict:
+    """回改本轮某一道已答提问（按题号）：原地替换该题的 ToolMessage，不新增消息、不重跑模型。
+
+    只在该轮仍停在另一道题上（存在挂起的 ask_user）时允许。补丁走 `Command(update=...)`：
+    既按消息 id 原地替换历史答案，又让工具节点把当前这道题重新挂起，后续作答链路不受影响。
+    本轮结束后再改答案不会同步到已落库的业务数据，因此直接拒绝并提示重新执行专项。
+    """
+    row = get_conversation(db, user_id, conversation_id)
+    thread_id = str(row.thread_id)
+    if _is_generating(thread_id):
+        raise AppError(409, "该会话正在生成回复")
+    answer = (payload.answer or "").strip()
+    if not answer:
+        raise AppError(400, "回答不能为空")
+
+    persona = resolve_for_conversation(db, row, user_id)
+    graph = graph_for_user(db, user_id, runtime, persona)
+    config = {"configurable": {"thread_id": thread_id}}
+    state = await graph.aget_state(config)
+    if _pending_ask(state) is None:
+        raise AppError(409, "本轮问答已结束，无法回改回答；如需更新，请重新发起对应的专项命令")
+
+    messages = list(state.values.get("messages", []))
+    asks = _turn_ask_messages(messages)
+    if not 1 <= payload.ask_index <= len(asks):
+        raise AppError(404, "没有找到这一题的作答记录")
+    target = asks[payload.ask_index - 1]
+
+    question = str(_ask_payload(target.content).get("question") or "").strip()
+    if not question:
+        question = _question_for_call(messages, getattr(target, "tool_call_id", ""))
+    patch = ToolMessage(
+        content=_ask_content(question, answer, False),
+        tool_call_id=target.tool_call_id,
+        name=ASK_TOOL_NAME,
+        id=target.id,
+    )
+    async for _ in graph.astream(
+        Command(update={"messages": [patch]}), config, stream_mode="updates"
+    ):
+        pass
+
+    pending = _pending_ask(await graph.aget_state(config))
+    return {
+        "ok": True,
+        "ask_index": payload.ask_index,
+        "question": question,
+        "answer": answer,
+        "skipped": False,
+        "pending": pending,
+    }
+
+
 def _normalize_tool_content(content):
     """工具结果可能是 dict 或 JSON 字符串，统一成可序列化对象。"""
     if isinstance(content, str):
@@ -792,6 +906,11 @@ def _finish(db: Session, row: AgentConversation, content: str | None, persona) -
 
 
 async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload, human_content: str | None = None, replay: bool = False, continuation: bool = False):
+    # 走进这一轮就记活动时间：只有「新建后从没发过消息」的会话才算空会话，
+    # 失败、中断或续写都不会让它退回空会话被「新建」复用
+    if row.last_message_at is None:
+        row.last_message_at = datetime.now()
+        db.commit()
     persona = resolve_for_conversation(db, row, row.user_id)
     skill_scope = persona.key if persona is not None else None
     graph = graph_for_user(db, row.user_id, runtime, persona)

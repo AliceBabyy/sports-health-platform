@@ -10,7 +10,9 @@
   let interruptedTurn = null; // 最近一次被用户停止、可用「继续」接写的回答
   let lastUserText = "";
   let activeAsk = null; // 当前唯一等待回答的卡片，主输入框也复用它作答
+  let askEdit = null; // 正在回改的已答提问卡片 {block}：一次只允许一张进入编辑态
   let webSearchOn = false; // 本轮联网开关：默认关闭，只对下一次发送（含重生成/续写/作答）生效
+  const SKILL_SUGGEST_LIMIT = 20; // 10 个档案专项 + 其他技能，不能按 8 条截断
   const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false, personaId: null };
 
   const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
@@ -324,14 +326,175 @@
   }
 
   /* ---------- 中途提问卡片 ---------- */
+  // 同一轮里连续提问时给出题号，便于用户回到上一题改答案
+  function askSeq(turn, block) {
+    let index = 0;
+    for (const item of turn.blocks) {
+      if (item.type !== "ask") continue;
+      index += 1;
+      if (item === block) return index;
+    }
+    return 0;
+  }
+
+  function askTotal(turn) {
+    return turn.blocks.filter(item => item.type === "ask").length;
+  }
+
+  // 同一轮里排在这道题之前、且已经作答过的那道题
+  function previousAsk(turn, block) {
+    const asks = turn.blocks.filter(item => item.type === "ask");
+    const prev = asks[asks.indexOf(block) - 1];
+    return prev && (prev.answer || prev.skipped) ? prev : null;
+  }
+
+  // 只有本轮还停在待答问题上才允许回改：此时答案尚未被保存类工具落库
+  function canReviseAsk(turn, block) {
+    if (streaming || turn.busy || block.pending) return false;
+    if (!block.answer && !block.skipped) return false;
+    return !!(activeAsk && activeAsk.turn === turn && activeAsk.block.pending);
+  }
+
+  function startAskEdit(turn, block) {
+    if (streaming || !block) return;
+    askEdit = { block };
+    renderAskCard(turn, block, true);
+    if (block._node && block._node.scrollIntoView) {
+      block._node.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function cancelAskEdit(turn, block) {
+    if (askEdit && askEdit.block === block) askEdit = null;
+    renderAskCard(turn, block, true);
+  }
+
+  // 回改提交：后端原地替换该题的答案并重新挂起当前问题，不新增消息、不重跑模型
+  async function saveAskEdit(turn, block, answer) {
+    if (streaming || block.saving) return;
+    const conv = current();
+    if (!conv) return;
+    block.saving = true;
+    renderAskCard(turn, block, true);
+    try {
+      const res = await App.api("/api/agent/conversations/" + conv.id + "/messages/ask-update", {
+        method: "POST",
+        body: { ask_index: askSeq(turn, block), answer: answer },
+      });
+      block.answer = res.answer || answer;
+      block.skipped = false;
+      block.pending = false;
+      block.revised = true;
+      askEdit = null;
+      App.toast("已更新回答");
+    } catch (err) {
+      askEdit = null;
+      App.toast(err.message, true);
+    } finally {
+      block.saving = false;
+      renderAskCard(turn, block, true);
+    }
+  }
+
+  function askEditForm(turn, block) {
+    const wrap = document.createElement("div");
+    const reply = document.createElement("div");
+    reply.className = "ask-reply";
+    const input = document.createElement("input");
+    input.className = "input ask-input";
+    input.type = "text";
+    input.placeholder = "修改这道题的回答";
+    input.value = block.answer || "";
+
+    // 原题带选项时保留胶囊：点击只回填到输入框，不直接提交
+    const options = block.options || [];
+    if (options.length) {
+      const row = document.createElement("div");
+      row.className = "ask-options";
+      options.forEach(opt => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "ask-opt" + (opt === input.value ? " active" : "");
+        chip.textContent = opt;
+        chip.addEventListener("click", () => {
+          input.value = opt;
+          row.querySelectorAll(".ask-opt").forEach(node => node.classList.toggle("active", node === chip));
+          input.focus();
+        });
+        row.appendChild(chip);
+      });
+      wrap.appendChild(row);
+    }
+
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "btn btn-primary ask-send";
+    save.textContent = block.saving ? "保存中…" : "保存";
+    save.disabled = !!block.saving;
+    const submit = () => {
+      if (block.saving) return;
+      const text = input.value.trim();
+      if (!text) { App.toast("回答不能为空", true); return; }
+      saveAskEdit(turn, block, text);
+    };
+    save.addEventListener("click", submit);
+    input.addEventListener("keydown", e => {
+      if (e.isComposing) return;
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
+      else if (e.key === "Escape") { e.preventDefault(); cancelAskEdit(turn, block); }
+    });
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "ask-skip";
+    cancel.textContent = "取消";
+    cancel.addEventListener("click", () => cancelAskEdit(turn, block));
+    reply.appendChild(input);
+    reply.appendChild(save);
+    reply.appendChild(cancel);
+    wrap.appendChild(reply);
+    setTimeout(() => {
+      if (!input.isConnected) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }, 0);
+    return wrap;
+  }
+
   function askCardNode(turn, block) {
     const waiting = !block.answer && !!block.pending;
+    const editing = askEdit !== null && askEdit.block === block;
     const card = document.createElement("div");
-    card.className = "ask-card" + (waiting ? " is-pending" : "");
+    card.className = "ask-card" + (waiting ? " is-pending" : "") + (editing ? " is-editing" : "");
 
     const label = document.createElement("div");
     label.className = "ask-label";
-    label.textContent = block.skipped ? "已跳过" : block.answer ? "已回复" : waiting ? "需要你回答" : "待回答";
+    if (askTotal(turn) > 1) {
+      const no = document.createElement("span");
+      no.className = "ask-no";
+      no.textContent = "第 " + askSeq(turn, block) + " 题";
+      label.appendChild(no);
+    }
+    const state = document.createElement("span");
+    state.textContent = block.skipped ? "已跳过" : block.answer ? "已回复" : waiting ? "需要你回答" : "待回答";
+    label.appendChild(state);
+    if (block.revised) {
+      const tag = document.createElement("span");
+      tag.className = "ask-tag";
+      tag.textContent = "已修改";
+      label.appendChild(tag);
+    }
+    // 待答卡片可回到上一题；已答卡片可回改（仅当本轮还有待答问题时）
+    const action = editing ? null : (block.pending
+      ? (previousAsk(turn, block) ? { text: "上一题", jump: previousAsk(turn, block) } : null)
+      : (canReviseAsk(turn, block) ? { text: "修改", jump: null } : null));
+    if (action) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ask-label-btn";
+      btn.textContent = action.text;
+      btn.addEventListener("click", () => startAskEdit(turn, action.jump || block));
+      label.appendChild(btn);
+    }
     card.appendChild(label);
 
     const question = document.createElement("div");
@@ -339,6 +502,10 @@
     question.textContent = block.question || "";
     card.appendChild(question);
 
+    if (editing) {
+      card.appendChild(askEditForm(turn, block));
+      return card;
+    }
     if (block.skipped && !block.answer) {
       const note = document.createElement("div");
       note.className = "ask-answer ask-skipped";
@@ -419,14 +586,14 @@
     return card;
   }
 
-  function renderAskCard(turn, block) {
+  function renderAskCard(turn, block, keepScroll = false) {
     const card = askCardNode(turn, block);
     if (block._node && block._node.parentNode) block._node.replaceWith(card);
     else turn.blocksEl.appendChild(card);
     block._node = card;
     if (!block.answer && block.pending) activeAsk = { turn, block };
     else if (activeAsk && activeAsk.block === block) activeAsk = null;
-    scrollBottom();
+    if (!keepScroll) scrollBottom();
   }
 
   function appendAskBlock(turn, data) {
@@ -571,6 +738,10 @@
     const oldNote = turn.bubble.querySelector(".msg-stopped");
     if (oldNote) oldNote.remove();
     turn.blocksEl.innerHTML = "";
+    askEdit = null;
+    // 先认定这张待答卡片，后面的已答卡片据此显示「修改 / 上一题」
+    const pending = turn.blocks.find(b => b.type === "ask" && b.pending && !b.answer);
+    activeAsk = pending ? { turn, block: pending } : null;
     turn.blocks.forEach(block => {
       block._node = null;
       if (block.type === "ask") renderAskCard(turn, block);
@@ -657,6 +828,7 @@
       const generating = !!res.generating;
       els.messageList.innerHTML = "";
       activeAsk = null;
+      askEdit = null;
       interruptedTurn = null;
       turns.forEach(item => {
         if (item.user != null) appendUserBubble(item.user);
@@ -695,11 +867,15 @@
   }
 
   /* ---------- 新建 / 重命名 / 删除 ---------- */
+  // 新建只有两条路径：普通会话等首条消息时惰性创建；角色会话因要固定角色才立即创建。
+  // 两条路都走后端同一口径——同类会话最多保留一个空会话，重复新建直接复用。
   async function createConversation(personaId) {
     const body = { model_name: els.chatModel.value || null };
     if (personaId) body.persona_id = personaId;
     const conv = await App.api("/api/agent/conversations", { method: "POST", body });
-    conversations.push(conv);
+    const index = conversations.findIndex(c => c.id === conv.id);
+    if (index >= 0) conversations[index] = conv;
+    else conversations.push(conv);
     renderSessions();
     return conv;
   }
@@ -710,17 +886,27 @@
     const created = await createConversation();
     currentId = created.id;
     rememberConversation(created.id);
+    renderSessions();
     return created;
   }
 
+  // 「新建会话」只回到空白新建态，不落库：会话列表里不会再堆出一排空的新会话
   async function newChat() {
     if (streaming) return;
-    try {
-      const conv = await createConversation();
-      await selectConversation(conv.id);
-    } catch (err) {
-      App.toast(err.message, true);
-    }
+    if (currentId === null) { els.chatInput.focus(); return; }
+    currentId = null;
+    renderedConvId = null;
+    rememberConversation(null);
+    els.chatTitle.textContent = "";
+    syncModelSelect(null);
+    activeAsk = null;
+    askEdit = null;
+    interruptedTurn = null;
+    closeSkillSuggest();
+    renderSessions();
+    await loadMessages(null);
+    await loadSkillOptions(true);
+    els.chatInput.focus();
   }
 
   async function newPersonaChat(personaId) {
@@ -1258,6 +1444,7 @@
     }
 
     lastUserText = text;
+    els.chatTitle.textContent = conversationTitle(conv);
     syncWelcome(false);
     const userNode = appendUserBubble(text);
     const turn = appendAssistantTurn(true);
@@ -1450,7 +1637,7 @@
       .sort((a, b) => a.score - b.score ||
         (a.s.scope === "system" ? 0 : 1) - (b.s.scope === "system" ? 0 : 1) ||
         String(a.s.name || "").localeCompare(String(b.s.name || ""), "zh-Hans-CN"))
-      .slice(0, 8)
+      .slice(0, SKILL_SUGGEST_LIMIT)
       .map(item => item.s);
     if (!matches.length) { closeSkillSuggest(); return; }
     skillPick.items = matches;

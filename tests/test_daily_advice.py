@@ -15,9 +15,12 @@ from app.modules.daily_advice.models import (
     STATUS_FAILED,
     STATUS_GENERATING,
     STATUS_READY,
+    VERDICT_TAGS,
     DailyAdvice as DailyAdviceRow,
+    verdict_level,
 )
 from app.modules.daily_advice.schemas import DailyAdvice
+from app.modules.profile import service as profile_service
 from app.modules.state_record.models import InflammationRecord, MyalgiaRecord, RecoveryRecord
 from app.modules.training import service as training_service
 from app.modules.training.schemas import PlanItemIn
@@ -42,10 +45,16 @@ def _record_fitness(db, user_id=1, day=YESTERDAY):
 def _advice(**kw):
     data = {
         "verdict": "适合",
-        "focus": "无氧",
-        "intensity": "高",
+        "focus": "上肢推拉 + 轻松有氧",
+        "intensity": "高：RPE 7~8，40 分钟",
         "body_parts": ["腿", "臀"],
-        "text": "- 今天适合低强度有氧，快走 30 分钟\n- 健身先别上重量，做点轻热身\n- 臀部仍酸痛、情绪偏低",
+        "text": (
+            "- 今天适合练，但下肢先收着，强度控制在低到中\n"
+            "- 上肢推拉加十五分钟轻松有氧，腿和臀今天避开\n"
+            "- 最近一次健身在三天前，练的是背和肩\n"
+            "- 形体档案提到足弓，练完加三分钟足弓激活\n"
+            "- 按这个节奏来，稳稳练就好"
+        ),
     }
     data.update(kw)
     return DailyAdvice(**data)
@@ -80,6 +89,56 @@ def test_facts_counts_only_recorded_and_lists_plans(db):
         "records": 1, "fitness": 1, "swim": 0, "dance": 0, "days": 30,
     }
     assert data["recent_load"]["recent_parts_2d"] == ["腿"]  # 昨天练过，今天不再安排
+
+
+def test_facts_exposes_last_fitness_for_broadcast(db):
+    _record_fitness(db)
+    data = facts.build_facts(db, _user(), TODAY)
+    last = data["recent_load"]["last_fitness"]
+    assert last["date"] == YESTERDAY.isoformat()
+    assert last["days_ago"] == 1
+    assert last["body_parts"] == ["腿"]
+    assert last["minutes"] == 30
+
+
+def test_facts_exposes_recent_advice_for_rotation(db):
+    db.add(DailyAdviceRow(
+        user_id=1,
+        advice_date=YESTERDAY,
+        status=STATUS_READY,
+        mode="ai",
+        verdict="适合：正常练",
+        focus="上肢推拉，避开腿",
+        intensity="中：RPE 5",
+        body_parts=["背"],
+        text="- 昨天练上肢\n- 提醒过足弓\n- 鼓励一句",
+        facts={},
+    ))
+    db.commit()
+    data = facts.build_facts(db, _user(), TODAY)
+    assert data["recent_advice"][0]["date"] == YESTERDAY.isoformat()
+    assert "足弓" in data["recent_advice"][0]["text"]
+
+
+def test_facts_injects_health_profile_qa(db):
+    profile_service.save_health_profile_aspect(
+        db,
+        1,
+        "profile_posture",
+        [
+            {"key": "q1", "aspect": "posture", "label": "足弓情况如何？", "max_length": 120},
+            {"key": "q2", "aspect": "posture", "label": "平时久站会累吗？", "max_length": 120},
+            {"key": "q3", "aspect": "posture", "label": "最想改善什么体态？", "max_length": 120},
+        ],
+        {"q1": "足弓偏低，久站会累"},
+    )
+    data = facts.build_facts(db, _user(), TODAY)
+    posture = next(
+        item for item in data["profile"]["health_profile"] if item["skill_key"] == "profile_posture"
+    )
+    assert posture["name"] == "测试-形体矫正"
+    assert posture["qa"][0]["group"] == "形体矫正"
+    assert "足弓" in posture["qa"][0]["answer"]
 
 
 def test_cycle_only_for_female_with_records(db):
@@ -172,22 +231,60 @@ def test_hard_limits_trained_today(db):
 
 
 # ---------- 输出清洗 ----------
+def test_schema_accepts_nuanced_fields():
+    advice = DailyAdvice(
+        verdict="适合但收敛：上肢可以正常练，下肢先减量",
+        focus="上肢推拉 + 十五分钟轻松有氧，避开腿和臀",
+        intensity="很低：RPE 2，20 分钟，能完整对话",
+        body_parts=["背", "肩"],
+        text="- 今天适合但收敛：上肢可以正常练，下肢先减量",
+    )
+    assert advice.verdict.startswith("适合但收敛")
+    assert "避开腿和臀" in advice.focus
+    assert advice.intensity.startswith("很低")
+
+
+def test_verdict_level_and_tag_support_nuance():
+    assert verdict_level("适合但收敛：下肢先减量") == "适合但收敛"
+    assert verdict_level("适合：上肢正常") == "适合"
+    assert VERDICT_TAGS[verdict_level("适合但收敛：下肢先减量")] == "average"
+
+
 def test_sanitize_downgrades_by_hard_limits():
     limits = [
         {"key": "inflammation_high", "cap_intensity": "低", "cap_verdict": None, "block_parts": False},
         {"key": "cycle_pain_high", "cap_verdict": "克制", "cap_intensity": "低", "block_parts": True}
     ]
-    cleaned, warnings = ai.sanitize(_advice(), limits)
+    cleaned, warnings = ai.sanitize(_advice(focus="无氧"), limits)
     assert cleaned.verdict == "克制"
-    assert cleaned.intensity == "低"
-    assert cleaned.focus == "有氧"  # 力量被禁止时降为有氧
+    assert cleaned.intensity == "低：RPE 7~8，40 分钟"
+    assert cleaned.focus == "低强度有氧或恢复：今日不安排力量"
     assert cleaned.body_parts == []
+    assert warnings
+
+
+def test_sanitize_keeps_condition_text_when_capping():
+    cleaned, _ = ai.sanitize(
+        _advice(verdict="适合：上肢正常", intensity="很高：RPE 9"),
+        [{"cap_verdict": "克制", "cap_intensity": "低"}],
+    )
+    assert cleaned.verdict == "克制：上肢正常"
+    assert cleaned.intensity == "低：RPE 9"
+
+
+def test_sanitize_drops_recently_trained_part():
+    cleaned, warnings = ai.sanitize(
+        _advice(focus="有氧", body_parts=["腿", "背"]),
+        [],
+        avoid_parts=["腿"],
+    )
+    assert cleaned.body_parts == ["背"]
     assert warnings
 
 
 def test_sanitize_rest_clears_parts():
     cleaned, _ = ai.sanitize(_advice(verdict="休息", focus="有氧", intensity="低"), [])
-    assert cleaned.focus == "恢复"
+    assert cleaned.focus.startswith("恢复")
     assert cleaned.body_parts == []
 
 
@@ -224,15 +321,15 @@ def test_clean_text_builds_bullet_lines():
 
 
 def test_clean_text_applies_per_line_limits():
-    """三句各自按服务端上限收口，第 4 行丢弃。"""
-    raw = "\n".join(["甲" * 40, "乙" * 40, "丙" * 60, "丁" * 10])
+    """五句各自按服务端上限收口，第 6 行丢弃。"""
+    raw = "\n".join(["甲" * 40, "乙" * 40, "丙" * 60, "丁" * 40, "戊" * 30, "己" * 10])
     lines = ai.clean_text(raw).splitlines()
-    assert len(lines) == ai.MAX_LINES == 3
+    assert len(lines) == ai.MAX_LINES == 5
     assert [len(line[2:]) for line in lines] == list(ai.LINE_LIMITS)
 
 
 def test_clean_text_keeps_existing_bullets_and_limits_lines():
-    out = ai.clean_text("- 一行\n- 二行\n- 三行\n- 四行")
+    out = ai.clean_text("- 一行\n- 二行\n- 三行\n- 四行\n- 五行\n- 六行")
     lines = out.splitlines()
     assert len(lines) == ai.MAX_LINES
     assert lines[0] == "- 一行"

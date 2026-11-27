@@ -9,7 +9,7 @@
   未配置（NULL）继续沿用基线，保证历史角色不需要迁移即可保持原行为。
   ``PROFILE_TEST_ONLY_TOOLS`` 例外：它是硬边界，显式白名单也不能把健康档案专项授给其他角色。
 
-健康档案专项：九个 ``skill_profile_*`` 与保存工具 ``save_health_profile_aspect``
+健康档案专项：十个 ``skill_profile_*`` 与保存工具 ``save_health_profile_aspect``
 只允许 ``health_profile_test``，这是运行时的硬边界，角色显式白名单也不能绕开；
 其他角色仍可读 ``get_profile_info``，但不能执行专项技能或写入档案。
 """

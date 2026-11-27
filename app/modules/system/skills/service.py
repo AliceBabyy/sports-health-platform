@@ -3,8 +3,8 @@
 边界：
 - 只管理平台技能，任何接口都不会创建或改写 scope=user 的用户技能。
 - 代码技能（kind=code）由 ``app/modules/agent/skills/platform.py`` 实现，
-  页面只能查看定义与启停，不能编辑定义或删除；声明式技能（kind=declarative）
-  可新建、编辑并被版本化，定义继续走既有 DSL 白名单校验。
+  定义只读、不可删除，但名称/描述/分类/斜杠别名/状态可由管理员维护；提示词技能（kind=prompt）与
+  声明式技能（kind=declarative）可由管理员新建、编辑并被版本化。
 """
 from __future__ import annotations
 
@@ -61,10 +61,11 @@ def _validate_payload(
     key: str,
     existing: AgentSkill | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """校验基本信息与声明式定义；返回 (kind, definition)。
+    """校验基本信息与技能定义；返回 (kind, definition)。
 
     平台技能键/名称/别名按全局唯一处理，避免与用户技能互相遮蔽；
-    声明式定义仍由 ``agent.skills.definition`` 的白名单校验器负责。
+    代码技能只校验元数据，定义必须与代码注册值一致；提示词与声明式定义
+    仍由 ``agent.skills.definition`` 的校验器负责。
     """
     creating = existing is None
     errors: list[dict] = []
@@ -73,7 +74,7 @@ def _validate_payload(
     description = (payload.get("description") or "").strip()
     category = (payload.get("category") or "custom").strip()
     status = payload.get("status") or "active"
-    kind = payload.get("kind") or ("declarative" if creating else existing.kind)
+    kind = payload.get("kind") or ("prompt" if creating else existing.kind)
     definition = payload.get("definition")
 
     if not 1 <= len(name) <= 48:
@@ -90,8 +91,8 @@ def _validate_payload(
         errors.append({"field": "category", "reason": "分类不合法"})
     if status not in SKILL_STATUSES:
         errors.append({"field": "status", "reason": "状态只能是 active 或 disabled"})
-    if creating and kind != "declarative":
-        errors.append({"field": "kind", "reason": "代码技能只能由代码注册，页面仅可新建声明式技能"})
+    if creating and kind not in ("prompt", "declarative"):
+        errors.append({"field": "kind", "reason": "页面只能新建提示词或声明式技能；代码技能由代码注册"})
     if existing is not None and kind != existing.kind:
         errors.append({"field": "kind", "reason": "技能类型创建后不可修改"})
 
@@ -99,30 +100,61 @@ def _validate_payload(
     if existing is not None:
         q = q.filter(AgentSkill.id != existing.id)
     rows = q.all()
-    code_names = {code.name.strip().lower() for code in CODE_SKILLS.values()}
-    if creating and key in CODE_SKILLS:
+    own_code_key = existing.skill_key if existing is not None and existing.kind == "code" else None
+    code_keys = {key for key in CODE_SKILLS if key != own_code_key}
+    seeded_code_keys = {
+        row.skill_key for row in rows if row.scope == "system" and row.kind == "code"
+    }
+    code_names = {
+        code.name.strip().lower()
+        for key, code in CODE_SKILLS.items()
+        if key != own_code_key and key not in seeded_code_keys
+    }
+    code_aliases = {
+        code.slash_alias.strip().lower()
+        for key, code in CODE_SKILLS.items()
+        if key != own_code_key and key not in seeded_code_keys and code.slash_alias
+    }
+    name_lower = name.strip().lower()
+    alias_lower = alias.lower() if alias else None
+    if key in code_keys:
         errors.append({"field": "key", "reason": "技能键已被平台代码技能占用"})
     if any(row.skill_key == key for row in rows):
         errors.append({"field": "key", "reason": "技能键已被其他技能占用"})
-    if any(row.name.strip().lower() == name.strip().lower() for row in rows):
+    if any(row.name.strip().lower() == name_lower for row in rows):
         errors.append({"field": "name", "reason": "技能名已被其他技能占用"})
-    elif creating and name.strip().lower() in code_names:
+    elif name_lower in code_names:
         errors.append({"field": "name", "reason": "技能名已被平台代码技能占用"})
-    elif any(row.skill_key == name.strip().lower() for row in rows):
+    elif name_lower in code_keys:
+        errors.append({"field": "name", "reason": "技能名与平台代码技能键冲突"})
+    elif name_lower in code_aliases or any(
+        (row.slash_alias or "").strip().lower() == name_lower for row in rows
+    ):
+        errors.append({"field": "name", "reason": "技能名与其他技能的斜杠别名冲突"})
+    elif any(row.skill_key == name_lower for row in rows):
         errors.append({"field": "name", "reason": "技能名与其他技能的技能键冲突"})
-    if alias:
-        if any((row.slash_alias or "").strip().lower() == alias.lower() for row in rows):
+    if alias_lower:
+        if any((row.slash_alias or "").strip().lower() == alias_lower for row in rows):
             errors.append({"field": "slash_alias", "reason": "斜杠别名已被其他技能占用"})
-        elif creating and (alias.lower() in CODE_SKILLS or alias.lower() in code_names):
+        elif alias_lower in code_aliases:
             errors.append({"field": "slash_alias", "reason": "斜杠别名已被平台代码技能占用"})
+        elif alias_lower in code_keys or alias_lower in code_names:
+            errors.append({"field": "slash_alias", "reason": "斜杠别名与平台代码技能冲突"})
         elif any(
-            row.skill_key == alias.lower() or row.name.strip().lower() == alias.lower()
+            row.skill_key == alias_lower or row.name.strip().lower() == alias_lower
             for row in rows
         ):
             errors.append({"field": "slash_alias", "reason": "斜杠别名与其他技能的名称或技能键冲突"})
 
-    if kind == "declarative":
-        definition_errors, _ = validate_definition_payload("declarative", definition)
+    if kind == "code":
+        expected_code_definition = {"kind": "code", "code_key": key}
+        if definition is not None and definition != expected_code_definition:
+            errors.append({
+                "field": "definition",
+                "reason": "代码技能定义由代码注册，不能通过页面修改",
+            })
+    elif kind in ("prompt", "declarative"):
+        definition_errors, _ = validate_definition_payload(kind, definition)
         errors.extend(definition_errors)
     if errors:
         raise SkillValidationError(errors)
@@ -151,8 +183,9 @@ def skill_dict(db: Session, skill: AgentSkill) -> dict:
         "published": bool(version and version.published_at),
         "definition": definition,
         "run_count": run_count,
-        "can_edit": skill.kind == "declarative",
-        "can_delete": skill.kind == "declarative",
+        "can_edit": True,
+        "can_edit_definition": skill.kind in ("declarative", "prompt"),
+        "can_delete": skill.kind in ("declarative", "prompt"),
         "updated_at": skill.updated_at.isoformat() if skill.updated_at else None,
     }
 
@@ -201,22 +234,35 @@ def create_system_skill(db: Session, payload: dict, actor_id: int | None) -> dic
     return skill_dict(db, skill)
 
 
-def save_system_skill(db: Session, skill_id: int, payload: dict, actor_id: int | None) -> dict:
-    skill = _system_skill(db, skill_id)
-    if skill.kind == "code":
-        raise AppError(400, "代码技能由代码实现，页面只能启停，不能编辑或删除")
-    requested_key = payload.get("key")
-    if requested_key is not None and _normalise_key(requested_key) != skill.skill_key:
-        raise SkillValidationError([{
-            "field": "key", "reason": "技能键创建后不可修改；需要新键请新建技能",
-        }])
-    _, definition = _validate_payload(db, payload, key=skill.skill_key, existing=skill)
+def _apply_metadata(skill: AgentSkill, payload: dict) -> None:
+    """写回展示与状态字段；不改定义、不创建版本。"""
     skill.name = payload["name"].strip()
     skill.description = (payload.get("description") or "").strip()
     skill.category = (payload.get("category") or "custom").strip()
     skill.status = payload.get("status") or skill.status
     skill.slash_alias = (payload.get("slash_alias") or "").strip() or None
 
+
+def save_system_skill(db: Session, skill_id: int, payload: dict, actor_id: int | None) -> dict:
+    skill = _system_skill(db, skill_id)
+    requested_key = payload.get("key")
+    if requested_key is not None and _normalise_key(requested_key) != skill.skill_key:
+        raise SkillValidationError([{
+            "field": "key", "reason": "技能键创建后不可修改；需要新键请新建技能",
+        }])
+    _, definition = _validate_payload(db, payload, key=skill.skill_key, existing=skill)
+
+    if skill.kind == "code":
+        if (payload.get("status") or skill.status) == "active" and not skill.current_version_no:
+            raise SkillValidationError([{
+                "field": "status", "reason": "代码技能尚未发布，不能启用",
+            }])
+        _apply_metadata(skill, payload)
+        db.commit()
+        db.refresh(skill)
+        return skill_dict(db, skill)
+
+    _apply_metadata(skill, payload)
     latest = latest_version(db, skill)
     new_hash = _definition_hash(definition)
     if latest is None or latest.definition_hash != new_hash:
@@ -262,8 +308,8 @@ def delete_system_skill(db: Session, skill_id: int) -> None:
     db.commit()
 
 
-def validate_definition(definition: dict) -> dict:
-    errors, warnings = validate_definition_payload("declarative", definition)
+def validate_definition(kind: str, definition: dict) -> dict:
+    errors, warnings = validate_definition_payload(kind, definition)
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 

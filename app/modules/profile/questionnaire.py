@@ -1,7 +1,7 @@
 """健康档案专项问答的通用校验与视图组装。
 
 只做轻量结构约束，不写死题库、不强制覆盖多个 aspect：
-- 每套 3~6 题，题号 q1~q6；
+- 每套 3~10 题，题号 q1~q10；
 - 每题的 aspect 必须在该专项 skill 允许的范围内（由调用方传入 allowed_aspects）；
 - 至少 1 题有答案；答案长度受每题 max_length 限制；
 - 同一用户同一专项保留最近 3 套，页面只展示最近一套。
@@ -18,14 +18,14 @@ from datetime import datetime
 from typing import Any, Iterable
 
 MIN_QUESTIONS = 3
-MAX_QUESTIONS = 6
+MAX_QUESTIONS = 10
 MAX_SETS_PER_SKILL = 3
 MAX_LABEL_LENGTH = 48
 MAX_HINT_LENGTH = 120
 MAX_PLACEHOLDER_LENGTH = 120
 MIN_ANSWER_LENGTH = 50
 MAX_ANSWER_LENGTH = 255
-LOCAL_KEY_RE = re.compile(r"^q[1-6]$")
+LOCAL_KEY_RE = re.compile(r"^q(?:[1-9]|10)$")
 
 
 def _value(item: Any, name: str, default=None):
@@ -50,7 +50,7 @@ def normalize_questions(raw_questions: Iterable[Any], allowed_aspects: frozenset
     for index, raw in enumerate(items):
         key = str(_value(raw, "key") or _value(raw, "local_key") or "").strip().lower()
         if not LOCAL_KEY_RE.fullmatch(key):
-            raise ValueError("题号只能使用 q1~q6")
+            raise ValueError("题号只能使用 q1~q10")
         if key in seen_keys:
             raise ValueError(f"题号重复：{key}")
         seen_keys.add(key)
@@ -84,6 +84,62 @@ def normalize_questions(raw_questions: Iterable[Any], allowed_aspects: frozenset
                 f"第 {index + 1} 题答案长度上限需在 {MIN_ANSWER_LENGTH}~{MAX_ANSWER_LENGTH} 之间"
             )
 
+        normalized.append({
+            "local_key": key,
+            "aspect": aspect,
+            "label": label,
+            "hint": hint,
+            "placeholder": placeholder,
+            "max_length": max_length,
+            "sort_order": index,
+        })
+    return normalized
+
+
+def normalize_page_questions(
+    raw_questions: Iterable[Any], allowed_aspects: frozenset[str]
+) -> list[dict]:
+    """校验页面手工新增/编辑的一套问题：允许 1~10 题，题号必须从 q1 连续排列。
+
+    页面与 AI 导入共用同一套字段和限制，但页面允许先建立更少的问题，后续再用
+    「添加问题」补到 10 题；AI 导入仍要求至少 3 题。
+    """
+    items = list(raw_questions or [])
+    if not 1 <= len(items) <= MAX_QUESTIONS:
+        raise ValueError(f"一套题需要 1~{MAX_QUESTIONS} 道")
+
+    normalized: list[dict] = []
+    seen_labels: set[str] = set()
+    for index, raw in enumerate(items):
+        expected_key = f"q{index + 1}"
+        key = str(_value(raw, "local_key") or _value(raw, "key") or "").strip().lower()
+        if key != expected_key:
+            raise ValueError(f"第 {index + 1} 题题号应为 {expected_key}")
+        aspect = str(_value(raw, "aspect") or "").strip()
+        if aspect not in allowed_aspects:
+            allowed = "、".join(sorted(allowed_aspects))
+            raise ValueError(f"第 {index + 1} 题 aspect“{aspect}”不属于本专项，可选：{allowed}")
+        label = str(_value(raw, "label") or "").strip()
+        if not 1 <= len(label) <= MAX_LABEL_LENGTH:
+            raise ValueError(f"第 {index + 1} 题标题需为 1~{MAX_LABEL_LENGTH} 字")
+        if label in seen_labels:
+            raise ValueError(f"题目标题重复：{label}")
+        seen_labels.add(label)
+        hint = str(_value(raw, "hint") or "").strip()
+        placeholder = str(_value(raw, "placeholder") or "").strip()
+        if len(hint) > MAX_HINT_LENGTH:
+            raise ValueError(f"第 {index + 1} 题填写提示最多 {MAX_HINT_LENGTH} 字")
+        if len(placeholder) > MAX_PLACEHOLDER_LENGTH:
+            raise ValueError(f"第 {index + 1} 题占位文案最多 {MAX_PLACEHOLDER_LENGTH} 字")
+        max_length = _value(raw, "max_length", 200)
+        try:
+            max_length = int(max_length)
+        except (TypeError, ValueError):
+            raise ValueError(f"第 {index + 1} 题答案长度上限必须是整数") from None
+        if not MIN_ANSWER_LENGTH <= max_length <= MAX_ANSWER_LENGTH:
+            raise ValueError(
+                f"第 {index + 1} 题答案长度上限需在 {MIN_ANSWER_LENGTH}~{MAX_ANSWER_LENGTH} 之间"
+            )
         normalized.append({
             "local_key": key,
             "aspect": aspect,

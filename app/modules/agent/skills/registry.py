@@ -193,7 +193,7 @@ def describe_skill(skill: ResolvedSkill) -> str:
             text += " 参数：" + "、".join(params) + "。"
         if skill.category == "profile":
             text += (" 调用后返回的 summary 是本轮专项出题提示词与已存答案；必须严格按该专项提示词生成"
-                     " 3~6 题并逐题提问，不要混入其他专项。")
+                     " 3~10 题（健身档案 6~10 题）并逐题提问，不要混入其他专项。")
         if skill.kind == "declarative":
             try:
                 defn = parse_definition(skill.definition)

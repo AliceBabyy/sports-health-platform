@@ -19,6 +19,7 @@ PROMPTS = {
     "profile_aspect_goal.v1": ("profile_aspect_skills_v1.txt", "goal"),
     "profile_aspect_diet.v1": ("profile_aspect_skills_v1.txt", "diet"),
     "profile_aspect_exercise.v1": ("profile_aspect_skills_v1.txt", "exercise"),
+    "profile_aspect_fitness.v1": ("profile_aspect_skills_v1.txt", "fitness"),
     "profile_aspect_sleep.v1": ("profile_aspect_skills_v1.txt", "sleep"),
     "profile_aspect_lifestyle.v1": ("profile_aspect_skills_v1.txt", "lifestyle"),
     "profile_aspect_cycle.v1": ("profile_aspect_skills_v1.txt", "cycle"),
@@ -28,7 +29,7 @@ PROMPTS = {
     "skill_arg_parse.v1": "skill_arg_parse_v1.txt",
     "weekly_report.v1": "weekly_report_v1.txt",
     "monthly_report.v1": "monthly_report_v1.txt",
-    "daily_advice.v3": "daily_advice_v3.txt",
+    "daily_advice.v4": "daily_advice_v4.txt",
 }
 
 

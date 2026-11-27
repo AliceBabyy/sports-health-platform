@@ -1,48 +1,101 @@
 {% extends "base.html" %}
 {% block title %}健康档案 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/health_profile.css?v=20261126a">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/health_profile.css?v=20261127d">{% endblock %}
 {% block content %}
-<div class="page-head">
-  <h1>健康档案</h1>
-  <div class="page-desc">按专项记录目标、饮食、运动、睡眠等信息，训练建议会参考这些内容。</div>
-  <div class="page-head-actions">
-    {% if filled %}<button class="btn" id="hpClear" type="button">清空档案</button>{% endif %}
-    <a class="btn" href="/agent">去健康档案测试</a>
+<div class="page-head hp-page-head">
+  <div class="hp-page-title">
+    <h1>健康档案</h1>
+    <div class="page-desc">每个专项分开记录；点「新增/编辑」打开弹窗，修改问题与回答，也可自定义添加新问题。</div>
+  </div>
+  {% if filled %}
+  <button class="btn btn-sm hp-clear" id="hpClear" type="button">清空档案</button>
+  {% endif %}
+</div>
+
+<div class="hp-overview" aria-label="健康档案概况">
+  <div class="hp-stat">
+    <span>已建立专项</span>
+    <b>{{ filled_count }}<em>/{{ cards|length }}</em></b>
+  </div>
+  <div class="hp-stat">
+    <span>累计问题</span>
+    <b>{{ total_questions }}<em>题</em></b>
+  </div>
+  <div class="hp-stat">
+    <span>已填写回答</span>
+    <b>{{ total_answers }}<em>条</em></b>
+  </div>
+  <div class="hp-stat hp-stat-wide">
+    <span>最近更新</span>
+    <b>{{ latest_at }}</b>
   </div>
 </div>
 
-{% if sets %}
-<form class="hp-stack" id="hpForm">
-  {% for s in sets %}
-  <section class="card">
-    <div class="card-title">{{ s.name }} <span class="sub">{{ s.generated_at }} · {{ s["items"]|length }} 题</span></div>
-    {% for q in s["items"] %}
-    <div class="hp-field">
-      <label class="field-label" for="hp-{{ s.set_id }}-{{ q.local_key }}">{{ q.label }}</label>
-      {% if q.hint %}<div class="hp-hint">{{ q.hint }}</div>{% endif %}
-      <textarea class="input hp-textarea" id="hp-{{ s.set_id }}-{{ q.local_key }}"
-        rows="3" maxlength="{{ q.max_length }}"
-        data-set-id="{{ s.set_id }}" data-local-key="{{ q.local_key }}"
-        placeholder="{{ q.placeholder }}">{{ q.answer or '' }}</textarea>
+<div class="hp-grid" id="hpGrid">
+  {% for c in cards %}
+  <section class="card hp-card{% if not c.filled %} is-empty{% endif %}"
+    data-skill-key="{{ c.skill_key }}"
+    data-set-id="{{ c.set.set_id if c.set else '' }}">
+    <div class="hp-card-head">
+      <div class="hp-card-title">
+        <span class="hp-index">{{ "%02d"|format(c.index) }}</span>
+        <div class="hp-title-main">
+          <div class="hp-name">{{ c.name }}</div>
+          <div class="hp-card-meta">
+            {% if c.filled %}
+            {{ c.set.generated_at }} · {{ c.question_count }} 题 · {{ c.answered_count }} 已答
+            {% else %}
+            {{ c.description }}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <span class="hp-status{% if c.filled %} is-filled{% endif %}">{{ "已建立" if c.filled else "待建立" }}</span>
+      <button class="btn btn-sm hp-edit" type="button" data-action="open">
+        <span class="hp-btn-plus" aria-hidden="true">+</span>新增/编辑
+      </button>
     </div>
-    {% endfor %}
+
+    {% if c.filled %}
+    <div class="hp-read">
+      {% for q in c.set["items"] %}
+      <div class="hp-qa" data-local-key="{{ q.local_key }}">
+        <div class="hp-q">{{ q.label }}</div>
+        <div class="hp-a{% if not q.answer %} is-empty{% endif %}">{{ q.answer or '—' }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="hp-empty-card">
+      <p>还没有这个专项的记录。可以从空白开始提问，也可以直接写下自己的问题和回答。</p>
+      <div class="hp-empty-tip">最多 10 题，保存后显示在卡片里</div>
+    </div>
+    {% endif %}
   </section>
   {% endfor %}
-  <div class="card hp-form-foot">
-    <div class="hp-foot-hint">只展示已保存的专项档案；未答项可以直接补，保存即生效。</div>
-    <div class="hp-foot-actions">
-      <button class="btn btn-primary" type="submit">保存</button>
+</div>
+
+<div class="modal-mask hp-modal-mask" id="hpModal">
+  <div class="modal hp-modal" role="dialog" aria-modal="true" aria-labelledby="hpModalTitle">
+    <button class="hp-modal-close" type="button" data-close="hpModal" aria-label="关闭" title="关闭">×</button>
+    <div class="hp-modal-head">
+      <div class="hp-modal-title" id="hpModalTitle">新增档案</div>
+      <div class="hp-modal-sub" id="hpModalSub"></div>
+    </div>
+    <div class="hp-modal-body" id="hpModalBody"></div>
+    <div class="hp-modal-foot">
+      <span class="hp-modal-count" id="hpModalCount"></span>
+      <div class="hp-modal-actions">
+        <button class="btn" type="button" data-close="hpModal">取消</button>
+        <button class="btn btn-primary" type="button" id="hpSave">保存</button>
+      </div>
     </div>
   </div>
-</form>
-{% else %}
-<section class="card hp-empty">
-  <div class="card-title">还没有专项档案</div>
-  <p>进入健康档案测试，用 /目标档案、/饮食档案、/运动档案 等命令，一项一项建立。</p>
-  <a class="btn btn-primary" href="/agent">去健康档案测试</a>
-</section>
-{% endif %}
+</div>
 {% endblock %}
 {% block extra_js %}
-<script src="/static/js/health_profile.js?v=20261126a"></script>
+<script>
+  window.INIT_HP_CARDS = {{ cards | tojson }};
+</script>
+<script src="/static/js/health_profile.js?v=20261127c"></script>
 {% endblock %}

@@ -1,4 +1,4 @@
-"""每日训练建议表（一天一条）：事实快照 + 一句判断 + 生成元信息。
+"""每日训练建议表（一天一条）：事实快照 + 五段自然表达 + 生成元信息。
 
 与 AI 运动报告同属「离线单次结构化调用」：不写 agent_conversations，也不进 LangGraph checkpointer。
 不设软删除：侧栏只展示当天一条，没有历史页与删除入口。
@@ -30,26 +30,43 @@ MODE_RULE = "rule"
 ADVICE_MODES = (MODE_AI, MODE_RULE)
 
 VERDICT_SUITABLE = "适合"
+VERDICT_REDUCED = "适合但收敛"
 VERDICT_MODERATE = "克制"
 VERDICT_REST = "休息"
-VERDICTS = (VERDICT_SUITABLE, VERDICT_MODERATE, VERDICT_REST)
+# 前缀标记按保守到宽松排列；适合但收敛必须先于适合匹配
+VERDICT_MARKERS = (VERDICT_REST, VERDICT_MODERATE, VERDICT_REDUCED, VERDICT_SUITABLE)
+VERDICTS = VERDICT_MARKERS
 # 结论 → 侧栏四档标签色（复用 base.css 的 tag-good / tag-average / tag-rest）
 VERDICT_TAGS = {
     VERDICT_SUITABLE: "good",
+    VERDICT_REDUCED: "average",
     VERDICT_MODERATE: "average",
     VERDICT_REST: "rest",
 }
 
-FOCUS_AEROBIC = "有氧"
-FOCUS_ANAEROBIC = "无氧"
-FOCUS_MIXED = "有氧+无氧"
 FOCUS_RECOVERY = "恢复"
-FOCUSES = (FOCUS_AEROBIC, FOCUS_ANAEROBIC, FOCUS_MIXED, FOCUS_RECOVERY)
 
+INTENSITY_VERY_LOW = "很低"
 INTENSITY_LOW = "低"
 INTENSITY_MID = "中"
 INTENSITY_HIGH = "高"
-INTENSITIES = (INTENSITY_LOW, INTENSITY_MID, INTENSITY_HIGH)
+INTENSITY_VERY_HIGH = "很高"
+INTENSITY_ORDER = (
+    INTENSITY_VERY_LOW,
+    INTENSITY_LOW,
+    INTENSITY_MID,
+    INTENSITY_HIGH,
+    INTENSITY_VERY_HIGH,
+)
+INTENSITIES = INTENSITY_ORDER
+
+
+def verdict_level(value: str | None) -> str | None:
+    """从自由结论中取前缀级别；用于标签色与硬约束。"""
+    for marker in VERDICT_MARKERS:
+        if value and value.startswith(marker):
+            return marker
+    return None
 
 
 class DailyAdvice(Base):
@@ -60,13 +77,7 @@ class DailyAdvice(Base):
         UniqueConstraint("user_id", "advice_date", name="uq_daily_advice_user_date"),
         CheckConstraint("status IN ('generating', 'ready', 'failed')", name="ck_daily_advice_status"),
         CheckConstraint("mode IN ('ai', 'rule')", name="ck_daily_advice_mode"),
-        CheckConstraint(
-            "verdict IS NULL OR verdict IN ('适合', '克制', '休息')", name="ck_daily_advice_verdict"
-        ),
-        CheckConstraint(
-            "intensity IS NULL OR intensity IN ('低', '中', '高')", name="ck_daily_advice_intensity"
-        ),
-        {"comment": "每日训练建议（侧栏常驻；一天一条，事实快照 + 一句话判断）"},
+        {"comment": "每日训练建议（侧栏常驻；一天一条，事实快照 + 五段自然表达）"},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
@@ -92,19 +103,25 @@ class DailyAdvice(Base):
         comment="生成方式：ai（模型生成）/ rule（无数据规则文案，不调模型）",
     )
     verdict: Mapped[str | None] = mapped_column(
-        String(16), nullable=True, comment="今日判断：适合 / 克制 / 休息（决定标签配色）"
+        String(64),
+        nullable=True,
+        comment="今日结论（自由文本，前缀为 适合 / 适合但收敛 / 克制 / 休息，决定标签配色）",
     )
     focus: Mapped[str | None] = mapped_column(
-        String(24), nullable=True, comment="训练方向：有氧 / 无氧 / 有氧+无氧 / 恢复"
+        String(120),
+        nullable=True,
+        comment="训练安排（自由文本：动作方向、部位与避让，不限于有氧/无氧）",
     )
     intensity: Mapped[str | None] = mapped_column(
-        String(8), nullable=True, comment="建议强度：低 / 中 / 高"
+        String(64),
+        nullable=True,
+        comment="建议强度（自由文本，前缀为 很低 / 低 / 中 / 高 / 很高，后接 RPE/时长口径）",
     )
     body_parts: Mapped[list | None] = mapped_column(
         JSON, nullable=True, comment="建议的健身部位数组（最多 2 个）"
     )
     text: Mapped[str | None] = mapped_column(
-        String(200), nullable=True, comment="侧栏三句正文（≤124 字）"
+        String(200), nullable=True, comment="侧栏五句正文（判断/训练/播报/提示/鼓励，≤170 字）"
     )
     facts: Mapped[dict] = mapped_column(
         JSON, nullable=False, comment="生成时的事实快照（确定性计算，含硬约束）"
@@ -114,7 +131,7 @@ class DailyAdvice(Base):
     )
     model_name: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="生成所用模型")
     prompt_version: Mapped[str | None] = mapped_column(
-        String(48), nullable=True, comment="提示词版本 ID（如 daily_advice.v3）"
+        String(48), nullable=True, comment="提示词版本 ID（如 daily_advice.v4）"
     )
     generation_ms: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0", comment="模型耗时 ms"

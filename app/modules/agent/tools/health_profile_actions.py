@@ -3,8 +3,8 @@
 仅通过 TOOL_PERSONA_SCOPES 授权给 health_profile_test 角色；普通会话与其他角色不可见。
 边界由代码强制：
 - user_id 从 RunnableConfig 注入，模型不可填；
-- skill_key 必须是九个专项之一，题目 aspect 必须属于该专项；
-- 一套 3~6 题、题号 q1~q6、答案 key 必须与题目对应、至少 1 题有答案；
+- skill_key 必须是十个专项之一，题目 aspect 必须属于该专项；
+- 一套 3~10 题、题号 q1~q10、答案 key 必须与题目对应、至少 1 题有答案；
 - 复用 profile.service 的落库逻辑，不直接写 SQL。
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ _SKILL_HELP = "、".join(sorted(PROFILE_SKILL_KEYS))
 class AspectQuestionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: str = Field(pattern=r"^q[1-6]$", description="题号，使用 q1~q6")
+    key: str = Field(pattern=r"^q(?:[1-9]|10)$", description="题号，使用 q1~q10")
     aspect: str = Field(
         min_length=1,
         max_length=32,
@@ -46,11 +46,11 @@ class SaveHealthProfileAspectIn(BaseModel):
         description=f"档案专项 skill key，只能是：{_SKILL_HELP}",
     )
     questions: list[AspectQuestionIn] = Field(
-        min_length=3, max_length=6, description="本次生成的 3~6 个问题"
+        min_length=3, max_length=10, description="本次生成的 3~10 个问题"
     )
     answers: dict[str, str] = Field(
         default_factory=dict,
-        description="用户已回答内容：q1~q6 → 文本，至少 1 题，只填用户实际说出的答案",
+        description="用户已回答内容：q1~q10 → 文本，至少 1 题，只填用户实际说出的答案",
     )
 
 
@@ -83,7 +83,7 @@ save_health_profile_aspect = StructuredTool.from_function(
     name="save_health_profile_aspect",
     description=(
         "保存健康档案测试中某个专项 skill 生成的一套问题与用户已回答内容（仅该角色可用）。"
-        "只在用户明确确认写入健康档案后调用；questions 为 3~6 个，key 用 q1~q6，"
+        "只在用户明确确认写入健康档案后调用；questions 为 3~10 个，key 用 q1~q10，"
         "每题 aspect 必须属于 skill_key 对应的专项（不能自造），不要混入其他专项；"
         "answers 的 key 必须与 questions 对应，只填用户实际说出的答案，至少 1 题，"
         "不要推断或补写。同一套题再次保存只更新答案；题目变化会新增一套，"

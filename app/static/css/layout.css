@@ -80,10 +80,44 @@
 }
 .advice-refresh:hover { opacity: 1; background: var(--bg-section); }
 .advice-refresh[disabled] { opacity: .35; cursor: default; background: transparent; }
+.advice-wrap { position: relative; }
 .advice-lines {
   font-size: 12px; line-height: 1.6; color: var(--color-text);
   white-space: pre-line; overflow-wrap: anywhere;
+  max-height: 8em;
+  overflow: hidden;
+  transition: max-height .18s ease;
 }
+.advice-lines.is-expanded {
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.advice-wrap.is-clamped .advice-lines {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent);
+}
+.advice-toggle {
+  display: block;
+  margin: 4px 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent-strong);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.advice-toggle::after {
+  content: "↓";
+  margin-left: 3px;
+  font-size: 10px;
+}
+.advice-toggle[aria-expanded="true"]::after { content: "↑"; }
+.advice-toggle[hidden] { display: none; }
+.advice-toggle:hover { color: var(--color-accent); }
 
 /* ---------- 主区 ---------- */
 .main { flex: 1; margin-left: var(--sidebar-w); display: flex; flex-direction: column; min-width: 0; transition: margin-left .18s ease; }

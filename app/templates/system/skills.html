@@ -2,7 +2,7 @@
 {% block title %}内置技能 · 系统设置 · 体序{% endblock %}
 {% block extra_css %}
 <link rel="stylesheet" href="/static/css/pages/agent_skills.css?v=20261117t">
-<link rel="stylesheet" href="/static/css/pages/system_skills.css?v=20261124a">
+<link rel="stylesheet" href="/static/css/pages/system_skills.css?v=20261127a">
 {% endblock %}
 {% block content %}
 <div class="skills-page system-skills-page">
@@ -17,10 +17,10 @@
     <div class="rail-scroll">
       <div class="skills-group">
         <div class="skills-group-head">
-          <span class="skills-group-title">代码技能</span>
-          <span class="skills-count" id="codeCount">0</span>
+          <span class="skills-group-title">提示词技能</span>
+          <span class="skills-count" id="promptCount">0</span>
         </div>
-        <div class="skills-list" id="codeList"></div>
+        <div class="skills-list" id="promptList"></div>
       </div>
       <div class="skills-group">
         <div class="skills-group-head">
@@ -28,6 +28,13 @@
           <span class="skills-count" id="declarativeCount">0</span>
         </div>
         <div class="skills-list" id="declarativeList"></div>
+      </div>
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">代码技能</span>
+          <span class="skills-count" id="codeCount">0</span>
+        </div>
+        <div class="skills-list" id="codeList"></div>
       </div>
     </div>
   </aside>
@@ -47,14 +54,27 @@
     <div class="work-scroll">
       <div class="editor-empty" id="editorEmpty">
         <div class="empty-graphic" aria-hidden="true">
-          <span>技能名</span><i></i><span>声明式定义</span><i></i><span>斜杠触发</span>
+          <span>技能名</span><i></i><span>提示词或定义</span><i></i><span>斜杠触发</span>
         </div>
         <div class="empty-title">左侧选择一个内置技能，或新建一个</div>
-        <div class="empty-sub">代码技能由代码注册，定义只读、仅可启停；声明式技能可在此编辑并版本化。</div>
+        <div class="empty-sub">代码技能定义由代码注册、只读，名称与启停可在此调整；提示词与声明式技能可完整编辑。</div>
         <button class="btn btn-primary btn-sm" id="btnEmptyNew" type="button">新建内置技能</button>
       </div>
 
       <form class="skill-editor" id="skillForm" hidden>
+        <div class="kind-choice" id="kindRow" hidden>
+          <span class="kind-choice-label">新建类型</span>
+          <label class="kind-option">
+            <input type="radio" name="newKind" value="prompt" checked>
+            <span>提示词技能</span>
+          </label>
+          <label class="kind-option">
+            <input type="radio" name="newKind" value="declarative">
+            <span>声明式技能</span>
+          </label>
+          <span class="kind-choice-hint">提示词可直接编辑；声明式需写白名单 DSL。</span>
+        </div>
+
         <section class="editor-section">
           <div class="section-head">基本信息</div>
           <div class="field-grid">
@@ -64,11 +84,11 @@
             </label>
             <label class="field">
               <span>技能键（工具名 skill_&lt;key&gt;，创建后不可修改）</span>
-              <input class="input mono" id="fKey" maxlength="48" placeholder="body_fat_month" required>
+              <input class="input mono" id="fKey" maxlength="48" placeholder="training_tips" required>
             </label>
             <label class="field">
               <span>斜杠别名</span>
-              <input class="input" id="fAlias" maxlength="24" placeholder="体脂月报（可空）">
+              <input class="input" id="fAlias" maxlength="24" placeholder="训练建议（可空）">
             </label>
             <label class="field">
               <span>分类</span>
@@ -95,7 +115,17 @@
           </div>
         </section>
 
-        <section class="editor-section">
+        <section class="editor-section" id="promptSection" hidden>
+          <div class="section-head">
+            <span>技能提示词</span>
+            <span class="grants-note">模型会把提示词作为指令遵循</span>
+          </div>
+          <textarea class="prompt-editor" id="fPrompt" spellcheck="false" rows="16"
+                    placeholder="例如：你是体能教练。用户询问训练安排时，先判断其近期训练量与恢复情况，再给出不超过三条、可当天执行的建议，并说明依据。"></textarea>
+          <div class="editor-hint">提示词技能不取数、不追问；用户用 /别名 触发或模型自动调用时，提示词会作为技能指令返回给模型。</div>
+        </section>
+
+        <section class="editor-section" id="definitionSection" hidden>
           <div class="section-head">
             <span>技能定义</span>
             <span class="grants-note" id="definitionNote"></span>
@@ -106,11 +136,11 @@
           <div class="editor-hint" id="definitionHint">平台声明式 DSL：参数 date/int/bool/enum，数据源与算子走白名单，输出只支持数值、引用与 + - * /。</div>
         </section>
 
-        <section class="editor-section">
+        <section class="editor-section" id="testArgsSection">
           <div class="section-head"><span>试运行参数 JSON</span></div>
           <textarea class="code-editor mono" id="fTestArgs" rows="3" spellcheck="false"
                     placeholder='{"start_date":"2026-11-01","end_date":"2026-11-23"}'></textarea>
-          <div class="editor-hint">试运行使用已保存的版本；修改定义后请先保存，再试运行。参数缺省时按定义中的默认值补齐。</div>
+          <div class="editor-hint">试运行使用已保存的版本；修改内容后请先保存，再试运行。提示词技能参数固定为空对象。</div>
         </section>
 
         <div class="editor-result" id="editorResult"></div>
@@ -133,7 +163,7 @@
     <footer class="work-actions" id="workActions" hidden>
       <span class="work-hint" id="versionHint"></span>
       <span class="spacer"></span>
-      <button class="btn btn-ghost btn-sm" type="button" id="btnValidate">校验定义</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="btnValidate">校验内容</button>
       <button class="btn btn-ghost btn-sm" type="button" id="btnTest">试运行</button>
       <button class="btn btn-ghost btn-sm" type="button" id="btnRuns">运行记录</button>
       <button class="btn btn-ghost btn-sm danger" type="button" id="btnDelete">删除</button>
@@ -146,5 +176,5 @@
 <script>
 window.INIT_SYSTEM_SKILLS = {{ skills | tojson }};
 </script>
-<script src="/static/js/system_skills.js?v=20261124a"></script>
+<script src="/static/js/system_skills.js?v=20261127b"></script>
 {% endblock %}

@@ -50,7 +50,7 @@ def _questions(labels=None, aspects=None, keys=None):
     ]
 
 
-def _skill_row(db, key="profile_diet", name="饮食档案", alias="饮食档案"):
+def _skill_row(db, key="profile_diet", name="测试-饮食档案", alias="饮食档案"):
     skill = AgentSkill(
         scope="system", owner_user_id=None, skill_key=key, name=name,
         description="专项", kind="code", category="profile", status="active",
@@ -72,7 +72,7 @@ def test_save_aspect_creates_set_and_reads_back(db):
         db, user.id, "profile_diet", _questions(), {"q1": "公司食堂", "q3": "偶尔"}
     )
     assert result["status"] == "created"
-    assert result["skill_name"] == "饮食档案"
+    assert result["skill_name"] == "测试-饮食档案"
     assert result["question_count"] == 3
     assert result["answered_count"] == 2
 
@@ -99,6 +99,54 @@ def test_aspect_must_belong_to_current_skill(db):
         db, user.id, "profile_posture", posture_questions, {"q1": "驼背"}
     )
     assert result["status"] == "created"
+
+
+def test_exercise_accepts_sport_aspect(db):
+    user = _user(db, "exercise_sport_user")
+    questions = _questions(
+        ["平常主要做哪些运动？", "每周大概练几次？", "平时在哪里练？"],
+        ["sport", "training", "environment"],
+    )
+    result = service.save_health_profile_aspect(
+        db, user.id, "profile_exercise", questions, {"q1": "游泳和居家力量"}
+    )
+    assert result["status"] == "created"
+    view = service.get_health_profile(db, user.id)
+    latest = view.latest_for("profile_exercise")
+    assert latest["questions"][0]["aspect"] == "sport"
+    assert latest["questions"][0]["answer"] == "游泳和居家力量"
+
+
+def test_fitness_skill_accepts_more_questions_and_all_declared_aspects(db):
+    user = _user(db, "fitness_skills_user")
+    aspects = [
+        "goal", "exercise", "sport", "training",
+        "environment", "preference", "training", "goal",
+    ]
+    labels = [f"健身档案问题 {index + 1}？" for index in range(8)]
+    result = service.save_health_profile_aspect(
+        db, user.id,
+        "profile_fitness",
+        _questions(labels, aspects),
+        {"q1": "先增肌，再改善体能"},
+    )
+    assert result["status"] == "created"
+    assert result["skill_key"] == "profile_fitness"
+    view = service.get_health_profile(db, user.id)
+    latest = view.latest_for("profile_fitness")
+    assert len(latest["questions"]) == 8
+    assert {q["aspect"] for q in latest["questions"]} == {
+        "goal", "exercise", "sport", "training", "environment", "preference"
+    }
+
+
+def test_question_limit_allows_ten_questions():
+    questions = _questions(
+        labels=[f"第 {index + 1} 题？" for index in range(10)],
+        aspects=["goal"] * 10,
+        keys=[f"q{index + 1}" for index in range(10)],
+    )
+    assert len(normalize_questions(questions, frozenset({"goal"}))) == 10
 
 
 def test_same_signature_updates_and_different_signature_adds_set(db):
@@ -147,7 +195,8 @@ def test_questions_and_answers_are_lightly_constrained(db):
         service.save_health_profile_aspect(db, user.id, "profile_diet", _questions()[:2], {"q1": "x"})
     with pytest.raises(AppError):
         service.save_health_profile_aspect(db, user.id, "profile_diet", _questions() + _questions(
-            labels=["额外 1？", "额外 2？", "额外 3？", "额外 4？"], keys=["q4", "q5", "q6", "q7"]
+            labels=["额外 1？", "额外 2？", "额外 3？", "额外 4？", "额外 5？", "额外 6？", "额外 7？", "额外 8？"],
+            keys=["q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11"],
         ), {"q1": "x"})
     with pytest.raises(AppError):
         service.save_health_profile_aspect(db, user.id, "profile_diet", _questions(), {})
@@ -212,6 +261,61 @@ def test_page_items_save_and_clear(db):
     assert service.get_health_profile(db, user.id) is None
 
 
+def test_page_set_can_create_edit_and_append_questions(db):
+    user = _user(db, "page_set_user")
+
+    def page_questions(labels, aspects=None, answers=None):
+        aspects = aspects or ["diet"] * len(labels)
+        answers = answers or {}
+        return [
+            {
+                "local_key": f"q{index + 1}",
+                "aspect": aspects[index],
+                "label": label,
+                "hint": "",
+                "placeholder": "",
+                "max_length": 200,
+                "answer": answers.get(f"q{index + 1}", ""),
+            }
+            for index, label in enumerate(labels)
+        ]
+
+    created = service.save_health_profile_page_set(
+        db, user, "profile_diet", page_questions(["工作日午餐怎么解决？"], answers={"q1": "食堂"})
+    )
+    assert created["status"] == "created"
+    assert created["question_count"] == 1
+
+    updated = service.save_health_profile_page_set(
+        db, user, "profile_diet",
+        page_questions(["工作日午餐怎么解决？", "有哪些忌口？"], answers={"q2": "不吃辣"}),
+    )
+    assert updated["status"] == "updated"
+    assert updated["question_count"] == 2
+    view = service.get_health_profile(db, user.id)
+    assert view.set_count == 1
+    assert [q["label"] for q in view.sets[0]["questions"]] == ["工作日午餐怎么解决？", "有哪些忌口？"]
+
+    set_id = view.sets[0]["set_id"]
+    service.update_health_profile_page_set(
+        db, user, set_id,
+        page_questions(["午餐通常怎么解决？", "有哪些忌口？", "晚上吃夜宵吗？"], answers={"q3": "偶尔"}),
+    )
+    view = service.get_health_profile(db, user.id)
+    assert view.sets[0]["questions"][0]["label"] == "午餐通常怎么解决？"
+    assert view.sets[0]["questions"][2]["answer"] == "偶尔"
+
+    with pytest.raises(AppError):
+        service.save_health_profile_page_set(
+            db, user, "profile_diet", page_questions(["a"], ["sleep"])
+        )
+    with pytest.raises(AppError):
+        service.save_health_profile_page_set(
+            db, user, "profile_diet",
+            [{"local_key": "q2", "aspect": "diet", "label": "b", "max_length": 200}],
+        )
+
+
 def test_profile_info_returns_aspect_questionnaires(db):
     from app.modules.agent.tools import queries
 
@@ -225,7 +329,7 @@ def test_profile_info_returns_aspect_questionnaires(db):
     result = queries.profile_info(db, user.id)
     assert "health_profile" not in result
     assert "custom_health_profile" not in result
-    assert len(result["aspect_questionnaires"]) == 9
+    assert len(result["aspect_questionnaires"]) == len(ASPECT_SKILLS)
     assert result["health_profile_meta"]["set_count"] == 2
     diet = next(item for item in result["aspect_questionnaires"] if item["skill_key"] == "profile_diet")
     assert diet["latest"]["qa"][0]["answer"] == "食堂"
@@ -256,7 +360,7 @@ def test_all_aspect_prompts_load_from_shared_file():
 
     for aspect in ASPECT_SKILLS:
         text = load_system_prompt(aspect["prompt_id"])
-        assert "3~6" in text
+        assert "3~6" in text or "6~10" in text
         assert f"skill_key 固定为 {aspect['key']}" in text
 
 
@@ -264,7 +368,7 @@ def test_profile_skill_executes_prompt_and_existing_context(db):
     from app.modules.agent.skills.execution import execute_skill
 
     user = _user(db)
-    _skill_row(db, key="profile_goal", name="目标档案", alias="目标档案")
+    _skill_row(db, key="profile_goal", name="测试-目标档案", alias="目标档案")
     db.commit()
     resolved = available_skills(
         db, user.id, "health_profile_test", skill_grants=frozenset({"profile_goal"}),
@@ -339,7 +443,7 @@ def test_profile_save_finalizes_and_blocks_new_round():
         content=json.dumps({
             "ok": True,
             "status": "created",
-            "skill_name": "饮食档案",
+            "skill_name": "测试-饮食档案",
             "question_count": 4,
             "answered_count": 3,
         }, ensure_ascii=False),
@@ -350,7 +454,7 @@ def test_profile_save_finalizes_and_blocks_new_round():
     assert graph._after_tools(state) == "finalize_profile_save"
     result = graph._finalize_profile_save(state)
     text = result["messages"][0].content
-    assert "饮食档案" in text
+    assert "测试-饮食档案" in text
     assert "共 4 题" in text
     assert "记录 3 题答案" in text
     assert "本轮专项结束" in text
@@ -374,7 +478,7 @@ def test_health_profile_test_guard_is_v3_and_only_for_test_role():
     block = render_persona_block(persona)
     assert "只做专项" in block
     assert "所有题的 aspect 必须属于当前 skill" in block
-    assert "3~6" in block
+    assert "3~10" in block
     assert "至少覆盖 3 个不同 aspect" not in block.replace("旧规则中的“至少覆盖 3 个不同 aspect”", "")
 
     nutrition = ResolvedPersona(

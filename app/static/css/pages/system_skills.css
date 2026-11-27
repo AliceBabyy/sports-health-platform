@@ -44,6 +44,59 @@
   line-height: 1.7;
 }
 
+.system-skills-page .kind-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding: 11px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--bg-section);
+}
+
+.system-skills-page .kind-choice[hidden] {
+  display: none;
+}
+
+.system-skills-page .kind-choice-label {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.system-skills-page .kind-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--color-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.system-skills-page .kind-option input {
+  accent-color: var(--color-accent);
+  margin: 0;
+}
+
+.system-skills-page .kind-option:has(input:checked) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.system-skills-page .kind-choice-hint {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.system-skills-page #fPrompt {
+  min-height: 360px;
+}
+
 .system-skills-page .result-caveats {
   margin-top: 8px;
   color: var(--color-text-secondary);
@@ -95,6 +148,9 @@
     grid-column: auto;
   }
   .system-skills-page #fDefinition {
+    min-height: 260px;
+  }
+  .system-skills-page #fPrompt {
     min-height: 260px;
   }
 }

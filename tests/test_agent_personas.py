@@ -1,5 +1,6 @@
 """多角色（Persona）数据层、管理、会话绑定与预留接缝测试。"""
 import uuid
+from datetime import datetime
 
 import pytest
 
@@ -194,6 +195,28 @@ def test_service_create_conversation_carries_persona(db):
 
     normal = service.create_conversation(db, u1.id, None)
     assert normal["kind"] == "default" and normal["persona_id"] is None
+
+
+def test_create_conversation_reuses_untouched_empty_conversation(db):
+    """同类会话最多只留一个空会话：重复新建复用同一条，产生过消息的会话不再被复用。"""
+    u1 = _user(db, "empty_conv_u1")
+    first = service.create_conversation(db, u1.id, "qwen3.8-flash")
+    again = service.create_conversation(db, u1.id, None)
+    assert again["id"] == first["id"]
+    assert again["thread_id"] == first["thread_id"]
+    assert again["model_name"] == "qwen3.8-flash"
+
+    row = db.get(AgentConversation, first["id"])
+    row.last_message_at = datetime.now()
+    db.commit()
+    fresh = service.create_conversation(db, u1.id, None)
+    assert fresh["id"] != first["id"]
+
+    persona = create_persona(db, u1.id, _payload())
+    persona_conv = service.create_conversation(db, u1.id, None, persona.id)
+    assert persona_conv["persona_id"] == persona.id
+    assert persona_conv["id"] != fresh["id"]
+    assert service.create_conversation(db, u1.id, None, persona.id)["id"] == persona_conv["id"]
 
 
 def test_render_persona_block(db):

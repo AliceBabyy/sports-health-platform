@@ -40,7 +40,10 @@
       </div>
       <div class="d2 num">{{ today_str }}</div>
       <div class="d3">{{ weekday_cn }}{% if cycle_today and cycle_today.cycle_day %} · 周期第{{ cycle_today.cycle_day }}天{% endif %}</div>
-      <div class="advice-lines" id="adviceCard" data-status="{{ advice.get('status', 'none') }}">{% if advice.get('status') == 'ready' and advice.get('text') %}{{ advice.get('text') }}{% elif advice.get('status') == 'generating' %}今日建议生成中{% else %}今日建议未生成{% endif %}</div>
+      <div class="advice-wrap" id="adviceWrap">
+        <div class="advice-lines" id="adviceCard" data-status="{{ advice.get('status', 'none') }}">{% if advice.get('status') == 'ready' and advice.get('text') %}{{ advice.get('text') }}{% elif advice.get('status') == 'generating' %}今日建议生成中{% else %}今日建议未生成{% endif %}</div>
+        <button type="button" class="advice-toggle" id="adviceToggle" aria-expanded="false" aria-controls="adviceCard" hidden>展开</button>
+      </div>
       {% if cycle_today and cycle_today.sport_level %}
       <span class="tag tag-{{ cycle_today.sport_level }}">{{ cycle_today.sport_label }}</span>
       {% endif %}

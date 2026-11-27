@@ -1,4 +1,4 @@
-"""系统内置技能管理：声明式 CRUD/版本、代码技能只读、引用保护、试运行与运行记录。"""
+"""系统内置技能管理：声明式 CRUD/版本、代码技能元数据编辑与定义只读、引用保护、试运行与运行记录。"""
 from datetime import date, datetime
 
 import pytest
@@ -10,6 +10,7 @@ from app.modules.agent.skills.registry import available_skills
 from app.modules.auth.models import User
 from app.modules.body.models import BodyBasicRecord
 from app.modules.system.skills import service
+from scripts.seed_agent_skills import seed as seed_agent_skills
 
 
 def _definition(**overrides):
@@ -85,6 +86,7 @@ def test_create_and_list_system_skill(db):
     assert created["version_no"] == 1
     assert created["published"] is True
     assert created["can_edit"] is True
+    assert created["can_edit_definition"] is True
     assert created["can_delete"] is True
 
     listed = service.list_system_skills(db)
@@ -139,11 +141,43 @@ def test_save_versions_only_when_definition_changes(db):
     assert any(item["field"] == "key" for item in exc.value.errors)
 
 
-def test_code_skill_is_read_only_but_can_toggle_status(db):
+def test_code_skill_metadata_editable_but_definition_read_only(db):
     skill = _code_skill(db)
-    with pytest.raises(AppError) as exc:
-        service.save_system_skill(db, skill.id, _payload(name="改不了"), None)
-    assert exc.value.status == 400
+    saved = service.save_system_skill(db, skill.id, {
+        "key": skill.skill_key,
+        "name": "减重分析调整",
+        "slash_alias": "减重分析2",
+        "description": "管理员调整后的描述",
+        "category": "body",
+        "status": "active",
+    }, None)
+    assert saved["name"] == "减重分析调整"
+    assert saved["description"] == "管理员调整后的描述"
+    assert saved["slash_alias"] == "减重分析2"
+    assert saved["version_no"] == 1
+    assert saved["can_edit"] is True
+    assert saved["can_edit_definition"] is False
+    assert available_skills(db, 0)[0].name == "减重分析调整"
+
+    changed_definition = {
+        "key": skill.skill_key,
+        "name": "减重分析调整",
+        "slash_alias": "减重分析2",
+        "description": "管理员调整后的描述",
+        "category": "body",
+        "status": "active",
+        "definition": {"kind": "code", "code_key": "other_code"},
+    }
+    with pytest.raises(SkillValidationError) as exc:
+        service.save_system_skill(db, skill.id, changed_definition, None)
+    assert any(item["field"] == "definition" for item in exc.value.errors)
+
+    with pytest.raises(SkillValidationError) as exc:
+        service.save_system_skill(db, skill.id, {
+            **changed_definition, "kind": "prompt",
+            "definition": {"schema_version": 1, "prompt": "不能转成提示词"},
+        }, None)
+    assert any(item["field"] == "kind" for item in exc.value.errors)
 
     disabled = service.set_system_skill_status(db, skill.id, "disabled")
     assert disabled["status"] == "disabled"
@@ -152,6 +186,25 @@ def test_code_skill_is_read_only_but_can_toggle_status(db):
     with pytest.raises(AppError) as exc:
         service.delete_system_skill(db, skill.id)
     assert exc.value.status == 400
+
+
+def test_seed_does_not_overwrite_code_metadata(db):
+    skill = _code_skill(db, name="管理员改过的名字")
+    skill.description = "管理员改过的描述"
+    skill.slash_alias = "管理员别名"
+    skill.status = "disabled"
+    db.commit()
+
+    seed_agent_skills(db)
+
+    row = db.query(AgentSkill).filter(
+        AgentSkill.scope == "system", AgentSkill.skill_key == "lose_weight_analyse"
+    ).one()
+    assert row.name == "管理员改过的名字"
+    assert row.description == "管理员改过的描述"
+    assert row.slash_alias == "管理员别名"
+    assert row.status == "disabled"
+    assert row.current_version_no == 1
 
 
 def test_delete_rejects_persona_reference(db):
@@ -173,11 +226,56 @@ def test_delete_rejects_persona_reference(db):
 
 
 def test_validate_definition_endpoint_payload(db):
-    assert service.validate_definition(_definition()) == {"ok": True, "errors": [], "warnings": []}
+    assert service.validate_definition("declarative", _definition()) == {
+        "ok": True, "errors": [], "warnings": [],
+    }
     bad = _definition(outputs=[{"key": "avg", "label": "平均", "value": "import os"}])
-    result = service.validate_definition(bad)
+    result = service.validate_definition("declarative", bad)
     assert result["ok"] is False
     assert result["errors"]
+
+
+def test_create_and_edit_platform_prompt_skill(db):
+    payload = {
+        "key": "training_tips",
+        "name": "训练建议",
+        "slash_alias": "训练建议",
+        "description": "按近期训练量给出当天可执行建议",
+        "category": "fitness",
+        "kind": "prompt",
+        "status": "active",
+        "definition": {"schema_version": 1, "prompt": "先复盘最近七天训练量与恢复，再给三条建议。"},
+    }
+    created = service.create_system_skill(db, payload, None)
+    assert created["kind"] == "prompt"
+    assert created["can_edit"] is True
+    assert created["can_edit_definition"] is True
+    assert created["can_delete"] is True
+    assert created["version_no"] == 1
+    assert [skill.key for skill in available_skills(db, 0)] == ["training_tips"]
+
+    saved = service.save_system_skill(db, created["id"], {
+        **payload, "definition": {"schema_version": 1, "prompt": "先复盘最近三天训练量。"},
+    }, None)
+    assert saved["version_no"] == 2
+
+    with pytest.raises(SkillValidationError) as exc:
+        service.save_system_skill(db, created["id"], {
+            **payload, "kind": "declarative", "definition": _definition(),
+        }, None)
+    assert any(item["field"] == "kind" for item in exc.value.errors)
+
+    result = service.test_system_skill(db, _user(db).id, created["id"], {})
+    assert result["status"] == "ok"
+    assert result["summary"] == "先复盘最近三天训练量。"
+    assert result["facts"]["prompt_chars"] == len("先复盘最近三天训练量。")
+
+
+def test_validate_prompt_definition(db):
+    assert service.validate_definition("prompt", {"schema_version": 1, "prompt": "按教练口吻回答"})["ok"] is True
+    empty = service.validate_definition("prompt", {"schema_version": 1, "prompt": "   "})
+    assert empty["ok"] is False
+    assert any(item["field"] == "prompt" for item in empty["errors"])
 
 
 def test_test_run_records_audit_and_lists_runs(db):

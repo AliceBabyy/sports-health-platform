@@ -10,6 +10,7 @@ from app.modules.profile.aspect_skills import skill_name
 from app.modules.profile.schemas import (
     AccountDeleteIn,
     HealthProfileIn,
+    HealthProfileSetIn,
     PasswordChangeIn,
     ProfileUpdateIn,
 )
@@ -102,6 +103,29 @@ def save_health_profile(
 ):
     """逐题保存已存储档案：空串清空该题，但保留该套与题目结构。"""
     service.save_health_profile_items(db, user, payload.items)
+    return _health_profile_payload(db, user)
+
+
+@router.post("/health-profile/sets")
+def create_health_profile_set(
+    payload: HealthProfileSetIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """页面新增专项档案：允许 1~10 题；已有该专项时直接编辑最近一套。"""
+    service.save_health_profile_page_set(db, user, payload.skill_key, payload.questions)
+    return _health_profile_payload(db, user)
+
+
+@router.put("/health-profile/sets/{set_id}")
+def update_health_profile_set(
+    set_id: str,
+    payload: HealthProfileSetIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """页面编辑专项档案：可修改问题与答案，并在末尾追加新题。"""
+    service.update_health_profile_page_set(db, user, set_id, payload.questions, payload.skill_key)
     return _health_profile_payload(db, user)
 
 

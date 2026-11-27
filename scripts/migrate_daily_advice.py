@@ -22,9 +22,9 @@ DDL = [
         advice_date     date         NOT NULL,
         status          varchar(16)  NOT NULL DEFAULT 'generating',
         mode            varchar(16)  NOT NULL DEFAULT 'ai',
-        verdict         varchar(16)  NULL,
-        focus           varchar(24)  NULL,
-        intensity       varchar(8)   NULL,
+        verdict         varchar(64)  NULL,
+        focus           varchar(120) NULL,
+        intensity       varchar(64)  NULL,
         body_parts      jsonb        NULL,
         text            varchar(200) NULL,
         facts           jsonb        NOT NULL,
@@ -40,29 +40,36 @@ DDL = [
         updated_at      timestamp    NOT NULL DEFAULT now(),
         CONSTRAINT uq_daily_advice_user_date UNIQUE (user_id, advice_date),
         CONSTRAINT ck_daily_advice_status CHECK (status IN ('generating', 'ready', 'failed')),
-        CONSTRAINT ck_daily_advice_mode CHECK (mode IN ('ai', 'rule')),
-        CONSTRAINT ck_daily_advice_verdict CHECK (verdict IS NULL OR verdict IN ('适合', '克制', '休息')),
-        CONSTRAINT ck_daily_advice_intensity CHECK (intensity IS NULL OR intensity IN ('低', '中', '高'))
+        CONSTRAINT ck_daily_advice_mode CHECK (mode IN ('ai', 'rule'))
     )
     """,
 ]
 
+# 2026-11-27 表达升级：旧库的固定三档 CHECK 需要移除，自由文本需要更长列宽。
+ALTERS = [
+    "ALTER TABLE daily_advice ALTER COLUMN verdict TYPE varchar(64)",
+    "ALTER TABLE daily_advice ALTER COLUMN focus TYPE varchar(120)",
+    "ALTER TABLE daily_advice ALTER COLUMN intensity TYPE varchar(64)",
+    "ALTER TABLE daily_advice DROP CONSTRAINT IF EXISTS ck_daily_advice_verdict",
+    "ALTER TABLE daily_advice DROP CONSTRAINT IF EXISTS ck_daily_advice_intensity",
+]
+
 COMMENTS = [
-    "COMMENT ON TABLE daily_advice IS '每日训练建议（侧栏常驻；一天一条，事实快照 + 一句话判断）'",
+    "COMMENT ON TABLE daily_advice IS '每日训练建议（侧栏常驻；一天一条，事实快照 + 五段自然表达）'",
     "COMMENT ON COLUMN daily_advice.id IS '主键'",
     "COMMENT ON COLUMN daily_advice.user_id IS '用户 FK，删除账号时级联删除'",
     "COMMENT ON COLUMN daily_advice.advice_date IS '建议所属日（一天一条）'",
     "COMMENT ON COLUMN daily_advice.status IS '状态：generating / ready / failed'",
     "COMMENT ON COLUMN daily_advice.mode IS '生成方式：ai（模型生成）/ rule（无数据规则文案，不调模型）'",
-    "COMMENT ON COLUMN daily_advice.verdict IS '今日判断：适合 / 克制 / 休息（决定标签配色）'",
-    "COMMENT ON COLUMN daily_advice.focus IS '训练方向：有氧 / 无氧 / 有氧+无氧 / 恢复'",
-    "COMMENT ON COLUMN daily_advice.intensity IS '建议强度：低 / 中 / 高'",
+    "COMMENT ON COLUMN daily_advice.verdict IS '今日结论（自由文本，前缀为 适合 / 适合但收敛 / 克制 / 休息，决定标签配色）'",
+    "COMMENT ON COLUMN daily_advice.focus IS '训练安排（自由文本：动作方向、部位与避让，不限于有氧/无氧）'",
+    "COMMENT ON COLUMN daily_advice.intensity IS '建议强度（自由文本，前缀为 很低 / 低 / 中 / 高 / 很高，后接 RPE/时长口径）'",
     "COMMENT ON COLUMN daily_advice.body_parts IS '建议的健身部位数组（最多 2 个）'",
-    "COMMENT ON COLUMN daily_advice.text IS '侧栏三句正文（≤124 字）'",
+    "COMMENT ON COLUMN daily_advice.text IS '侧栏五句正文（判断/训练/播报/提示/鼓励，≤170 字）'",
     "COMMENT ON COLUMN daily_advice.facts IS '生成时的事实快照（确定性计算，含硬约束）'",
     "COMMENT ON COLUMN daily_advice.data_hash IS 'facts 的 SHA-256，用于同日重算判断'",
     "COMMENT ON COLUMN daily_advice.model_name IS '生成所用模型'",
-    "COMMENT ON COLUMN daily_advice.prompt_version IS '提示词版本 ID（如 daily_advice.v3）'",
+    "COMMENT ON COLUMN daily_advice.prompt_version IS '提示词版本 ID（如 daily_advice.v4）'",
     "COMMENT ON COLUMN daily_advice.generation_ms IS '模型耗时 ms'",
     "COMMENT ON COLUMN daily_advice.attempts IS '当天尝试次数（失败重试上限用）'",
     "COMMENT ON COLUMN daily_advice.error_code IS '失败错误码'",
@@ -76,6 +83,8 @@ COMMENTS = [
 def main() -> None:
     with engine.begin() as conn:
         for sql in DDL:
+            conn.execute(text(sql))
+        for sql in ALTERS:
             conn.execute(text(sql))
         for sql in COMMENTS:
             conn.execute(text(sql))

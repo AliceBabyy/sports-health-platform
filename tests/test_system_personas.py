@@ -39,7 +39,7 @@ def test_system_persona_rejects_profile_grants_outside_test_role(db):
     from app.modules.agent.models import AgentSkill, AgentSkillVersion
 
     row = AgentSkill(
-        scope="system", skill_key="profile_goal", name="目标档案",
+        scope="system", skill_key="profile_goal", name="测试-目标档案",
         description="目标专项", kind="code", category="profile",
         status="active", current_version_no=1,
     )
@@ -140,7 +140,7 @@ def test_system_persona_can_grant_restricted_profile_skill(db):
     from app.modules.agent.models import AgentSkill, AgentSkillVersion
 
     row = AgentSkill(
-        scope="system", skill_key="profile_goal", name="目标档案",
+        scope="system", skill_key="profile_goal", name="测试-目标档案",
         description="目标专项", kind="code", category="profile",
         status="active", current_version_no=1,
     )

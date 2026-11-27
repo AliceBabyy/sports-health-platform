@@ -18,7 +18,6 @@ from app.modules.auth.models import User
 from app.modules.daily_advice import ai
 from app.modules.daily_advice.facts import build_facts
 from app.modules.daily_advice.models import (
-    INTENSITY_LOW,
     MODE_AI,
     MODE_RULE,
     STATUS_FAILED,
@@ -27,6 +26,7 @@ from app.modules.daily_advice.models import (
     VERDICT_SUITABLE,
     VERDICT_TAGS,
     DailyAdvice as DailyAdviceRow,
+    verdict_level,
 )
 from app.modules.daily_advice.schemas import DailyAdvice
 from config import settings
@@ -37,7 +37,13 @@ GENERATING_STALE_MINUTES = 5
 # 手动刷新连点保护：同一行在该窗口内不重复调模型
 MANUAL_REUSE_SECONDS = 60
 
-RULE_TEXT = "- 数据还少，先快走 20~30 分钟\n- 开始记录后建议会更贴合你"
+RULE_TEXT = (
+    "- 数据还少，今天先按低强度来，20~30 分钟轻活动\n"
+    "- 快走、拉伸或全身轻力量都可以\n"
+    "- 最近还没有健身记录\n"
+    "- 补一份健康档案和状态记录，建议会更贴合你\n"
+    "- 慢慢来，先把节奏找回来"
+)
 
 
 def data_hash(facts: dict) -> str:
@@ -86,7 +92,7 @@ def _payload(row: DailyAdviceRow) -> dict:
         "intensity": row.intensity,
         "body_parts": list(row.body_parts or []),
         "text": row.text,
-        "tag": VERDICT_TAGS.get(row.verdict),
+        "tag": VERDICT_TAGS.get(verdict_level(row.verdict)),
         "generated_at": row.generated_at.isoformat(timespec="seconds") if row.generated_at else None,
         "error": (
             {"code": row.error_code, "message": row.error_message}
@@ -107,8 +113,8 @@ def _rule_advice() -> DailyAdvice:
     """无任何可用数据时的固定文案：不调模型。"""
     return DailyAdvice(
         verdict=VERDICT_SUITABLE,
-        focus="有氧",
-        intensity=INTENSITY_LOW,
+        focus="低强度有氧或全身轻活动，先把节奏找回来",
+        intensity="低：RPE 3~4，20~30 分钟，能正常对话",
         body_parts=[],
         text=RULE_TEXT,
     )

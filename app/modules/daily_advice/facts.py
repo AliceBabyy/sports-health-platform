@@ -29,6 +29,7 @@ from app.modules.cycle import service as cycle_service
 from app.modules.cycle.models import PeriodLog, PeriodRecord
 from app.modules.dance import service as dance_service
 from app.modules.dance.models import DanceRecord
+from app.modules.daily_advice.models import STATUS_READY, DailyAdvice as DailyAdviceRow
 from app.modules.overview.service import fitness_minutes
 from app.modules.profile import service as profile_service
 from app.modules.state_record import service as state_service
@@ -291,6 +292,29 @@ def _recent_block(db: Session, user_id: int, day: date) -> dict:
             else None
         ),
     }
+    last_fitness = None
+    if last is not None:
+        entry = _fitness_entry(last)
+        parts = [
+            part.strip()
+            for part in (entry.get("body_parts") or "").split("+")
+            if part.strip()
+        ]
+        if not parts:
+            parts = list(dict.fromkeys(
+                item.get("part")
+                for item in entry.get("items") or []
+                if item.get("part")
+            ))
+        last_fitness = {
+            "date": last.date.isoformat(),
+            "days_ago": since["days"],
+            "hours_ago": since["hours"],
+            "minutes": entry.get("minutes"),
+            "volume": entry.get("volume"),
+            "body_parts": parts,
+            "item_count": entry.get("item_count"),
+        }
 
     return {
         "window_3d": window3,
@@ -299,6 +323,7 @@ def _recent_block(db: Session, user_id: int, day: date) -> dict:
         "body_part_counts": dict(sorted(body_parts.items(), key=lambda kv: -kv[1])),
         "recent_parts_2d": sorted(parts_2d, key=lambda part: -parts_2d[part]),
         "since_last_fitness": since,
+        "last_fitness": last_fitness,
     }
 
 
@@ -496,6 +521,33 @@ def _health_profile_block(db: Session, user_id: int) -> list[dict]:
     return result
 
 
+def _recent_advice_block(db: Session, user_id: int, day: date, limit: int = 3) -> list[dict]:
+    """最近几天的已生成建议，供提示词换角度、避免每天重复同一句提醒。"""
+    rows = (
+        db.query(DailyAdviceRow)
+        .filter(
+            DailyAdviceRow.user_id == user_id,
+            DailyAdviceRow.advice_date < day,
+            DailyAdviceRow.status == STATUS_READY,
+        )
+        .order_by(DailyAdviceRow.advice_date.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "date": row.advice_date.isoformat(),
+            "verdict": row.verdict,
+            "focus": row.focus,
+            "intensity": row.intensity,
+            "body_parts": list(row.body_parts or []),
+            "text": row.text,
+        }
+        for row in rows
+        if row.text
+    ]
+
+
 def build_facts(db: Session, user, day: date | None = None) -> dict:
     """构建一天的事实快照；同一份数据同时供模型与回溯使用。"""
     day = day or today_local()
@@ -518,6 +570,7 @@ def build_facts(db: Session, user, day: date | None = None) -> dict:
         "today_records": today["records"],
         "plans_today": today["plans"],
         "recent_load": recent,
+        "recent_advice": _recent_advice_block(db, user.id, day),
         "state": state,
         "cycle": cycle,
         "hard_limits": _hard_limits(body, yesterday, recent, state, today, cycle),

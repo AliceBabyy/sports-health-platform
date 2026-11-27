@@ -1,4 +1,4 @@
-/* 系统内置技能管理：平台技能列表 + 声明式定义编辑 + 启停/删除/校验/试运行/运行记录 */
+/* 系统内置技能管理：平台技能列表 + 提示词/声明式编辑 + 启停/删除/校验/试运行/运行记录 */
 (function () {
   "use strict";
 
@@ -8,7 +8,7 @@
     readOnly: false,
   };
 
-  const KIND_LABEL = { code: "代码实现", declarative: "声明式" };
+  const KIND_LABEL = { code: "代码实现", prompt: "提示词", declarative: "声明式" };
   const RUN_STATUS = {
     ok: "成功",
     failed: "失败",
@@ -21,17 +21,24 @@
   const $ = id => document.getElementById(id);
 
   function initEls() {
-    ["codeList", "declarativeList", "codeCount", "declarativeCount", "editorEmpty",
-      "skillForm", "editorKicker", "editorName", "editorSlash", "editorBadges",
-      "fName", "fKey", "fAlias", "fCategory", "fStatus", "fDescription",
+    ["codeList", "promptList", "declarativeList", "codeCount", "promptCount",
+      "declarativeCount", "editorEmpty", "skillForm", "editorKicker", "editorName",
+      "editorSlash", "editorBadges", "kindRow", "fName", "fKey", "fAlias", "fCategory",
+      "fStatus", "fDescription", "promptSection", "fPrompt", "definitionSection",
       "fDefinition", "definitionNote", "definitionHint", "codeNote", "fTestArgs",
-      "editorResult", "runPanel", "runList", "btnNewSkill", "btnEmptyNew",
+      "testArgsSection", "editorResult", "runPanel", "runList", "btnNewSkill",
+      "btnEmptyNew",
       "workActions", "btnValidate", "btnTest", "btnRuns", "btnDelete", "btnSave",
       "btnCloseRuns", "versionHint"].forEach(id => { els[id] = $(id); });
   }
 
   function findSkill(id) {
     return S.skills.find(item => item.id === Number(id)) || null;
+  }
+
+  function newKind() {
+    const checked = document.querySelector('input[name="newKind"]:checked');
+    return checked ? checked.value : "prompt";
   }
 
   function badge(text, cls) {
@@ -59,12 +66,17 @@
 
   function renderList() {
     const code = S.skills.filter(item => item.kind === "code");
+    const prompt = S.skills.filter(item => item.kind === "prompt");
     const declarative = S.skills.filter(item => item.kind === "declarative");
     els.codeCount.textContent = String(code.length);
+    els.promptCount.textContent = String(prompt.length);
     els.declarativeCount.textContent = String(declarative.length);
     els.codeList.innerHTML = code.length
       ? code.map(itemHtml).join("")
       : '<div class="si-empty">暂无代码技能</div>';
+    els.promptList.innerHTML = prompt.length
+      ? prompt.map(itemHtml).join("")
+      : '<div class="si-empty">暂无提示词技能</div>';
     els.declarativeList.innerHTML = declarative.length
       ? declarative.map(itemHtml).join("")
       : '<div class="si-empty">暂无声明式技能</div>';
@@ -73,23 +85,49 @@
     });
   }
 
+  function setKindMode(kind) {
+    const isPrompt = kind === "prompt";
+    els.promptSection.hidden = !isPrompt;
+    els.definitionSection.hidden = isPrompt;
+    els.testArgsSection.hidden = isPrompt;
+    if (!els.definitionSection.hidden) {
+      els.definitionNote.textContent = kind === "code" ? "只读" : "声明式";
+    }
+  }
+
   function setReadOnly(readOnly) {
     S.readOnly = readOnly;
-    ["fName", "fKey", "fAlias", "fCategory", "fDescription", "fDefinition"].forEach(id => {
-      els[id].disabled = readOnly;
-    });
+    ["fName", "fKey", "fAlias", "fCategory", "fDescription", "fDefinition", "fPrompt"]
+      .forEach(id => { els[id].disabled = readOnly; });
     els.fStatus.disabled = false;
     els.btnValidate.hidden = readOnly;
     els.btnDelete.hidden = readOnly || !(S.current && S.current.can_delete);
     els.btnSave.textContent = readOnly ? "保存状态" : "保存并生效";
     els.codeNote.hidden = !readOnly;
     els.definitionHint.hidden = readOnly;
-    els.definitionNote.textContent = readOnly ? "只读" : "声明式";
     els.fDefinition.classList.toggle("is-readonly", readOnly);
     if (readOnly) {
       els.codeNote.textContent = "代码技能由平台代码注册，定义不可在页面编辑；"
         + "可停用或重新启用，停用后立即从系统图中移除。";
     }
+  }
+
+  function setCodeMode() {
+    S.readOnly = false;
+    ["fName", "fAlias", "fCategory", "fDescription", "fStatus"]
+      .forEach(id => { els[id].disabled = false; });
+    els.fKey.disabled = false;
+    els.fKey.readOnly = true;
+    els.fDefinition.disabled = true;
+    els.fPrompt.disabled = true;
+    els.btnValidate.hidden = true;
+    els.btnDelete.hidden = true;
+    els.btnSave.textContent = "保存信息";
+    els.codeNote.hidden = false;
+    els.definitionHint.hidden = true;
+    els.fDefinition.classList.add("is-readonly");
+    els.codeNote.textContent = "代码技能由平台代码注册，定义不可编辑；"
+      + "名称、斜杠别名、描述、分类与启停可在此调整。";
   }
 
   function selectSkill(id) {
@@ -101,6 +139,7 @@
     els.skillForm.hidden = false;
     els.workActions.hidden = false;
     els.runPanel.hidden = true;
+    els.kindRow.hidden = true;
     els.editorSlash.hidden = false;
     els.editorName.textContent = skill.name;
     els.editorSlash.textContent = "/" + (skill.slash_alias || skill.key);
@@ -121,14 +160,21 @@
     els.fCategory.value = skill.category || "custom";
     els.fStatus.value = skill.status || "active";
     els.fDescription.value = skill.description || "";
-    els.fDefinition.value = JSON.stringify(skill.definition || {}, null, 2);
+    els.fPrompt.value = skill.kind === "prompt"
+      ? ((skill.definition && skill.definition.prompt) || "")
+      : "";
+    els.fDefinition.value = skill.kind === "prompt"
+      ? ""
+      : JSON.stringify(skill.definition || {}, null, 2);
     els.fTestArgs.value = "{}";
     els.btnRuns.hidden = false;
+    setKindMode(skill.kind);
     els.versionHint.textContent = skill.kind === "code"
-      ? "代码技能由代码实现，定义不可编辑；状态保存后立即生效"
+      ? "代码技能定义由代码维护；名称、别名、描述、分类与状态保存后立即生效"
       : "当前 " + (skill.version_no ? "v" + skill.version_no : "未发布") +
-        "；定义变更生成新版本并立即生效";
-    setReadOnly(skill.kind === "code");
+        "；内容变更生成新版本并立即生效";
+    if (skill.kind === "code") setCodeMode();
+    else setReadOnly(false);
     clearResult();
   }
 
@@ -137,6 +183,7 @@
     els.skillForm.hidden = true;
     els.workActions.hidden = true;
     els.runPanel.hidden = true;
+    els.kindRow.hidden = true;
     els.editorEmpty.hidden = false;
     els.editorName.textContent = "选择或新建技能";
     els.editorKicker.textContent = "内置技能";
@@ -147,6 +194,13 @@
     renderList();
   }
 
+  function syncNewKind() {
+    if (S.current) return;
+    const kind = newKind();
+    els.editorBadges.innerHTML = badge(KIND_LABEL[kind]) + badge("平台内置") + badge("v1");
+    setKindMode(kind);
+  }
+
   function newSkill() {
     S.current = null;
     renderList();
@@ -154,11 +208,11 @@
     els.skillForm.hidden = false;
     els.workActions.hidden = false;
     els.runPanel.hidden = true;
+    els.kindRow.hidden = false;
     els.editorSlash.hidden = false;
     els.editorName.textContent = "新建内置技能";
     els.editorSlash.textContent = "/技能名";
     els.editorKicker.textContent = "内置技能 · 新建";
-    els.editorBadges.innerHTML = badge("声明式") + badge("平台内置") + badge("v1");
     els.fName.value = "";
     els.fKey.value = "builtin_" + Date.now().toString(36);
     els.fKey.readOnly = false;
@@ -166,6 +220,7 @@
     els.fCategory.value = "custom";
     els.fStatus.value = "active";
     els.fDescription.value = "";
+    els.fPrompt.value = "";
     els.fDefinition.value = "";
     els.fTestArgs.value = "{}";
     els.btnRuns.hidden = true;
@@ -173,6 +228,8 @@
     setReadOnly(false);
     els.btnDelete.hidden = true;
     els.btnTest.hidden = false;
+    els.editorBadges.innerHTML = "";
+    syncNewKind();
     clearResult();
     els.fName.focus();
   }
@@ -185,14 +242,25 @@
     }
   }
 
-  function collect() {
+  function currentKind() {
+    return S.current ? S.current.kind : newKind();
+  }
+
+  function collectDefinition(kind) {
+    if (kind === "prompt") {
+      const prompt = els.fPrompt.value.trim();
+      if (!prompt) return { error: "提示词不能为空" };
+      return { value: { schema_version: 1, prompt } };
+    }
+    return parseJsonField(els.fDefinition.value, "技能定义");
+  }
+
+  function collectMeta() {
     const name = els.fName.value.trim();
     const key = els.fKey.value.trim();
     const alias = els.fAlias.value.trim();
     if (!name) return { error: "技能名不能为空" };
     if (!key) return { error: "技能键不能为空" };
-    const parsed = parseJsonField(els.fDefinition.value, "技能定义");
-    if (parsed.error) return parsed;
     return {
       body: {
         key: key,
@@ -200,9 +268,22 @@
         slash_alias: alias || null,
         description: els.fDescription.value.trim(),
         category: els.fCategory.value,
-        kind: "declarative",
-        definition: parsed.value,
         status: els.fStatus.value,
+      },
+    };
+  }
+
+  function collect() {
+    const meta = collectMeta();
+    if (meta.error) return meta;
+    const kind = currentKind();
+    const parsed = collectDefinition(kind);
+    if (parsed.error) return parsed;
+    return {
+      body: {
+        ...meta.body,
+        kind: kind,
+        definition: parsed.value,
       },
     };
   }
@@ -260,13 +341,18 @@
 
   async function save() {
     if (S.current && S.current.kind === "code") {
-      const status = els.fStatus.value;
-      await App.api("/api/system/system-skills/" + S.current.id + "/status", {
-        method: "POST", body: { status },
-      });
-      await refresh(S.current.id);
-      showResult({ ok: true, summary: status === "active" ? "已启用，立即生效" : "已停用，立即从系统图移除" }, false);
-      App.toast("状态已保存");
+      const collected = collectMeta();
+      if (collected.error) { showResult({ summary: collected.error }, true); return; }
+      try {
+        const saved = await App.api("/api/system/system-skills/" + S.current.id, {
+          method: "PUT", body: collected.body,
+        });
+        await refresh(saved.id);
+        showResult({ ok: true, summary: "已保存名称、描述、分类、别名与状态，立即生效" }, false);
+        App.toast("信息已保存");
+      } catch (err) {
+        showResult({ errors: err.errors || [], summary: err.message }, true);
+      }
       return;
     }
     const collected = collect();
@@ -277,7 +363,7 @@
           method: "PUT", body: collected.body,
         });
         await refresh(saved.id);
-        showResult({ ok: true, summary: "已保存：v" + (saved.version_no || "—") + "，定义已生效" }, false);
+        showResult({ ok: true, summary: "已保存：v" + (saved.version_no || "—") + "，内容已生效" }, false);
         App.toast("已保存");
       } else {
         const created = await App.api("/api/system/system-skills", {
@@ -292,22 +378,27 @@
     }
   }
 
-  async function validateDefinition() {
-    if (S.readOnly) return;
-    const parsed = parseJsonField(els.fDefinition.value, "技能定义");
+  async function validateContent() {
+    if (S.readOnly || (S.current && S.current.kind === "code")) return;
+    const kind = currentKind();
+    const parsed = collectDefinition(kind);
     if (parsed.error) { showResult({ summary: parsed.error }, true); return; }
     const data = await App.api("/api/system/system-skills/validate", {
-      method: "POST", body: { kind: "declarative", definition: parsed.value },
+      method: "POST", body: { kind: kind, definition: parsed.value },
     });
     showResult(data, !data.ok);
   }
 
   async function runTest() {
     if (!S.current) { showResult({ summary: "请先保存技能后再试运行" }, true); return; }
-    const parsed = parseJsonField(els.fTestArgs.value, "试运行参数");
-    if (parsed.error) { showResult({ summary: parsed.error }, true); return; }
+    let args = {};
+    if (S.current.kind !== "prompt") {
+      const parsed = parseJsonField(els.fTestArgs.value, "试运行参数");
+      if (parsed.error) { showResult({ summary: parsed.error }, true); return; }
+      args = parsed.value;
+    }
     const result = await App.api("/api/system/system-skills/" + S.current.id + "/test", {
-      method: "POST", body: { args: parsed.value },
+      method: "POST", body: { args },
     });
     await refresh(S.current.id);
     showResult(result, !result.ok);
@@ -353,7 +444,7 @@
     els.btnNewSkill.addEventListener("click", newSkill);
     els.btnEmptyNew.addEventListener("click", newSkill);
     els.btnSave.addEventListener("click", () => save().catch(err => showResult({ summary: err.message }, true)));
-    els.btnValidate.addEventListener("click", () => validateDefinition().catch(err =>
+    els.btnValidate.addEventListener("click", () => validateContent().catch(err =>
       showResult({ summary: err.message }, true)));
     els.btnTest.addEventListener("click", () => runTest().catch(err =>
       showResult({ summary: err.message }, true)));
@@ -362,12 +453,19 @@
     els.btnDelete.addEventListener("click", () => deleteSkill().catch(err =>
       showResult({ summary: err.message }, true)));
     els.btnCloseRuns.addEventListener("click", () => { els.runPanel.hidden = true; });
+    document.querySelectorAll('input[name="newKind"]').forEach(radio => {
+      radio.addEventListener("change", syncNewKind);
+    });
   }
 
   document.addEventListener("DOMContentLoaded", () => {
     initEls();
     bind();
     renderList();
-    if (S.skills.length) selectSkill(S.skills[0].id);
+    const editable = S.skills.find(item => item.kind === "prompt") ||
+      S.skills.find(item => item.kind === "declarative") ||
+      S.skills[0];
+    if (editable) selectSkill(editable.id);
+    else showEmpty();
   });
 })();

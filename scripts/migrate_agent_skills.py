@@ -32,7 +32,7 @@ DDL = [
         updated_at timestamp NOT NULL DEFAULT now(),
         CONSTRAINT ck_agent_skills_scope CHECK (scope IN ('system', 'user')),
         CONSTRAINT ck_agent_skills_scope_kind CHECK (
-            (scope = 'system' AND kind IN ('code', 'declarative'))
+            (scope = 'system' AND kind IN ('code', 'declarative', 'prompt'))
             OR (scope = 'user' AND kind = 'prompt')
         ),
         CONSTRAINT ck_agent_skills_status CHECK (status IN ('draft', 'active', 'disabled', 'archived'))
@@ -109,20 +109,20 @@ DDL = [
 SCOPE_KIND_SQL = """
 ALTER TABLE agent_skills ADD CONSTRAINT ck_agent_skills_scope_kind
     CHECK (
-        (scope = 'system' AND kind IN ('code', 'declarative'))
+        (scope = 'system' AND kind IN ('code', 'declarative', 'prompt'))
         OR (scope = 'user' AND kind = 'prompt')
     )
 """
 
 COMMENTS = [
-    ("TABLE", "agent_skills", "AI 技能（平台只读 code/declarative + 用户私有提示词技能）"),
+    ("TABLE", "agent_skills", "AI 技能（平台 code/declarative/prompt + 用户私有提示词技能）"),
     ("COLUMN", "agent_skills.scope", "归属：system / user"),
     ("COLUMN", "agent_skills.owner_user_id", "用户技能归属；系统技能为空"),
     ("COLUMN", "agent_skills.skill_key", "稳定键，工具名为 skill_<key>"),
     ("COLUMN", "agent_skills.name", "技能显示名"),
     ("COLUMN", "agent_skills.description", "能力描述，供模型选择与页面展示"),
-    ("COLUMN", "agent_skills.kind", "实现类型：system 为 code/declarative，user 为 prompt"),
-    ("COLUMN", "agent_skills.category", "分类：body / swim / custom"),
+    ("COLUMN", "agent_skills.kind", "实现类型：system 为 code/declarative/prompt，user 为 prompt"),
+    ("COLUMN", "agent_skills.category", "分类：body / swim / fitness / dance / profile / custom"),
     ("COLUMN", "agent_skills.status", "状态：draft / active / disabled / archived"),
     ("COLUMN", "agent_skills.slash_alias", "斜杠别名（可空，如 体脂腰围）"),
     ("COLUMN", "agent_skills.current_version_no", "当前发布版本号；未发布为空"),
@@ -162,7 +162,7 @@ def main() -> None:
             """
             SELECT id, scope, kind FROM agent_skills
             WHERE NOT (
-                (scope = 'system' AND kind IN ('code', 'declarative'))
+                (scope = 'system' AND kind IN ('code', 'declarative', 'prompt'))
                 OR (scope = 'user' AND kind = 'prompt')
             )
             """

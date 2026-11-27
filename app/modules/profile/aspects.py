@@ -8,7 +8,8 @@ from __future__ import annotations
 ASPECTS: tuple[dict, ...] = (
     {"key": "goal", "label": "目标", "description": "减重、降体脂、增肌、增重、塑形等目标与节奏"},
     {"key": "diet", "label": "饮食", "description": "三餐、口味、忌口、外卖、补剂与饮食执行条件"},
-    {"key": "exercise", "label": "运动基础", "description": "运动经历、能力、偏好与不喜欢的运动"},
+    {"key": "exercise", "label": "运动基础", "description": "运动经历、能力、协调基础与不喜欢的运动"},
+    {"key": "sport", "label": "运动项目", "description": "实际参与的健身、游泳、舞蹈、跑步、球类、居家训练等项目类型与各项目经验"},
     {"key": "training", "label": "训练安排", "description": "频率、时长、时段、强度与训练结构"},
     {"key": "environment", "label": "运动条件", "description": "场地、器械、通勤与可用的运动环境"},
     {"key": "preference", "label": "运动偏好", "description": "喜欢的项目、课程、搭子与坚持方式"},

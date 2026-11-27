@@ -75,7 +75,7 @@ def validate_system_skill(
     payload: SystemSkillValidateIn = Body(...),
     user: User = Depends(get_current_user),
 ):
-    return service.validate_definition(payload.definition)
+    return service.validate_definition(payload.kind, payload.definition)
 
 
 @router.post("", status_code=201)

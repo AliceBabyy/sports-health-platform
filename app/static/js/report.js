@@ -254,7 +254,7 @@
       '括号内为周期开始前最近一次实测到本期最新实测的变化。'));
 
     const stateRows = [];
-    ['appetite', 'myalgia', 'inflammation', 'mood'].forEach(function (k) {
+    Object.keys(f.state.types || {}).forEach(function (k) {
       const t = f.state.types[k];
       if (!t) return;
       stateRows.push(evRow(t.label, (t.avg == null ? '未评分' : esc(t.avg) + ' 星') + ' · ' + esc(t.days) + ' 天'));

@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.ai.models.registry import MODELS, ModelConfigurationError, get_model
-from app.ai.prompts.loader import PROMPTS, load_prompt
+from app.ai.prompts.loader import PROMPTS, load_prompt, registered_prompt_files
 from app.core.deps import get_current_user
 from app.modules.electronic_trainer.router_api import ProbeOut
 from database import get_db
@@ -57,7 +57,7 @@ def test_prompt_registry_and_files_are_in_sync():
         item.name for item in files("app.ai.prompts").iterdir()
         if item.name.endswith(".txt")
     }
-    assert set(PROMPTS.values()) == prompt_files
+    assert registered_prompt_files() == prompt_files
 
 
 def test_probe_requires_login():

@@ -1,8 +1,8 @@
-"""状态记录 service：四表 CRUD、跨表合并分页、当日聚合、月历阶段复用周期推算。
+"""状态记录 service：多表 CRUD、跨表合并分页、当日聚合、月历阶段复用周期推算。
 
 口径：
-- 四类（食欲 / 肌肉疼痛 / 炎症 / 情绪）各一张表，同用户同类同一天一行（唯一约束在模型层）。
-- 跨表列表：四表分别查询后在内存按日期倒序、id 倒序合并分页；个人日记量级可接受。
+- 五类（食欲 / 肌肉疼痛 / 炎症 / 情绪 / 恢复）各一张表，同用户同类同一天一行（唯一约束在模型层）。
+- 跨表列表：各类型表分别查询后在内存按日期倒序、id 倒序合并分页；个人日记量级可接受。
 - 月历阶段复用 cycle.service.calendar_month 的七阶段推算，三档归并：
   经期（menstrual）/ 卵泡期·排卵（follicular_pre、ovulation_day、follicular_post）/ 黄体期（luteal_*）。
   男性账号或无月经记录时不展示阶段（phase 置空）。
@@ -53,7 +53,7 @@ def to_dict(row, type_key: str) -> dict:
 
 
 def list_records(db: Session, user_id: int, page: int = 1, page_size: int = 10, type_filter: str | None = None) -> dict:
-    """跨三表合并分页：日期倒序、id 倒序。"""
+    """跨表合并分页：日期倒序、id 倒序。"""
     page = max(1, int(page))
     page_size = max(1, min(100, int(page_size)))
     if type_filter and type_filter not in STATE_MODELS:
@@ -83,7 +83,7 @@ def _infer_type(row) -> str:
 
 
 def get_by_date(db: Session, user_id: int, day: date) -> dict:
-    """当日三类记录：{type: dict|None}。"""
+    """当日各记录项：{type: dict|None}。"""
     result: dict[str, dict | None] = {t: None for t in STATE_TYPES}
     for t in STATE_TYPES:
         model = STATE_MODELS[t]

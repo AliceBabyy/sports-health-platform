@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 # 2026-11 状态记录迁移（幂等，可重复执行）：
-# 新建 state_appetite_record / state_myalgia_record / state_inflammation_record / state_mood_record 四张按天记录表。
+# 新建 state_appetite_record / state_myalgia_record / state_inflammation_record / state_mood_record / state_recovery_record 五张按天记录表。
 # 表名统一带 state_ 前缀（2026-11-17 由 appetite_record 等旧名改名，旧库见 scripts/migrate_state_table_prefix.py）。
 # 统一字段：id / user_id（FK 级联）/ date（同类一天一行）/ star（0~5 可空；0=最低分，null=未评）/ remark（可空）/
 #           created_at / updated_at；不套运动记录契约（无计划态、起止时间、心率、热量等）。
+# 2026-11-26 新增恢复（recovery）表；已有库重跑本脚本即可补建。
 import os
 import sys
 
@@ -18,6 +19,7 @@ TABLES = {
     "state_myalgia_record": ("uq_state_myalgia_user_date", "ix_state_myalgia_record_user_date_id", "肌肉疼痛状态记录（按天，每类每天一行）"),
     "state_inflammation_record": ("uq_state_inflammation_user_date", "ix_state_inflammation_record_user_date_id", "炎症状态记录（按天，每类每天一行）"),
     "state_mood_record": ("uq_state_mood_user_date", "ix_state_mood_record_user_date_id", "情绪状态记录（按天，每类每天一行）"),
+    "state_recovery_record": ("uq_state_recovery_user_date", "ix_state_recovery_record_user_date_id", "恢复状态记录（按天，每类每天一行）"),
 }
 
 

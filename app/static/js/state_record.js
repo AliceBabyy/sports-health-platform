@@ -1,22 +1,20 @@
-/* 状态记录页：月历（阶段三档圆点 + 有记录标记）、当日四类就地填写、全部记录分页列表、
+/* 状态记录页：月历（阶段三档圆点 + 有记录标记）、当日各记录项就地填写、全部记录分页列表、
    类型筛选、勾选批量删除；列表行内编辑走弹窗，详情复用 base.html 通用弹窗 #modalDetail。 */
 (function () {
   const App = window.App;
 
-  const TYPES = ['appetite', 'myalgia', 'inflammation', 'mood'];
-  const TYPE_LABELS = { appetite: '食欲', myalgia: '肌肉疼痛', inflammation: '炎症', mood: '情绪' };
-  const TYPE_TAG = { appetite: 'tag-appetite', myalgia: 'tag-gray', inflammation: 'tag-inflam', mood: 'tag-mood' };
-  const BLOCK_TITLES = {
-    appetite: '今日食欲状况',
-    myalgia: '今日肌肉疼痛状况',
-    inflammation: '今日炎症状况',
-    mood: '今日情绪状况',
+  const TYPES = window.STATE_TYPES || [];
+  const TYPE_LABELS = window.STATE_TYPE_LABELS || {};
+  const TYPE_TAG = {
+    appetite: 'tag-appetite', myalgia: 'tag-gray', inflammation: 'tag-inflam',
+    mood: 'tag-mood', recovery: 'tag-recovery',
   };
   const BLOCK_PLACEHOLDER = {
     appetite: '如：胃口正常 / 午餐量',
     myalgia: '如：大腿前侧酸胀，上下楼明显',
     inflammation: '如：膝盖轻微发热',
     mood: '如：心情平稳 / 烦躁易怒',
+    recovery: '如：睡眠充足、精力恢复 / 仍感疲惫',
   };
   const PHASE_SHORT = {
     menstrual: '经期', follicular_pre: '卵泡期', ovulation_day: '排卵日',
@@ -94,7 +92,9 @@
     }).catch(e => App.toast(e.message, true));
   }
 
-  /* ---------- 右栏当日详情（四类就地填写） ---------- */
+  /* ---------- 右栏当日详情（各记录项就地填写） ---------- */
+  function blockTitle(type) { return '今日' + (TYPE_LABELS[type] || '') + '状况'; }
+
   function renderDetail() {
     const day = dateOf(state.selected);
     const weekday = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][(day.getDay() + 6) % 7];
@@ -106,10 +106,11 @@
     let html = '<div class="dd-head"><span class="dd-date num">' + (day.getMonth() + 1) + '月' + day.getDate() + '日</span>' + phaseTag + '</div>' +
       '<div class="dd-meta">' + weekday + (state.selected === window.TODAY_STR ? ' · 今天' : '') + '</div>';
 
+    let blocks = '';
     TYPES.forEach(function (type) {
       const rec = state.daily[type];
-      html += '<div class="dd-block" data-type="' + type + '">' +
-        '<div class="dd-title"><span class="left">' + esc(BLOCK_TITLES[type]) + '</span>' +
+      blocks += '<div class="dd-block" data-type="' + type + '">' +
+        '<div class="dd-title"><span class="left">' + esc(blockTitle(type)) + '</span>' +
         (rec ? '<button class="btn btn-sm dd-del" data-del="' + type + '">删除</button>' : '') +
         '</div>' +
         '<div class="dd-inline">' +
@@ -118,6 +119,7 @@
           '<div class="dd-actions"><button class="btn btn-sm btn-primary" data-save="' + type + '">保存</button></div>' +
         '</div></div>';
     });
+    html += '<div class="dd-grid">' + blocks + '</div>';
 
     document.getElementById('dayDetail').innerHTML = html;
 
@@ -203,7 +205,7 @@
           return '<tr>' +
             '<td><input type="checkbox" class="batch-row" value="' + esc(key) + '" ' + checked + ' aria-label="选择记录"></td>' +
             '<td class="num">' + esc(r.date) + '</td>' +
-            '<td><span class="tag ' + TYPE_TAG[r.type] + '">' + esc(r.type_label) + '</span></td>' +
+            '<td><span class="tag ' + (TYPE_TAG[r.type] || 'tag-gray') + '">' + esc(r.type_label) + '</span></td>' +
             '<td>' + starHtml(r.star) + '</td>' +
             '<td class="desc-cell" title="' + esc(r.remark || '') + '">' + esc(r.remark || '—') + '</td>' +
             '<td class="row-actions">' +
@@ -333,7 +335,7 @@
   function openDetail(r) {
     document.getElementById('detailTitle').textContent = '记录详情';
     document.getElementById('detailSub').innerHTML =
-      '<span class="dl-sub">' + esc(r.date) + ' · <span class="tag ' + TYPE_TAG[r.type] + '">' + esc(r.type_label) + '</span></span>';
+      '<span class="dl-sub">' + esc(r.date) + ' · <span class="tag ' + (TYPE_TAG[r.type] || 'tag-gray') + '">' + esc(r.type_label) + '</span></span>';
     document.getElementById('detailBody').innerHTML =
       '<div class="dl-grid">' +
       '<div class="dl-item"><span class="dl-label">日期</span><span class="dl-value num">' + esc(r.date) + '</span></div>' +
@@ -364,7 +366,7 @@
     form.reset();
     form.elements.id.value = row ? row.id : '';
     form.elements.date.value = row ? row.date : state.selected;
-    form.elements.type.value = row ? row.type : 'appetite';
+    form.elements.type.value = row ? row.type : (TYPES[0] || '');
     // 编辑时类型不可改：类型决定落在哪张表，改类型请删除后重建
     form.elements.type.disabled = !!row;
     form.elements.remark.value = row ? (row.remark || '') : '';

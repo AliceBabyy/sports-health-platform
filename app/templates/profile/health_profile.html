@@ -1,77 +1,48 @@
 {% extends "base.html" %}
-{% block title %}健康/运动档案 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/health_profile.css?v=20261117b">{% endblock %}
+{% block title %}健康档案 · 体序{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/health_profile.css?v=20261126a">{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1>健康/运动档案</h1>
-  <div class="page-desc">写几句目标和习惯，每日训练建议会参考，随时可改。</div>
-  <div class="page-head-actions" id="hpReadActions" {% if not filled %}hidden{% endif %}>
-    <button class="btn" id="hpClear" type="button">清空档案</button>
-    <button class="btn btn-primary" id="hpEdit" type="button">编辑档案</button>
+  <h1>健康档案</h1>
+  <div class="page-desc">按专项记录目标、饮食、运动、睡眠等信息，训练建议会参考这些内容。</div>
+  <div class="page-head-actions">
+    {% if filled %}<button class="btn" id="hpClear" type="button">清空档案</button>{% endif %}
+    <a class="btn" href="/agent">去健康档案测试</a>
   </div>
 </div>
 
-<div class="hp-stack" id="hpRead" {% if not filled %}hidden{% endif %}>
-  {% for g in groups %}
+{% if sets %}
+<form class="hp-stack" id="hpForm">
+  {% for s in sets %}
   <section class="card">
-    <div class="card-title">{{ g.name }}</div>
-    {% for q in g["items"] %}
-    <div class="hp-row">
-      <div class="hp-label">{{ q.label }}</div>
-      <div class="hp-value{{ ' is-empty' if not answers.get(q.key) }}">{{ answers.get(q.key) or '—' }}</div>
-    </div>
-    {% endfor %}
-  </section>
-  {% endfor %}
-  {% if custom_questions %}
-  <section class="card">
-    <div class="card-title">健康档案测试 · 定制问题 <span class="sub">{{ custom_generated_at }}</span></div>
-    {% for q in custom_questions %}
-    <div class="hp-row">
-      <div class="hp-label">{{ q.label }}</div>
-      <div class="hp-value{{ ' is-empty' if not answers.get(q.key) }}">{{ answers.get(q.key) or '—' }}</div>
-    </div>
-    {% endfor %}
-  </section>
-  {% endif %}
-</div>
-
-<form class="hp-stack" id="hpForm" {% if filled %}hidden{% endif %}>
-  <div class="hp-edit-note" id="hpEditNote" {% if not filled %}hidden{% endif %}>逐题可改，保存后覆盖当前答案。</div>
-  {% for g in groups %}
-  <section class="card">
-    <div class="card-title">{{ g.name }}</div>
-    {% for q in g["items"] %}
+    <div class="card-title">{{ s.name }} <span class="sub">{{ s.generated_at }} · {{ s["items"]|length }} 题</span></div>
+    {% for q in s["items"] %}
     <div class="hp-field">
-      <label class="field-label" for="hp-{{ q.key }}">{{ q.label }}</label>
-      <div class="hp-hint">{{ q.hint }}</div>
-      <textarea class="input hp-textarea" id="hp-{{ q.key }}" name="{{ q.key }}" rows="3" maxlength="{{ q.max_length }}" placeholder="{{ q.placeholder }}">{{ answers.get(q.key, '') }}</textarea>
-    </div>
-    {% endfor %}
-  </section>
-  {% endfor %}
-  {% if custom_questions %}
-  <section class="card">
-    <div class="card-title">健康档案测试 · 定制问题 <span class="sub">{{ custom_generated_at }}</span></div>
-    {% for q in custom_questions %}
-    <div class="hp-field">
-      <label class="field-label" for="hp-{{ q.key }}">{{ q.label }}</label>
+      <label class="field-label" for="hp-{{ s.set_id }}-{{ q.local_key }}">{{ q.label }}</label>
       {% if q.hint %}<div class="hp-hint">{{ q.hint }}</div>{% endif %}
-      <textarea class="input hp-textarea" id="hp-{{ q.key }}" name="{{ q.key }}" rows="3" maxlength="{{ q.max_length }}" placeholder="{{ q.placeholder or '' }}">{{ answers.get(q.key, '') }}</textarea>
+      <textarea class="input hp-textarea" id="hp-{{ s.set_id }}-{{ q.local_key }}"
+        rows="3" maxlength="{{ q.max_length }}"
+        data-set-id="{{ s.set_id }}" data-local-key="{{ q.local_key }}"
+        placeholder="{{ q.placeholder }}">{{ q.answer or '' }}</textarea>
     </div>
     {% endfor %}
   </section>
-  {% endif %}
+  {% endfor %}
   <div class="card hp-form-foot">
-    <div class="hp-foot-hint">可以只填一部分，保存即生效。</div>
+    <div class="hp-foot-hint">只展示已保存的专项档案；未答项可以直接补，保存即生效。</div>
     <div class="hp-foot-actions">
-      <button class="btn" id="hpResetAll" type="button">清空重写</button>
-      <button class="btn" id="hpCancel" type="button" {% if not filled %}hidden{% endif %}>取消</button>
       <button class="btn btn-primary" type="submit">保存</button>
     </div>
   </div>
 </form>
+{% else %}
+<section class="card hp-empty">
+  <div class="card-title">还没有专项档案</div>
+  <p>进入健康档案测试，用 /目标档案、/饮食档案、/运动档案 等命令，一项一项建立。</p>
+  <a class="btn btn-primary" href="/agent">去健康档案测试</a>
+</section>
+{% endif %}
 {% endblock %}
 {% block extra_js %}
-<script src="/static/js/health_profile.js?v=20261117b"></script>
+<script src="/static/js/health_profile.js?v=20261126a"></script>
 {% endblock %}

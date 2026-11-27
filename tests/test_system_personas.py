@@ -35,6 +35,36 @@ def _user(db, username="admin"):
     return row
 
 
+def test_system_persona_rejects_profile_grants_outside_test_role(db):
+    from app.modules.agent.models import AgentSkill, AgentSkillVersion
+
+    row = AgentSkill(
+        scope="system", skill_key="profile_goal", name="目标档案",
+        description="目标专项", kind="code", category="profile",
+        status="active", current_version_no=1,
+    )
+    db.add(row)
+    db.flush()
+    db.add(AgentSkillVersion(
+        skill_id=row.id, version_no=1, definition={"schema_version": 1},
+        definition_hash="", created_by=None,
+    ))
+    db.commit()
+
+    with pytest.raises(PersonaValidationError):
+        service.create_system_persona(db, _payload(
+            key="nutrition_test", name="营养测试",
+            tool_grants=["save_health_profile_aspect"],
+        ), None)
+
+    with pytest.raises(PersonaValidationError):
+        service.create_system_persona(db, _payload(
+            key="nutrition_test", name="营养测试",
+            tool_grants=[],
+            skill_grants=["profile_goal"],
+        ), None)
+
+
 def test_create_and_list_system_persona(db):
     created = service.create_system_persona(db, _payload(), None)
     assert created["scope"] == "system"
@@ -53,7 +83,7 @@ def test_null_grants_follow_platform_defaults(db):
     assert created["tool_grants"] is None
     assert created["skill_grants"] is None
     assert "get_profile_info" in created["effective_tools"]
-    assert "save_health_profile_probe" not in created["effective_tools"]
+    assert "save_health_profile_aspect" not in created["effective_tools"]
 
     granted = service.create_system_persona(db, _payload(
         key="custom_reader", name="自定义读取者",
@@ -106,10 +136,35 @@ def test_delete_system_persona_rejects_used_role(db):
     assert exc.value.status == 409
 
 
-def test_policy_explicit_grants_override_defaults():
+def test_system_persona_can_grant_restricted_profile_skill(db):
+    from app.modules.agent.models import AgentSkill, AgentSkillVersion
+
+    row = AgentSkill(
+        scope="system", skill_key="profile_goal", name="目标档案",
+        description="目标专项", kind="code", category="profile",
+        status="active", current_version_no=1,
+    )
+    db.add(row)
+    db.flush()
+    db.add(AgentSkillVersion(
+        skill_id=row.id, version_no=1, definition={"schema_version": 1},
+        definition_hash="", created_by=None,
+    ))
+    db.commit()
+
+    created = service.create_system_persona(db, _payload(
+        key="health_profile_test", name="档案测试",
+        tool_grants=["get_profile_info", "save_health_profile_aspect"],
+        skill_grants=["profile_goal"],
+    ), None)
+    assert created["effective_tools"] == [
+        "get_profile_info", "save_health_profile_aspect",
+    ]
+    assert created["effective_skills"] == ["profile_goal"]
+
     tools = [
         SimpleNamespace(name="get_profile_info"),
-        SimpleNamespace(name="save_health_profile_probe"),
+        SimpleNamespace(name="save_health_profile_aspect"),
         SimpleNamespace(name="skill_demo"),
     ]
     persona = SimpleNamespace(

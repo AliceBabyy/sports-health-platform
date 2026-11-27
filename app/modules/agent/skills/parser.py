@@ -6,6 +6,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from typing import get_args
 
 from app.ai.runtime.invoke import AIServiceError, ainvoke_structured
 from app.modules.agent.skills.argument import (
@@ -123,6 +124,14 @@ def _enum_hint(skill: ResolvedSkill, text: str) -> dict:
             if label in text:
                 result["main_stroke"] = value
                 break
+    if skill.kind == "code":
+        # 代码技能里的 Literal 参数（如档案专项的 mode=补齐/更新）按枚举值直接命中
+        model = build_args_model(skill)
+        for name, item in model.model_fields.items():
+            for value in get_args(item.annotation):
+                if isinstance(value, str) and value in text:
+                    result[name] = value
+                    break
     if skill.kind == "declarative":
         from app.modules.agent.skills.definition import parse_definition
         defn = parse_definition(skill.definition)
@@ -252,6 +261,7 @@ def field_label(skill: ResolvedSkill, key: str) -> str:
     labels = {
         "start_date": "开始日期", "end_date": "结束日期", "days_back": "回看时长",
         "limit": "次数", "main_stroke": "泳姿", "include_workout": "是否附带运动",
+        "mode": "模式",
     }
     if skill.kind == "declarative":
         from app.modules.agent.skills.definition import parse_definition

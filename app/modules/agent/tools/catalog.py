@@ -19,14 +19,14 @@ TOOL_LABELS = {
     "get_cycle_records": "生理周期",
     "get_profile_info": "个人资料",
     "save_today_workout_plan": "保存今日计划",
-    "save_health_profile_probe": "保存健康档案定制问答",
+    "save_health_profile_aspect": "保存专项健康档案",
     "ask_user": "向用户提问",
 }
 
 TOOL_KINDS = {
     "ask_user": "interaction",
     "save_today_workout_plan": "write",
-    "save_health_profile_probe": "write",
+    "save_health_profile_aspect": "write",
 }
 
 

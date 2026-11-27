@@ -21,7 +21,7 @@ from app.core.exceptions import AppError
 from app.modules.training import service as training_service
 from app.modules.training.models import TrainingRecord
 from database import SessionLocal
-from .health_profile_actions import save_health_profile_probe
+from .health_profile_actions import save_health_profile_aspect
 
 
 class PlanItemActionIn(BaseModel):
@@ -135,4 +135,4 @@ save_today_workout_plan = StructuredTool.from_function(
     args_schema=SaveTodayPlanIn,
 )
 
-ACTION_TOOLS = [save_today_workout_plan, save_health_profile_probe]
+ACTION_TOOLS = [save_today_workout_plan, save_health_profile_aspect]

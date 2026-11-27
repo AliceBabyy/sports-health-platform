@@ -8,7 +8,7 @@
   const GROUPS = window.BODY_GROUPS || {};
   const GROUP_LABELS = window.GROUP_LABELS || {};
   // 表格列（主要维度）
-  const TABLE_COLS = ['height', 'weight', 'body_fat', 'chest', 'waist', 'hip', 'thigh'];
+  const TABLE_COLS = ['height', 'weight', 'body_fat', 'arm', 'chest', 'waist', 'hip', 'thigh', 'calf'];
 
   /* ---------- 趋势图 ---------- */
   function renderTrend(data) {
@@ -93,7 +93,7 @@
       document.getElementById('recTotal').textContent = res.total;
       const tbody = document.getElementById('recBody');
       if (res.list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div>暂无身材记录，点击上方四个按钮按类别添加</div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><div class="icon">📭</div>暂无身材记录，点击上方四个按钮按类别添加</div></td></tr>';
       } else {
         tbody.innerHTML = res.list.map(function (r) {
           const vals = r.values || {};

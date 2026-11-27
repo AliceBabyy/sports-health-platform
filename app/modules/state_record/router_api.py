@@ -1,4 +1,4 @@
-"""状态记录 API 路由（/api/state-record 系列）：四类记录增删改查、分页、批量删除、当日聚合、月历。"""
+"""状态记录 API 路由（/api/state-record 系列）：各记录项增删改查、分页、批量删除、当日聚合、月历。"""
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
@@ -31,7 +31,7 @@ def daily_records(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """某日三类记录：{type: dict|None}。"""
+    """某日各记录项：{type: dict|None}。"""
     return {"date": day.isoformat(), "records": service.get_by_date(db, user.id, day)}
 
 

@@ -57,8 +57,8 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 按业务域注册 8 个只读工具：`get_workout_summary`（跨三运动汇总，复用 overview 口径）、
 `get_fitness_records`（健身明细含动作与容量）、`get_swim_records`（游泳明细含配速/划频）、
 `get_dance_records`（舞蹈明细）、`get_body_measurements`（身材 4 组，`metric=all` 取整表或单指标趋势，
-未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪）、`get_cycle_records`
-（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段）、`get_profile_info`（昵称/性别/年龄 + 健康档案固定题 + 最新与全部历史定制问答，不含密码）。
+未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪/恢复）、`get_cycle_records`
+（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段）、`get_profile_info`（昵称/性别/年龄 + 9 个专项档案的最近一套与最近 3 套历史 + `filled/set_count/skill_count`，不含密码）。
 取数范围由模型按用户意图决定：`days_back`、`start_date + end_date`、`limit` 均可选，
 **不传任何范围参数即取全部历史**，已移除原 366 天 / 20 条硬上限；一次拉全量或只拉最近几次
 都由意图决定。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具内部用独立短 session；
@@ -92,21 +92,23 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 `agent_persona_versions` 与 `agent_personas.tool_grants / skill_grants` 两列，会话表增加两列。迁移
 `python scripts/migrate_agent_personas.py`、`python scripts/migrate_agent_persona_grants.py`，种子 `python scripts/seed_agent_personas.py`。
 
-**健康档案测试角色（2026-11-19）**：平台内置 `health_profile_test`，先读 `profile_info`、身材与运动记录，
-为当前用户设计 3~10 个有针对性、可跳过的健康问题，并逐个调用 `ask_user` 单题提问（答完一题再问下一题）；
-全部问完后先用 `ask_user` 确认，再调用 `save_health_profile_probe` 静默写入健康档案。保存成功后图直接进入
-`finalize_probe_save` 固定结束本轮，不会在同一会话自动开始下一套；只有用户明确说“再来一套”才重新出题。
-该角色固定追加 `persona_health_profile_test_guard.v2` 运行约束：健康档案以建立覆盖饮食、运动、训练、作息、生活、目标、伤病、心理、环境、偏好等维度的全貌基础画像为目标；每套至少覆盖 3 个不同 aspect、同一 aspect 最多 2 题、
-生理周期与“其他”各最多 1 题、近期事件合计最多 1 题；出题前读取 `custom_health_profile_aspect_coverage`，
-优先补覆盖少的基础 aspect，旧版本角色会话也生效。该工具默认只装配给此角色，
-普通会话与其他角色不可见；管理员可通过显式白名单勾给其他内置角色。
-`health_profile` 已改为单表行式存储：`id` 主键、`user_id` 非唯一外键、每行一个固定 `aspect` 的档案记录；
-固定题与角色定制题共用一张表，定制题 key 为 `probe_<set_id>_<qN>`，未答项保留空答案行。
-同问题再保存只更新答案，问题变化新增一套并保留历史（最多 20 套）。档案页与 API 仍按 `answers`
-聚合返回并默认展示最新一套；`get_profile_info` 会读取全部行、最新一套、全部历史与按 `aspect`
-统计的方面覆盖，供角色在出题前观察用户过去回答、未答项和覆盖缺口。档案页 `/profile/health-profile`
-在固定问卷下展示最新一套定制问题，可编辑、清空。迁移
-`python scripts/migrate_health_profile_entries.py`（旧命令 `migrate_health_profile.py` / `migrate_health_profile_probe.py` 仍兼容）。
+**健康档案专项技能（2026-11-26 重构）**：平台内置 `health_profile_test` 角色，健康档案拆成 9 个专项，每个专项一个平台代码技能：
+`profile_goal`（目标）、`profile_diet`（饮食）、`profile_exercise`（运动）、`profile_sleep`（睡眠）、
+`profile_lifestyle`（生活方式）、`profile_cycle`（生理期，仅女性）、`profile_posture`（形体矫正）、
+`profile_medical`（伤病）、`profile_extra`（档案补充）。9 段提示词合并在
+`app/ai/prompts/profile_aspect_skills_v1.txt`，由 `loader.py` 按固定 section ID 加载；题目不写死注册表，
+模型每次在专项提示词约束下生成 3~6 题并逐题调用 `ask_user`，全部问完后调用
+`save_health_profile_aspect(skill_key, questions, answers)` 静默写入。保存成功后图进入
+`finalize_profile_save` 固定结束本轮，不自动开始下一个专项。
+`health_profile` 已重置为“一套专项问题多行、一行一道题”：字段为
+`set_id / skill_key / aspect / local_key(q1~q6) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，
+唯一约束 `(user_id,set_id,local_key)`，同一专项最多保留最近 3 套。页面 `/profile/health-profile`
+只展示已存储的专项套，逐题 textarea 直接编辑，空串清空该题，DELETE 清空全部；不再有固定问卷、
+查看/编辑两态或 9 张空卡。`get_profile_info` 返回 9 个专项的最近一套与最近 3 套历史。
+9 个专项 skill 与保存工具只授权给 `health_profile_test`，是运行时硬边界，其他角色只保留 `get_profile_info` 只读，不能通过角色白名单绕过。重置迁移
+`python scripts/migrate_health_profile_aspects.py`（仅允许在原表 0 行时执行）；种子
+`python scripts/seed_agent_skills.py` 与 `python scripts/seed_agent_personas.py`。
+
 
 **V2.12 内置技能管理（2026-11-24）**：系统设置新增「内置技能」页 `/system/skills`，管理员可统一查看平台
 `scope=system` 的代码/声明式技能。代码技能定义由代码注册，页面只读且仅可启停；声明式技能支持新建、编辑、
@@ -157,11 +159,11 @@ APScheduler 后台线程替代原「Windows 任务计划程序每 30 分钟跑 C
 `report.scan` 不排期、供手动兜底。错过执行窗口不补跑（宽限 300 秒记 skipped），在页面「立即执行」
 手动补齐。迁移 `python scripts/migrate_scheduler.py`。
 
-**V2.8 侧栏每日训练建议（2026-11-17）**：左侧菜单栏「今天」卡内、周期四档标签上方常驻三段由默认模型
-生成的要点（今日建议 ≤20 字 / 健身建议 ≤20 字 / 依据 ≤40 字，每行以 `- ` 开头、句末不带句号）——今天
+**V2.8 侧栏每日训练建议（2026-11-17，2026-11-26 调整权重）**：左侧菜单栏「今天」卡内、周期四档标签上方常驻三句由默认模型
+生成的自然表达（运动强度与总体判断 / 按近 30 天运动类型偏好推荐类型与部位 / 依据，约 15~30、20~35、30~45 字，每行以 `- ` 开头、句末不带句号）——今天
 是否适合运动、有氧还是无氧、建议强度、健身练什么部位。事实层全部由代码算（基础信息、身材、
-昨日三运动、近 3/7 天负荷、状态记录、当天计划、女性当天周期），模型只负责解释；今日疼痛、周期
-休息档、炎症、昨日负荷、今日已练力量、情绪等硬约束由代码判定并在模型输出后强制降档（`sanitize`）。
+昨日三运动、近 3/7 天负荷与近 30 天类型次数、状态记录含恢复、当天计划、女性当天周期），模型只负责解释；经期疼痛、周期
+休息/状态一般、炎症、恢复、昨日负荷、今日已练力量、情绪等硬约束由代码判定并在模型输出后强制降档（`sanitize`）；单纯肌肉酸痛不触发降档，只做部位避让。
 每天 00:01 由应用内调度器 `advice.daily`（cron `1 0 * * *`）生成当天一份，启动后按
 `ADVICE_STARTUP_CATCHUP_SECONDS` 补跑缺失行；「今天」标题行右侧刷新按钮可手动重算（60 秒防连点）。一天一条，
 `(user_id, advice_date)` 唯一，无软删除；空账号走 `mode=rule` 固定要点不调模型。接口
@@ -173,7 +175,7 @@ SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **801
 
 V1 范围：注册/登录认证 + 模块（身材数据 BD / 状态记录 SR / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC / 个人信息 PR）。
 
-健康/运动档案（2026-11-17，2026-11-19 行式化）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，与账号资料页并列。固定问卷按「目标与节奏 / 训练方式与条件 / 习惯与限制」三组开放式文本框收集目标、每周可练次数、场地器材、习惯偏好与伤病限制。答案存 `health_profile` 行式表：`id` 主键、`user_id` 非唯一外键、每行一条 `aspect` 记录，固定题 key 与文案定义在 `app/modules/profile/questions.py`，固定题必须映射固定 aspect；未填写时整页即问卷，已填写展示答案并支持编辑、清空与清空重写。角色定制问题按 `set_id` 分组存同一张表，`profile_info` 与页面聚合回 `answers`；文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_entries.py`。
+健康档案（2026-11-26 专项化重构）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，只展示已存储的专项套，每个专项最近一套、题目标题 + 自适应高度 textarea 直接编辑，页头「清空档案」、底部「保存」。题目由「健康档案测试」角色按 9 个专项（目标/饮食/运动/睡眠/生活方式/生理期/形体矫正/伤病/补充）在对话中生成，每套 3~6 题；`health_profile` 按 `set_id` 分套、一行一道题，字段 `set_id / skill_key / aspect / local_key / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，唯一约束 `(user_id,set_id,local_key)`，同一专项最多保留最近 3 套。文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_aspects.py`（仅原表 0 行时执行）。
 
 账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。管理员角色已用于 `/system` 管理区（定时任务、内置角色、内置技能）；停用账号的恢复与清除仍通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。
@@ -302,11 +304,11 @@ sports-health-platform/
 │  │  ├─ dance/            # 舞蹈记录/计划 + 舞种汇总 + 单日视图 + Excel/JSON 导入
 │  │  ├─ overview/         # 运动训练/计划总览：日/周/月聚合 + 单日详情（2026-11 新增）
 │  │  ├─ cycle/            # 生理周期：七阶段推算 + 月历 + 疼痛 / note + 全部记录
-│  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症/情绪四表按天记录 + 月历阶段归并 + 跨表批量删除
+│  │  ├─ state_record/      # 状态记录：食欲/肌肉疼痛/炎症/情绪/恢复五表按天记录 + 月历阶段归并 + 跨表批量删除
 │  │  ├─ report/           # AI 运动报告：周/月事实快照 + 叙事 + 软删除 + 自动生成（页面 /reports）
 │  │  ├─ daily_advice/     # 每日训练建议：今天卡内要点判断 + 硬约束降档 + 00:01 定时生成（/api/daily-advice）
 │  │  ├─ system/           # 系统管理区：聚合 /system 页面与 /api/system API；scheduler/ 定时任务、personas/ 内置角色 CRUD + 工具/技能白名单
-│  │  ├─ profile/          # 个人信息：基本资料 + 修改密码（复用 users）+ 健康/运动档案（health_profile）
+│  │  ├─ profile/          # 个人信息：基本资料 + 修改密码（复用 users）+ 健康档案（health_profile 专项套）
 │  │  └─ agent/            # AI 助手：LangGraph 图 + checkpointer 生命周期 + 会话 service/SSE（页面 /agent）
 │  ├─ templates/           # Jinja2（base/侧栏/各模块页面 + auth/register + profile）
 │  ├─ static/              # css / js / vendor(echarts) / img
@@ -318,7 +320,7 @@ sports-health-platform/
 │  ├─ migrate_remark.py       # 2026-11：三表加 remark、swim/dance 移除 plan_text（幂等）
 │  ├─ migrate_notes.py        # 2026-11：training_notes 扩四字段心得 + 新建 swim_notes/dance_notes
 │  ├─ migrate_swim_avg_stroke_rate.py # 2026-11：swim_records 加 avg_stroke_rate（幂等）
-│  ├─ migrate_state_record.py   # 2026-11：状态记录四表（state_ 前缀，食欲/肌肉疼痛/炎症/情绪）建表 + 注释（幂等）
+│  ├─ migrate_state_record.py   # 2026-11：状态记录五表（state_ 前缀，食欲/肌肉疼痛/炎症/情绪/恢复）建表 + 注释（幂等）
 │  ├─ migrate_state_table_prefix.py # 2026-11-17：状态记录四表旧名加 state_ 前缀，同步约束/索引/序列改名（幂等）
 │  ├─ migrate_reports.py        # 2026-11：AI 运动报告 reports 表 + 注释（幂等）
 │  ├─ migrate_scheduler.py      # 2026-11：定时任务 scheduled_jobs/job_runs 两表 + 注释 + 默认任务（幂等）
@@ -334,7 +336,7 @@ sports-health-platform/
 - BMI = 体重kg ÷ 身高m²，健康区间 18.5~23.9
 - 身材数据为 4 张拆分表（基础/期望/围度/目标围度），每表 (user_id, record_date) 唯一；
   页面默认显示记录日期最新一条；4 个分类添加按钮分别写入对应表；
-  新增记录未填字段自动沿用该字段最近一次非空值；同日同组重复保存只覆盖当日已提交字段
+  新增记录未填字段自动沿用该字段最近一次非空值；同日同组重复保存只覆盖当日已提交字段；「全部记录」按日期合并 4 组，列为日期、身高、体重、体脂率、臂围、胸围、腰围、臀围、大腿围、小腿围、操作
 - 趋势五档：week=本周周一~周日 7 点当日值；month=本月每日；two_month=最近 60 天（含今天）逐日当日值；half_year=近 6 个月每月 1/10/20 号、窗口 [锚点-10 天,锚点] 11 天均值；year=近 12 个月每月 1/15 号、窗口 [锚点-15 天,锚点] 16 天均值；无记录断线不插值；基础+围度 11 维可趋势，目标值不参与
 - 训练负荷宽松化：动作名称必填，部位/重量/组数/每组个数可空；每组个数为字符串（如 "10+8+6"），容量 = Σ 重量×组数×个数首段数字；期望突破重量计划/记录均可填；重量与目标重量（含身材体重/目标体重）取任意数值、保留两位小数，不做范围限值（仅组数 1~99）
 - 新运动模块的统一必填项：计划态和记录态均需日期；其他必填业务字段及默认展示以 [`SPORT_MODULE_GUIDELINES.md`](docs/SPORT_MODULE_GUIDELINES.md) 的需求确认清单为准，现有三模块规则不直接套用于新模块。
@@ -352,7 +354,7 @@ sports-health-platform/
 - 字体与渲染（2026-11-11）：全局字体逐字照搬 GitHub 原栈（`-apple-system → Segoe UI → Noto Sans → Helvetica/Arial → sans-serif → emoji`），中文走系统默认兜底（本机实测即微软雅黑，与显式雅黑差约 1.5%）；全局 `letter-spacing: .03em` 放宽字距（中文在雅黑下偏挤显扁）；同时不使用 `-webkit-font-smoothing: antialiased`，避免 Windows 关闭 ClearType 导致小字发虚
 - 周期配色：日历格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；阶段保留文字标签，图例与详情使用同一状态配色；窄屏月历保留两字状态名（旺盛/良好/一般/休息）；四档底色（2026-11-11）统一向白混合 50% 再浅一档，圆点与文字深阶保持不变
 - 心得（三表均 1:1 挂记录、仅记录态可填）：共有 `rating/notes`，健身另有 `best_movement/next_steps`，游泳另有 `stroke_insight`，舞蹈另有 `video_effect`；页面字段称呼维持现状
-- 状态记录（2026-11-11，非运动模块）：食欲 / 肌肉疼痛 / 炎症三类各一张表，同类同一天一行（重复新建 409）；字段仅日期、星级（0~5 可空；0=明确最低分，null=未评显示 —）、描述（≤255 可空），无计划态/起止时间/时长/心率/热量，不套运动契约。跨三表列表在 service 内存合并分页（日期倒序、id 倒序），支持类型筛选；月历复用周期七阶段推算并归并经期/卵泡·排卵/黄体三档圆点，男性或无周期记录时阶段置空；跨表批量删除每条自带类型定位表。性别开放（男女均可记录），无 Excel/JSON/AI 导入入口。页面自上而下三张卡片（月历 / 当日状态 / 全部记录）纵向堆叠、内容随卡片宽度自适应铺满；当日三类就地填写（内联星级 + 描述 + 保存，有记录可块内删除），全部记录列表行内编辑才弹出表单弹窗。页面 `/state-record`，API `/api/state-record`
+- 状态记录（2026-11-11 建立，2026-11-26 新增恢复，非运动模块）：食欲 / 肌肉疼痛 / 炎症 / 情绪 / 恢复五项各一张表，同类同一天一行（重复新建 409）；字段仅日期、星级（0~5 可空；0=明确最低分，null=未评显示 —）、描述（≤255 可空），无计划态/起止时间/时长/心率/热量，不套运动契约。类型键、中文标签与模型映射集中注册在 `models.py`，页面筛选项与编辑弹窗从服务端类型表生成；跨五表列表在 service 内存合并分页（日期倒序、id 倒序），支持类型筛选；月历复用周期七阶段推算并归并经期/卵泡·排卵/黄体三档圆点，男性或无周期记录时阶段置空；跨表批量删除每条自带类型定位表。新增记录项的完整开发契约见 [`STATE_RECORD_GUIDELINES.md`](docs/STATE_RECORD_GUIDELINES.md)。性别开放（男女均可记录），无 Excel/JSON/AI 导入入口。页面自上而下三张卡片（月历 / 当日状态 / 全部记录）纵向堆叠、内容随卡片宽度自适应铺满；当日五项就地填写（桌面双列每行 2 项、窄屏单列；内联星级 + 描述 + 保存，有记录可块内删除），全部记录列表行内编辑才弹出表单弹窗。页面 `/state-record`，API `/api/state-record`
 
 ## 2026-11 改版口径（运动训练/计划）
 

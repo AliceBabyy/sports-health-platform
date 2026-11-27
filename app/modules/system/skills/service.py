@@ -33,7 +33,7 @@ from app.modules.agent.skills.management import (
 from app.modules.agent.skills.platform import CODE_SKILLS
 
 SYSTEM_SCOPE = "system"
-SKILL_CATEGORIES = ("body", "swim", "fitness", "dance", "custom")
+SKILL_CATEGORIES = ("body", "swim", "fitness", "dance", "profile", "custom")
 SKILL_STATUSES = ("active", "disabled")
 MAX_DESCRIPTION = 200
 

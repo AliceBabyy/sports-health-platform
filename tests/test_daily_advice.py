@@ -8,7 +8,7 @@ import models_registry  # noqa: F401
 from app.ai.runtime.invoke import AIServiceError
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
-from app.modules.cycle.models import PeriodRecord
+from app.modules.cycle.models import PeriodLog, PeriodRecord
 from app.modules.daily_advice import ai, facts, service
 from app.modules.daily_advice.models import (
     MODE_RULE,
@@ -18,7 +18,7 @@ from app.modules.daily_advice.models import (
     DailyAdvice as DailyAdviceRow,
 )
 from app.modules.daily_advice.schemas import DailyAdvice
-from app.modules.state_record.models import MyalgiaRecord
+from app.modules.state_record.models import InflammationRecord, MyalgiaRecord, RecoveryRecord
 from app.modules.training import service as training_service
 from app.modules.training.schemas import PlanItemIn
 
@@ -76,6 +76,9 @@ def test_facts_counts_only_recorded_and_lists_plans(db):
     assert data["yesterday"]["totals"]["minutes"] == 30
     assert data["yesterday"]["totals"]["volume"] == 70 * 5 * 8
     assert data["recent_load"]["window_7d"]["records"] == 1
+    assert data["recent_load"]["window_30d"] == {
+        "records": 1, "fitness": 1, "swim": 0, "dance": 0, "days": 30,
+    }
     assert data["recent_load"]["recent_parts_2d"] == ["腿"]  # 昨天练过，今天不再安排
 
 
@@ -90,16 +93,64 @@ def test_cycle_only_for_female_with_records(db):
     assert male["cycle"] is None
 
 
-def test_hard_limits_pain_caps_intensity_and_blocks_parts(db):
-    db.add(MyalgiaRecord(user_id=1, date=TODAY, star=3))
+def test_hard_limits_muscle_soreness_does_not_cap(db):
+    """单纯肌肉酸痛不触发硬约束：前一晚练完次日酸痛是正常训练反应。"""
+    db.add(MyalgiaRecord(user_id=1, date=TODAY, star=4))
+    db.commit()
+    data = facts.build_facts(db, _user(), TODAY)
+    assert data["hard_limits"] == []
+
+
+def test_hard_limits_cycle_pain_caps_intensity_and_blocks_parts(db):
+    db.add(PeriodRecord(user_id=1, start_date=TODAY, end_date=TODAY))
+    db.commit()
+    db.add(PeriodLog(user_id=1, log_date=TODAY, pain_level=3))
     db.commit()
     data = facts.build_facts(db, _user(), TODAY)
     keys = {h["key"] for h in data["hard_limits"]}
-    assert "pain_high" in keys
-    pain = next(h for h in data["hard_limits"] if h["key"] == "pain_high")
+    assert "cycle_pain_high" in keys
+    pain = next(h for h in data["hard_limits"] if h["key"] == "cycle_pain_high")
     assert pain["cap_intensity"] == "低"
     assert pain["cap_verdict"] == "克制"
     assert pain["block_parts"] is True
+
+
+def test_hard_limits_cycle_average_caps_at_medium(db):
+    db.add(PeriodRecord(user_id=1, start_date=date(2026, 10, 23), end_date=date(2026, 10, 27)))
+    db.commit()
+    data = facts.build_facts(db, _user(), TODAY)
+    keys = {h["key"] for h in data["hard_limits"]}
+    assert "cycle_average" in keys
+    avg = next(h for h in data["hard_limits"] if h["key"] == "cycle_average")
+    assert avg["cap_intensity"] == "中"
+
+
+def test_hard_limits_recovery_and_inflammation(db):
+    db.add(RecoveryRecord(user_id=1, date=TODAY, star=2))
+    db.add(InflammationRecord(user_id=1, date=TODAY, star=3))
+    db.commit()
+    data = facts.build_facts(db, _user(), TODAY)
+    limits = {h["key"]: h for h in data["hard_limits"]}
+    assert limits["recovery_fair"]["cap_intensity"] == "中"
+    assert limits["inflammation_mid"]["cap_intensity"] == "中"
+
+    db.query(RecoveryRecord).delete()
+    db.query(InflammationRecord).delete()
+    db.add(RecoveryRecord(user_id=1, date=TODAY, star=1))
+    db.add(InflammationRecord(user_id=1, date=TODAY, star=4))
+    db.commit()
+    data = facts.build_facts(db, _user(), TODAY)
+    limits = {h["key"]: h for h in data["hard_limits"]}
+    assert limits["recovery_low"]["cap_intensity"] == "低"
+    assert limits["inflammation_high"]["cap_intensity"] == "低"
+
+
+def test_hard_limits_no_inflammation_does_not_cap(db):
+    """炎症 0 表示没有炎症，0~2 不触发硬约束。"""
+    db.add(InflammationRecord(user_id=1, date=TODAY, star=0))
+    db.commit()
+    data = facts.build_facts(db, _user(), TODAY)
+    assert data["hard_limits"] == []
 
 
 def test_hard_limits_heavy_yesterday(db):
@@ -123,7 +174,8 @@ def test_hard_limits_trained_today(db):
 # ---------- 输出清洗 ----------
 def test_sanitize_downgrades_by_hard_limits():
     limits = [
-        {"key": "pain_high", "cap_verdict": "克制", "cap_intensity": "低", "block_parts": True}
+        {"key": "inflammation_high", "cap_intensity": "低", "cap_verdict": None, "block_parts": False},
+        {"key": "cycle_pain_high", "cap_verdict": "克制", "cap_intensity": "低", "block_parts": True}
     ]
     cleaned, warnings = ai.sanitize(_advice(), limits)
     assert cleaned.verdict == "克制"
@@ -172,7 +224,7 @@ def test_clean_text_builds_bullet_lines():
 
 
 def test_clean_text_applies_per_line_limits():
-    """三段各自收口：今日建议 20 字、健身建议 20 字、依据 40 字，第 4 行丢弃。"""
+    """三句各自按服务端上限收口，第 4 行丢弃。"""
     raw = "\n".join(["甲" * 40, "乙" * 40, "丙" * 60, "丁" * 10])
     lines = ai.clean_text(raw).splitlines()
     assert len(lines) == ai.MAX_LINES == 3

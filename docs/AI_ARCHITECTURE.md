@@ -64,7 +64,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 ### 4.1 会话与图
 
 - 页面路径为 `/agent`，API 前缀为 `/api/agent`，模块为 `app/modules/agent/`；技能管理页为 `/agent/skills`，角色管理页为 `/agent/personas`；管理员内置技能页为 `/system/skills`，API 为 `/api/system/system-skills`。
-- 当前数据问答图为 `START → agent ⇄ tools → END`；模型通过 `bind_tools` 选择是否进入 `ToolNode`，工具结果以 `ToolMessage` 返回 Agent。健康档案测试的保存工具成功后由条件边直接进入 `finalize_probe_save` 固定收口，不再回到 `agent`，避免同一会话自动开始下一套问题。
+- 当前数据问答图为 `START → agent ⇄ tools → END`；模型通过 `bind_tools` 选择是否进入 `ToolNode`，工具结果以 `ToolMessage` 返回 Agent。健康档案测试的保存工具 `save_health_profile_aspect` 成功后由条件边直接进入 `finalize_profile_save` 固定收口，不再回到 `agent`，避免同一会话自动开始下一个专项。
 - 图按用户技能集与角色授权装配：启动时用系统技能构建常驻 `system_graph`；存在用户私有技能、角色显式工具/技能白名单或角色专用工具时，按 `(user_id, 技能版本指纹, 角色指纹)` 编译独立图并缓存（上限 32）。角色提示词本身只影响 system prompt；`tool_grants` / `skill_grants` 非空时参与图装配，为空（NULL）时沿用 `TOOL_PERSONA_SCOPES` 等代码基线。系统技能版本变化需重启服务或清缓存。
 - `agent_chat.v8` 提示词的变量为 `today/weekday/now_time/capabilities/persona_block/run_mode`；日期、星期与当前时刻由 `graph.py` 在每次模型调用时用本机时间注入（`%H:%M`，24 小时制），随会话实时变化；`capabilities` 由交互工具（`ask_user` 单独成组）、基础只读工具、受控写工具（单独分组）与当前用户可用技能共同生成，不再在提示词里硬编码工具数量；本轮开启联网时，`graph.py` 还会在 `capabilities` 末尾追加「联网搜索（本轮已开启）」段并把 `web_search` bind 给模型；`persona_block` 由会话绑定的角色版本渲染，普通会话为固定默认句；`run_mode` 取「常规」或「续写」，只由续写接口置为「续写」。
 - `recursion_limit=10` 限制循环轮数，`MessagesState` 不扩展。
@@ -92,22 +92,22 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 ### 4.3 多角色 Persona
 
 - 角色本身只提供一段提示词，影响语气、关注重点与表达风格；不改变数据事实、安全与免责规则，用户角色定义也不承载代码、SQL、数据源或工具授权。工具与技能可见性由服务端控制：`TOOL_PERSONA_SCOPES` 提供默认角色范围，角色表 `tool_grants` / `skill_grants` 提供管理员显式白名单。
-- 平台内置角色为 `nutrition`（营养师）、`e_trainer`（电子私教）与 `health_profile_test`（健康档案测试），`scope=system`，普通用户只读；平台管理员可在 `/system/personas` 增删改查、排序、启停、编辑提示词并勾选工具/技能。内置角色由 `scripts/seed_agent_personas.py` 从 `persona_nutrition.v1` / `persona_e_trainer.v1` / `persona_health_profile_test.v2` 幂等写入；种子阶段先走与用户角色相同的 `validate_definition`，提示词超过 `agent_persona_max_chars`（当前 3000 字）直接失败，避免写入运行时无法解析的版本。`health_profile_test` 另追加 `persona_health_profile_test_guard.v2` 运行约束，独立于角色版本生效；用户角色 `scope=user`，只有名称、键、定位和提示词，仅创建者可见。`health_profile_test` 是正式内置角色名（“测试”是产品命名），两个 v2 提示词均被运行时依赖，不是测试夹具或可清理的废弃提示词。
-- 角色级白名单口径：`tool_grants` / `skill_grants` 为 `NULL` 时沿用默认范围（未登记工具全开、专用工具只在注册角色可用、平台技能全开）；非空数组（含空数组）表示显式白名单，空数组即不使用任何工具/技能。管理员可以把专用工具显式勾给其他角色，也可以在 `/system/personas` 选择「恢复默认范围」写回 `NULL`。用户角色目前不开放白名单编辑，沿用默认范围。
+- 平台内置角色为 `nutrition`（营养师）、`e_trainer`（电子私教）与 `health_profile_test`（健康档案测试），`scope=system`，普通用户只读；平台管理员可在 `/system/personas` 增删改查、排序、启停、编辑提示词并勾选工具/技能。内置角色由 `scripts/seed_agent_personas.py` 从 `persona_nutrition.v1` / `persona_e_trainer.v1` / `persona_health_profile_test.v3` 幂等写入；种子阶段先走与用户角色相同的 `validate_definition`，提示词超过 `agent_persona_max_chars`（当前 3000 字）直接失败，避免写入运行时无法解析的版本。`health_profile_test` 另追加 `persona_health_profile_test_guard.v3` 运行约束，独立于角色版本生效；用户角色 `scope=user`，只有名称、键、定位和提示词，仅创建者可见。`health_profile_test` 是正式内置角色名（“测试”是产品命名），两个 v3 提示词均被运行时依赖，不是测试夹具或可清理的废弃提示词。
+- 角色级白名单口径：`tool_grants` / `skill_grants` 为 `NULL` 时沿用默认范围（未登记工具全开、专用工具只在注册角色可用、平台技能全开）；非空数组（含空数组）表示显式白名单，空数组即不使用任何工具/技能。管理员可以给普通工具配置显式白名单，也可以在 `/system/personas` 选择「恢复默认范围」写回 `NULL`；但健康档案 9 个专项技能与 `save_health_profile_aspect` 是硬边界，只允许 `health_profile_test`，其他角色即使写入白名单也会在运行时被过滤，管理端提交时直接报错。用户角色目前不开放白名单编辑，沿用默认范围。
 - 角色会话在 `POST /api/agent/conversations` 传入 `persona_id` 创建，同时写入 `persona_version_no`；创建后整段会话固定该角色，**不提供切换接口**。普通会话两列为空，行为与未上线前完全一致。
 - 角色版本只增不改：用户角色保存即生成新版本并立即生效（无草稿/发布两步）；平台角色文案变化由种子脚本新增版本。历史角色会话按创建时版本读取，不随角色改版漂移。
 - 角色停用只禁止新建角色会话，已绑定会话仍按快照继续；删除角色前必须删除引用它的会话，否则 409。
-- 提示词分层：`agent_chat.v8` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。`health_profile_test` 的 `persona_block` 在角色提示词后追加 `persona_health_profile_test_guard.v2`，明确健康档案以饮食、运动、训练、作息、生活、目标、伤病、心理、环境、偏好等全貌基础画像为目标；包含“一次只做一套、保存后立即结束、至少覆盖 3 个 aspect、单 aspect 最多 2 题、生理周期与近期事件各最多 1 题、优先补覆盖少的方面”等运行约束；旧版本角色会话也受该约束。
-- 工具可见性：`app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 是代码基线，当前登记 `save_health_profile_probe → {health_profile_test}`；未登记的工具默认对所有角色与普通会话可用。运行时 `tools_for_persona` 先看角色的显式 `tool_grants`，非空时完全按白名单；为 `NULL` 时再回落到 `TOOL_PERSONA_SCOPES`。技能侧同理：`available_skills` 先看显式 `skill_grants`，为 `NULL` 时沿用 `TOOL_PERSONA_SCOPES` 中的 `skill_<key>` 基线与平台技能全开。过滤发生在服务端装配阶段，不依赖提示词；过滤后 `capabilities` 只列当前角色可用项。显式白名单或默认专用工具会进入图缓存 key。
+- 提示词分层：`agent_chat.v8` 基座规则在前，末尾插入「角色设定」并紧跟「规则优先级（最高）」重申角色不得覆盖前述规则；`persona_block` 空时传固定默认句，不留空段。`health_profile_test` 的 `persona_block` 在角色提示词后追加 `persona_health_profile_test_guard.v3`，明确健康档案拆成 9 个专项、一次只做一个专项、每个专项由 AI 在提示词约束下生成 3~6 题、逐题提问、保存后立即结束；禁止把目标、饮食、运动、睡眠、生活方式、生理期、形体、伤病、补充混成一套“大杂烩”问卷；旧版本角色会话也受该约束。
+- 工具可见性：`app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 是代码基线，当前登记 9 个 `skill_profile_*` 与 `save_health_profile_aspect → {health_profile_test}`；9 个专项技能与保存工具同时列入 `PROFILE_TEST_ONLY_TOOLS` 硬边界，任何角色显式白名单都不能绕开。未登记的工具默认对所有角色与普通会话可用。运行时 `tools_for_persona` 先检查硬边界，再看角色的显式 `tool_grants`，非空时完全按白名单；为 `NULL` 时再回落到 `TOOL_PERSONA_SCOPES`。技能侧同理：`available_skills` 先排除非 `health_profile_test` 的专项技能，再看显式 `skill_grants`，为 `NULL` 时沿用 `TOOL_PERSONA_SCOPES` 中的 `skill_<key>` 基线与平台技能全开；`include_restricted=True` 只给 `/system/personas` 管理页与校验层列出全平台技能，不代表可执行权限。过滤发生在服务端装配阶段，不依赖提示词；过滤后 `capabilities` 只列当前角色可用项。显式白名单或默认专用工具会进入图缓存 key。
 - 页面为 `/agent/personas`（侧栏「AI助手」→「角色管理」）：左侧平台角色/我的角色，右侧提示词编辑；平台角色普通用户只读，用户角色可保存、启停、删除。管理员页面为 `/system/personas`（侧栏「系统设置」→「内置角色」），可新建/编辑/删除内置角色、调整排序与状态，并按工具/技能的稳定清单勾选白名单。对话页「新建角色会话」点击后弹出角色选择弹窗，从 `INIT_PERSONAS` 选择启用且已发布的角色；侧栏角色会话带「人形图标 + 角色名」徽标。
 - 相关 API：普通用户角色列表/详情/创建/保存/启停/删除 6 个接口；管理员内置角色列表/选项/创建/详情/保存/删除 6 个接口，统一在 `/api/system/system-personas` 下并受 `/api/system` 管理员门禁保护。平台角色普通用户编辑 403、非本人用户角色 403、被会话引用删除 409。
-- `tests/test_agent_personas.py` 覆盖定义字段/长度、创建与版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束，以及内置角色提示词必须通过运行时同口径定义校验；`tests/test_system_personas.py` 覆盖内置角色 CRUD、版本化、键不可改、工具/技能白名单校验与运行时过滤；`tests/test_health_profile_probe.py` 覆盖定制问题校验（固定 aspect、至少 3 个方面、单方面配额）、多套历史、方面覆盖统计、固定题保留、页面合并、专用工具边界与调用，以及保存成功后的 `finalize_probe_save` 收口与旧版角色仍追加运行约束；`tests/test_ai_foundation.py` 校验提示词注册表与 `app/ai/prompts` 目录文件一一对应，防止遗留测试提示词或废弃提示词。
+- `tests/test_agent_personas.py` 覆盖定义字段/长度、创建与版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束，以及内置角色提示词必须通过运行时同口径定义校验；`tests/test_system_personas.py` 覆盖内置角色 CRUD、版本化、键不可改、工具/技能白名单校验与运行时过滤；`tests/test_profile_aspect.py` 覆盖 9 个专项提示词加载、专项归属校验、3~6 题与 q1~q6、同专项最多 3 套、cycle 仅女性、页面逐题保存/清空、`profile_info` 新结构、保存工具边界、受限技能按角色过滤、保存成功后的 `finalize_profile_save` 收口与 v3 guard；`tests/test_ai_foundation.py` 校验提示词注册表与 `app/ai/prompts` 目录文件一一对应，防止遗留测试提示词或废弃提示词。
 
 ## 五、技能系统
 
 ### 5.1 平台技能与用户技能
 
-- `scope=system`：平台技能，对普通用户只读、可版本化，支持代码实现（`kind=code`）与平台内部声明式 DSL（`kind=declarative`）；当前内置 `lose_weight_analyse`（减重分析）与 `recent_swim_review`（游泳复盘），由 `scripts/seed_agent_skills.py` 幂等写入。普通用户在 `/agent/skills` 只读；管理员可在 `/system/skills` 维护：代码技能定义由代码注册、仅可启停，声明式技能可新建、编辑、版本化与删除。平台声明式 DSL 仍只作为平台内部能力维护，不对用户开放创建或编辑。
+- `scope=system`：平台技能，对普通用户只读、可版本化，支持代码实现（`kind=code`）与平台内部声明式 DSL（`kind=declarative`）；当前内置 `lose_weight_analyse`（减重分析）、`recent_swim_review`（游泳复盘），以及 9 个健康档案专项技能 `profile_goal` / `profile_diet` / `profile_exercise` / `profile_sleep` / `profile_lifestyle` / `profile_cycle` / `profile_posture` / `profile_medical` / `profile_extra`，由 `scripts/seed_agent_skills.py` 幂等写入。9 个专项技能带固定斜杠别名（`/目标档案`、`/饮食档案`、`/运动档案`、`/睡眠档案`、`/生活方式`、`/生理期档案`、`/形体矫正`、`/伤病档案`、`/档案补充`），输入参数只有 `mode ∈ {补齐, 更新}`，执行时返回该专项提示词和已有答案上下文；仅 `health_profile_test` 角色可见可调用。普通用户在 `/agent/skills` 只读；管理员可在 `/system/skills` 维护：代码技能定义由代码注册、仅可启停，声明式技能可新建、编辑、版本化与删除。平台声明式 DSL 仍只作为平台内部能力维护，不对用户开放创建或编辑。
 - 管理员保存/启停/删除平台技能后，`runtime.refresh_system_graph()` 重建常驻系统图并清空按用户图缓存，默认用户与角色会话的下一次提问即使用最新技能集，无需重启；图重建失败只记日志，重启后仍按数据库最新状态加载。被内置角色显式 `skill_grants` 引用的技能删除返回 409，避免角色白名单静默失效。
 - `scope=user`：用户私有技能，只支持提示词（`kind=prompt`），仅本人可见、可编辑；不能写代码、SQL、表名或任意列名。声明式 DSL 不对用户开放。
 - 用户技能绑定 `owner_user_id`，斜杠别名和技能键均按用户唯一；系统技能按 `skill_key` 全局唯一。数据库用 `scope-kind` 联合约束保证平台只存 `code/declarative`、用户只存 `prompt`；API 与管理页不再提供用户类型切换。
@@ -165,15 +165,15 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | `get_swim_records` | 游泳明细、距离、时长、配速、划频、泳姿和心得 |
 | `get_dance_records` | 舞蹈明细、舞种、老师、风格、评分、热量和心得 |
 | `get_body_measurements` | 基础、期望、围度、目标四组身材数据及指定指标趋势 |
-| `get_state_records` | 食欲、肌肉疼痛、炎症、情绪四类状态记录 |
+| `get_state_records` | 食欲、肌肉疼痛、炎症、情绪、恢复五类状态记录 |
 | `get_cycle_records` | 周期参考值、月经记录、派生长度、每日疼痛与 note、当前阶段 |
-| `get_profile_info` | 昵称、性别、年龄、账号状态、注册时间，健康/运动档案固定题、最新定制问答、全部历史定制问答（按生成时间倒序、含未答项、带 aspect）与方面覆盖统计，不含密码等敏感字段 |
+| `get_profile_info` | 昵称、性别、年龄、账号状态、注册时间，9 个专项档案（每项含最近一套与最近 3 套历史，题目带 `local_key/aspect/label/hint/placeholder/max_length/answer`），以及 `health_profile_meta`（`filled/set_count/skill_count/created_at/updated_at`），不含密码等敏感字段 |
 
 工具时间范围支持 `days_back` 或 `start_date + end_date`，明细工具支持 `limit`；不传范围参数时查询全部历史。`user_id` 由 `RunnableConfig` 注入，模型不可填写；统计和派生值复用现有业务口径。
 
 ## 六补、受控写工具
 
-受控写工具与只读工具物理分离。当前包含健身计划 `save_today_workout_plan` 与健康档案 `save_health_profile_probe`；后者见下一节。健身计划工具边界由代码强制，不依赖提示词：
+受控写工具与只读工具物理分离。当前包含健身计划 `save_today_workout_plan` 与健康档案 `save_health_profile_aspect`；后者见下一节。健身计划工具边界由代码强制，不依赖提示词：
 
 - `user_id` 从 `RunnableConfig` 注入，入参 schema 不含 `user_id`、`date`、`status`，模型无法指定或伪造；
 - 日期内部固定 `today_local()`、状态固定 `planned`，仅写今日计划，不支持改/删、不支持任意日期，也不接受心率、热量、起止时间等记录态字段；
@@ -182,16 +182,24 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 “先询问再写入”是 human-in-the-loop：提示词要求给出动作方案后先询问、用户明确肯定后才调用；工具核心逻辑 `save_today_plan(db, user_id, payload)` 可注入 db 单测。SSE 事件中该工具 `kind=action`，前端显示“正在保存/已保存”。
 
-## 六补二、健康档案专用写工具（save_health_profile_probe）
+## 六补二、健康档案专项技能与写工具（save_health_profile_aspect）
 
-默认只在「健康档案测试」角色可用，定义于 `app/modules/agent/tools/health_profile_actions.py`；默认范围由 `TOOL_PERSONA_SCOPES` 限定，管理员也可通过 `/system/personas` 的显式 `tool_grants` 勾给其他内置角色。普通会话、营养师、电子私教和用户角色在默认配置下拿不到该工具。
+健康档案不再是一套混合问卷，而是 9 个专项：目标、饮食、运动、睡眠、生活方式、生理期、形体矫正、伤病、档案补充。每个专项对应一个平台代码技能，固定注册在 `app/modules/profile/aspect_skills.py`，技能定义在 `app/modules/agent/skills/platform.py`：
 
-- 角色先读 `profile_info`（含固定档案、最新定制问答、全部历史定制问答与 `custom_health_profile_aspect_coverage` 方面覆盖统计）及运动/身体/周期数据，先通读历史、观察用户过去回答、未答项和方面覆盖缺口，再按当前缺口设计 3~10 个问题。每个问题必须属于固定 aspect，整套至少覆盖 3 个方面；每个问题单独调用一次 `ask_user` 提问（每题一张问答卡片，不在正文一次性列全部问题）；用户回答后从同一 thread 继续，模型再问下一题。LangGraph 的多次 `interrupt()` 顺序恢复已由 `tests/test_agent_ask.py` 覆盖。全部问完后用 `ask_user` 确认是否保存，再调用专用工具静默写入。保存成功后图进入 `finalize_probe_save` 直接结束本轮，不自动开始下一套。
-- 入参经 Pydantic 严格校验（`extra=forbid`）：问题 key 只允许 `q1~q10`，`aspect` 必须是固定模板 key，标题 ≤48、提示/占位 ≤120、单题答案长度 50~255；服务层再强制至少 3 个不同 aspect、单 aspect ≤2 题、生理周期 ≤1 题、其他 ≤1 题；answers 的 key 必须对应问题，至少 1 题，只记录用户实际回答。
-- `user_id` 从 `RunnableConfig` 注入，模型不能传；不接受固定题 key、日期、表名或 SQL，固定题答案永不被该工具覆盖。
-- 落库复用 `profile.service.save_probe_health_profile`。一套问题对应一个 `set_id`，问题定义与答案都写 `health_profile` 行：`item_key` 为 `probe_<set_id>_<qN>`，`aspect`、`label`、`hint`、`placeholder`、`max_length`、`sort_order`、`set_generated_at` 同存一行，未答项 `answer=NULL`。与最新一套问题签名相同则更新该套答案，签名变化则新增一套并保留历史，最多 20 套，超出删除最旧套的行。
-- 返回 `created`（新增一套）、`updated`（同套补答案）、`already_exists`（同套同答案不重复写）；成功后图由 `finalize_probe_save` 固定收口并结束本轮，不再回到模型续问。页面默认只展示最新一套，`profile_info` 返回最新一套、全部历史（按生成时间倒序）与按 `aspect` 的覆盖统计，历史套仍保留在库中。
-- 专用工具的使用边界不写进用户可编辑的角色定义，也不依赖提示词约束；默认范围在 `TOOL_PERSONA_SCOPES` 登记，管理员显式白名单落库到 `agent_personas.tool_grants` / `skill_grants`，两者都在装配阶段过滤。
+- 9 个专项 skill 的 key、名称、斜杠别名、允许 aspect、提示词 ID、页面 section 由 `aspect_skills.py` 单一维护；不允许模型或用户新增专项。
+- 9 段专项提示词合并在 `app/ai/prompts/profile_aspect_skills_v1.txt`，用 `===== goal =====` 等 section 分隔；`loader.PROMPTS` 用 `(文件名, section)` 映射为 9 个固定 ID，不允许多个文件各存一段。
+- 每个 skill 的输入只有 `mode ∈ {补齐, 更新}`；执行时 `skill_runtime.run_profile_aspect` 加载对应 section，并拼接该用户该专项已有问答与当前 mode，作为工具结果 `summary` 返回给模型。题目本身不预置、不写死注册表，由模型每次按提示词生成 3~6 题。
+- cycle 专项 `female_only=True`，保存时服务层再校验用户性别，男性账号直接 400。
+- 9 个专项 skill 与 `save_health_profile_aspect` 只允许 `health_profile_test`，运行时硬边界；其他角色保留 `get_profile_info` 只读，管理员也无法通过角色白名单授权。受限技能在普通用户的斜杠建议中不返回（`/api/agent/skills/available` 按角色过滤），平台技能管理页仍以只读条目展示；`/system/personas` 用 `include_restricted=True` 列出以便查看，非 `health_profile_test` 角色提交这些授权会校验失败。
+
+`save_health_profile_aspect` 定义于 `app/modules/agent/tools/health_profile_actions.py`，边界由代码强制：
+
+- 入参经 Pydantic 严格校验（`extra=forbid`）：`skill_key` 必须是 9 个专项之一；`questions` 3~6 题，`local_key` 只允许 `q1~q6`，标题 ≤48、提示/占位 ≤120、`max_length` 50~255、`aspect` 必须是该专项允许的固定方面；`answers` 的 key 必须对应题目，至少 1 题有答案，只记录用户实际回答。
+- `user_id` 从 `RunnableConfig` 注入，模型不能传；不接受日期、表名、SQL 或任意题目结构。保存工具只写当前专项最近一套，不会覆盖其他专项。
+- 落库复用 `profile.service.save_health_profile_aspect`。一套问题对应一个 `set_id`，问题定义与答案都写 `health_profile` 行：`skill_key` / `set_id` / `local_key` / `aspect` / `label` / `hint` / `placeholder` / `max_length` / `sort_order` / `set_generated_at` 同存一行，未答项 `answer=NULL`。与同专项最近一套的题号、标题、提示、aspect 签名相同则更新该套答案；签名变化则新增一套，同一专项最多保留最近 3 套。
+- 返回 `created`（新增一套）、`updated`（同套补答案）、`already_exists`（同套同答案不重复写），并带 `skill_key/skill_name/set_id/question_count/answered_count/filled`；成功后图由 `finalize_profile_save` 固定收口并结束本轮，不再回到模型续问，也不自动开始下一个专项。
+- 页面 `/profile/health-profile` 只展示已存储的专项套：每套逐题 textarea 直接可编辑，PUT 只接受已存在的 `(set_id, local_key)`；空串清空该题但保留题目；DELETE 清空该用户全部专项档案。页面不再有“未填写问卷 / 只读 / 编辑”三态，也不再展示 9 张空卡。
+- `profile_info` 返回 `aspect_questionnaires`（9 个专项，每个含 `latest` 与 `history`）与 `health_profile_meta`；每日建议事实层按每个专项最近一套注入已答问答，不再使用旧的固定题或 `custom_health_profile_*` 字段。
 
 ## 六补三、联网搜索工具（web_search，V2.13）
 
@@ -255,11 +263,11 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 ## 八、每日训练建议（V2.8）
 
-并进侧栏「今天」卡（`.today-card`）内的要点判断，位于周期四档标签上方：今天是否适合运动、有氧还是无氧、建议强度、健身练什么部位。与报告同属**离线、单次、无工具、无会话**的结构化调用，区别是周期为一天、产物只有三段要点、每天自动生成一次并可手动刷新。
+并进侧栏「今天」卡（`.today-card`）内的要点判断，位于周期四档标签上方：今天是否适合运动、有氧还是无氧、建议强度、健身练什么部位。与报告同属**离线、单次、无工具、无会话**的结构化调用，区别是周期为一天、产物只有三句自然表达、每天自动生成一次并可手动刷新。
 
 ### 8.1 三层结构
 
-1. **事实层**（`app/modules/daily_advice/facts.py`）：确定性计算，复用 body / overview / 三运动 / state_record / cycle 既有口径，输出 `date`、`profile`（性别、年龄、`health_profile` 文本档案）、`body`（体重/体脂/BMI/腰臀/近 30 天体重差）、`yesterday`、`today_records`、`plans_today`、`recent_load`（近 3/7 天与部位分布、距上次健身）、`state`（今天/昨天/近 3 天四类）、`cycle`（女性且有月经记录）、`hard_limits`、`completeness`。其中 `health_profile` 是用户自填的开放式文本，只作模型参考，**不做结构化解析、不参与 `hard_limits` 判定**。
+1. **事实层**（`app/modules/daily_advice/facts.py`）：确定性计算，复用 body / overview / 三运动 / state_record / cycle 既有口径，输出 `date`、`profile`（性别、年龄、9 个健康档案专项最近一套的已答问答）、`body`（体重/体脂/BMI/腰臀/近 30 天体重差）、`yesterday`、`today_records`、`plans_today`、`recent_load`（近 3/7 天负荷、近 7 天部位分布、近 30 天运动类型次数 `window_30d`、距上次健身）、`state`（今天/昨天/近 3 天各记录项）、`cycle`（女性且有月经记录）、`hard_limits`、`completeness`。其中 `health_profile` 是用户自填的开放式文本，只作模型参考，**不做结构化解析、不参与 `hard_limits` 判定**。
 2. **约束层**（`facts._hard_limits`）：代码判定的上限，不依赖提示词；`sanitize` 在模型返回后二次降档，见 8.3。
 3. **表达层**（`app/modules/daily_advice/ai.py`）：一次 `invoke_structured`，schema `DailyAdvice`（`verdict` / `focus` / `intensity` / `body_parts` / `text`，`extra=forbid`），模型只解释事实。
 
@@ -276,15 +284,21 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 
 | key | 条件 | 上限 |
 | --- | --- | --- |
-| `pain_high` | 今日肌肉疼痛 ≥2 或经期疼痛 ≥2 | 结论 ≤ 克制、强度 ≤ 低、不留力量部位 |
+| `cycle_pain_high` | 今日经期疼痛 ≥2 | 结论 ≤ 克制、强度 ≤ 低、不留力量部位 |
 | `cycle_rest` | 周期四档 = 适合休息 | 结论 ≤ 克制、强度 ≤ 低、不留力量部位 |
-| `inflammation_low` | 今日炎症 ≤1 | 强度 ≤ 低 |
+| `cycle_average` | 周期四档 = 状态一般 | 强度 ≤ 中 |
+| `inflammation_high` | 今日炎症 ≥4 | 强度 ≤ 低 |
+| `inflammation_mid` | 今日炎症 ≥3 | 强度 ≤ 中 |
+| `recovery_low` | 今日恢复 ≤1 | 强度 ≤ 低 |
+| `recovery_fair` | 今日恢复 = 2 | 强度 ≤ 中 |
 | `yesterday_very_heavy` | 昨日健身容量 ≥8000 或总时长 ≥120 分钟 | 结论 ≤ 克制、强度 ≤ 低 |
 | `yesterday_heavy` | 昨日容量 ≥5000 或总时长 ≥90 分钟 | 强度 ≤ 中 |
 | `trained_today` | 今日已有 recorded 力量训练 | 结论 ≤ 克制、强度 ≤ 低、不留力量部位 |
 | `mood_low` | 今日情绪 ≤1 | 强度 ≤ 中 |
 
-`sanitize`：强度按 低<中<高、结论按 休息<克制<适合 取更保守值；结论为「休息」时 `focus=恢复` 并清空部位；`focus=恢复` 时清空部位；力量被禁（`block_parts`）时，纯无氧或混合降为有氧并清空部位，纯有氧保留。正文去 HTML，按换行拆行（整段时按句末标点拆），每行去前缀标点后统一加 `- `、去句末句号，并按段收口（今日建议 ≤20 字、健身建议 ≤20 字、依据 ≤40 字，最多 3 行），空正文按失败处理；部位去重、单项 ≤8 字、最多 2 个。
+单纯肌肉酸痛**不触发**硬约束：休息只通过 `recent_parts_2d` 做部位避让，由提示词解释为正常训练反应；炎症 0~2（没有或很轻）不因炎症降档；只有炎症偏重、恢复不足、周期四档或多项信号叠加才明显降档。
+
+`sanitize`：强度按 低<中<高、结论按 休息<克制<适合 取更保守值；结论为「休息」时 `focus=恢复` 并清空部位；`focus=恢复` 时清空部位；力量被禁（`block_parts`）时，纯无氧或混合降为有氧并清空部位，纯有氧保留。正文去 HTML，按换行拆行（整段时按句末标点拆），每行去前缀标点后统一加 `- `、去句末句号，并按三句大致上限收口（32 / 36 / 48 字，提示词约为 15~30、20~35、30~45 字，最多 3 行），空正文按失败处理；部位去重、单项 ≤8 字、最多 2 个。
 
 ### 8.4 生成流程与幂等
 
@@ -305,18 +319,18 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 - `GET /api/daily-advice?date=`（缺省今天）、`POST /api/daily-advice/regenerate`（body `{date?, force?}`，只允许今天；跨天 400、生成中 409、模型失败 502）。
 - 返回 `{date, mode, status, verdict, focus, intensity, body_parts, text, tag, generated_at, error}`，不下发 `facts` / `data_hash`。
 - `render_page` 注入轻量对象 `daily_advice`（一次索引查询，异常降级 `None`）；正文并进 `.today-card`，位于 `.d3` 与周期四档标签之间（`.advice-lines`，`white-space: pre-line`），刷新图标在「今天」标题行右侧；`sidebar_advice.js` 只处理刷新与生成中态，不轮询。
-- 正文三段按「今日建议 / 健身建议 / 依据」顺序渲染，不写段名小标题；字段 `verdict` / `focus` / `intensity` / `body_parts` 仍随接口下发，供刷新与后续功能使用，但侧栏不再单独展示标签。
+- 正文三句按「运动强度 / 运动类型与部位 / 依据」顺序渲染，不写段名小标题；字段 `verdict` / `focus` / `intensity` / `body_parts` 仍随接口下发，供刷新与后续功能使用，但侧栏不再单独展示标签。
 
 ### 8.7 测试与降级
 
-`tests/test_daily_advice.py` 覆盖事实组装（男性无 cycle、女性有、仅 recorded 计入、计划与记录分离）、各类硬约束、sanitize 降档（含力量被禁→有氧）与要点格式（整段拆行、`- ` 前缀、去句末句号、三段各自字数收口）、rule 模式不调模型、ready 复用与 force、失败保留 facts、generating 409、`generate_due` 开关/limit/失败上限、任务表达式与跨天 400。降级路径：模型失败 → 卡片「未生成」可刷新；无数据 → rule 要点；任务错过 → 启动补跑或手动刷新；男性/无周期 → 正常生成且禁提周期。
+`tests/test_daily_advice.py` 覆盖事实组装（男性无 cycle、女性有、仅 recorded 计入、计划与记录分离、近 30 天类型）、各类硬约束、sanitize 降档（含力量被禁→有氧）与要点格式（整段拆行、`- ` 前缀、去句末句号、三句各自字数收口）、rule 模式不调模型、ready 复用与 force、失败保留 facts、generating 409、`generate_due` 开关/limit/失败上限、任务表达式与跨天 400。降级路径：模型失败 → 卡片「未生成」可刷新；无数据 → rule 要点；任务错过 → 启动补跑或手动刷新；男性/无周期 → 正常生成且禁提周期。
 
 ## 九、AI 开发契约
 
 1. 新增或修改 AI 功能前，必须先阅读本文件、`docs/ARCHITECTURE.md` 和 `docs/AIplan.md`。
 2. 本文件只记录已实现的 AI 架构、功能、工具、接口和开发契约；版本路线、进度和未实现设想写入 `docs/AIplan.md`。
 3. 新增工具必须同步更新工具定义、受控查询、注册清单、提示词、前端事件（如有变化）和测试。
-4. 数据查询工具必须只读，参数仅限业务字段和受控枚举，不接受模型提供的 `user_id`、SQL、表名或列名。受控写工具与只读工具分离：健身计划工具只能写今日 planned 计划，`user_id` 从 config 注入、日期与状态由代码固定，复用训练模块统一落库逻辑并做防重复；健康档案工具只能写「健康档案测试」角色的定制问答，问题与答案白名单校验、固定题不可覆盖、多套历史上限与去重均由代码强制，并复用档案 service。
+4. 数据查询工具必须只读，参数仅限业务字段和受控枚举，不接受模型提供的 `user_id`、SQL、表名或列名。受控写工具与只读工具分离：健身计划工具只能写今日 planned 计划，`user_id` 从 config 注入、日期与状态由代码固定，复用训练模块统一落库逻辑并做防重复；健康档案工具只能写当前专项的一套题，`user_id` 从 config 注入，题数/题号/aspect 属于该专项、至少 1 题有答案、同专项最多 3 套均由代码强制，并复用档案 service。
 5. AI 导入必须复用运动模块现有规范化、校验和落库逻辑，不得绕过统一运动契约或新增重复落库路径。
 6. 提示词维护按 `AGENTS.md`「提示词维护契约」执行：固定 ID 经 loader 加载、变量与能力声明和代码一致、版本替换后删除无引用的旧文件与映射，并同步本文件；模型注册表与结构化 schema 变更同样确认变量、能力声明与代码一致。
 7. 涉及数据库、前端、运动模块或版本进度时，分别按 `AGENTS.md` 同步维护对应文档和代码。
@@ -343,7 +357,7 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | 联网搜索工具 | `app/modules/agent/tools/web_search.py` |
 | 受控写工具 | `app/modules/agent/tools/action_definitions.py`、`health_profile_actions.py` |
 | 受控查询 | `app/modules/agent/tools/queries.py` |
-| 健康档案定制问题 | `app/modules/profile/aspects.py`、`app/modules/profile/probe.py`、`app/modules/profile/service.py` |
+| 健康档案专项 | `app/modules/profile/aspects.py`、`aspect_skills.py`、`questionnaire.py`、`skill_runtime.py`、`service.py`、`app/ai/prompts/profile_aspect_skills_v1.txt` |
 | AI 页面 | `app/templates/agent/`、`app/static/js/agent.js`、`agent_skills.js`、`agent_personas.js`、`app/static/css/pages/agent.css`、`agent_skills.css`、`agent_personas.css` |
 | 内置角色管理页 | `app/templates/system/personas.html`、`app/static/js/system_personas.js`、`app/static/css/pages/system_personas.css` |
 | 技能种子与迁移 | `scripts/seed_agent_skills.py`、`scripts/migrate_agent_skills.py` |
@@ -353,14 +367,14 @@ AI 能力复用现有业务 service 和统计口径，不重复实现业务计�
 | 内置技能管理服务/API/页面 | `app/modules/system/skills/` |
 | 内置技能管理页 | `app/templates/system/skills.html`、`app/static/js/system_skills.js`、`app/static/css/pages/system_skills.css` |
 | 内置技能测试 | `tests/test_system_skills.py` |
-| 角色种子与迁移 | `scripts/seed_agent_personas.py`、`scripts/migrate_agent_personas.py`、`scripts/migrate_agent_persona_grants.py`、`scripts/migrate_health_profile_entries.py` |
-| 角色模板 | `app/ai/prompts/persona_nutrition_v1.txt`、`persona_e_trainer_v1.txt`、`persona_health_profile_test_v2.txt`、`persona_health_profile_test_guard_v2.txt` |
+| 角色种子与迁移 | `scripts/seed_agent_personas.py`、`scripts/migrate_agent_personas.py`、`scripts/migrate_agent_persona_grants.py`、`scripts/migrate_health_profile_aspects.py` |
+| 角色模板 | `app/ai/prompts/persona_nutrition_v1.txt`、`persona_e_trainer_v1.txt`、`persona_health_profile_test_v3.txt`、`persona_health_profile_test_guard_v3.txt` |
 | 报告事实快照 / 叙事 / 服务 / 模型 | `app/modules/report/facts.py`、`ai.py`、`service.py`、`models.py` |
 | 报告提示词 | `app/ai/prompts/weekly_report_v1.txt`、`monthly_report_v1.txt` |
 | 报告页面 | `app/templates/report/`、`app/static/js/report.js`、`app/static/css/pages/report.css` |
 | 报告迁移与定时任务 | `scripts/migrate_reports.py`、`scripts/generate_reports.py`、`scripts/migrate_scheduler.py`、`app/modules/system/scheduler/`（定时任务定义/执行/管理页） |
 | 每日建议事实 / 清洗 / 服务 / 模型 | `app/modules/daily_advice/facts.py`、`ai.py`、`service.py`、`models.py`、`schemas.py` |
-| 每日建议提示词 | `app/ai/prompts/daily_advice_v1.txt` |
+| 每日建议提示词 | `app/ai/prompts/daily_advice_v3.txt` |
 | 每日建议侧栏 | `app/templates/layout/sidebar.html`、`app/static/js/sidebar_advice.js`、`app/static/css/layout.css` |
 | 每日建议迁移 | `scripts/migrate_daily_advice.py` |
 | AI 规划 | `docs/AIplan.md` |

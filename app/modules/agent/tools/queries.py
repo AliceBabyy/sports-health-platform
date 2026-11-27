@@ -3,7 +3,7 @@
 只做查询与结构化，不做任何写操作。口径复用各模块 service，保证数据问答与页面一致。
 取数范围由调用方（模型按用户意图）决定：start / end 为 None 表示不限，即全部历史。
 
-覆盖范围：身材（4 组）、状态记录（食欲/肌肉疼痛/炎症/情绪）、健身、游泳、舞蹈、
+覆盖范围：身材（4 组）、状态记录（食欲/肌肉疼痛/炎症/情绪/恢复）、健身、游泳、舞蹈、
 生理周期（参考值 + 月经记录 + 每日疼痛 + 今日阶段）、个人基本信息。
 """
 from datetime import date
@@ -28,8 +28,9 @@ from app.modules.body.service import GROUP_MODELS, all_group_rows
 from app.modules.cycle import service as cycle_service
 from app.modules.cycle.models import PeriodLog, PeriodSetting
 from app.modules.dance.models import DanceRecord
-from app.modules.profile import probe
 from app.modules.profile import service as profile_service
+from app.modules.profile.aspect_skills import ASPECT_SKILLS, skill_name
+from app.modules.profile.questionnaire import answered_count, question_count, set_qa
 from app.modules.dance.service import to_dict as dance_to_dict
 from app.modules.overview.service import SPORT_LABELS, _fitness_minutes
 from app.modules.state_record.models import STATE_MODELS, STATE_TYPES, STATE_TYPE_LABELS
@@ -313,7 +314,7 @@ def state_records(
     type_filter: str = "all",
     limit: int | None = None,
 ) -> dict:
-    """状态记录（食欲 / 肌肉疼痛 / 炎症 / 情绪）跨表明细，按日期倒序；不限范围即全量。"""
+    """状态记录（食欲 / 肌肉疼痛 / 炎症 / 情绪 / 恢复）跨表明细，按日期倒序；不限范围即全量。"""
     if type_filter != "all" and type_filter not in STATE_TYPES:
         raise AppError(400, "记录类型不合法")
     types = list(STATE_TYPES) if type_filter == "all" else [type_filter]
@@ -338,7 +339,7 @@ def state_records(
         "count": len(records),
         "per_type": per_type,
         "records": records,
-        "note": "star 为 0~5 星，0=最低分、null=未评；四类各表同类同一天一行。",
+        "note": "star 为 0~5 星，0=最低分、null=未评；各类型表同类同一天一行。",
     }
 
 
@@ -412,48 +413,62 @@ def cycle_records(
 
 # ---------- 个人信息 ----------
 
-def profile_info(db: Session, user_id: int) -> dict:
-    """个人基本信息 + 健康档案全部数据：固定题、最新定制问答、全部历史定制问答。
+def _profile_set_payload(question_set: dict) -> dict:
+    generated_at = question_set.get("generated_at")
+    return {
+        "set_id": question_set["set_id"],
+        "skill_key": question_set["skill_key"],
+        "name": skill_name(question_set["skill_key"]),
+        "generated_at": generated_at.isoformat() if generated_at else None,
+        "question_count": question_count(question_set),
+        "answered_count": answered_count(question_set),
+        "qa": set_qa(question_set),
+    }
 
-    不含密码等敏感字段。历史问答按生成时间倒序，未答项保留空 answer。
+
+def profile_info(db: Session, user_id: int) -> dict:
+    """个人基本信息 + 按九个专项组织的健康档案（最近一套 + 历史套）。
+
+    不含密码等敏感字段；未答项保留空 answer；历史按生成时间正序，便于模型看变化。
     """
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise AppError(404, "用户不存在")
     health = profile_service.get_health_profile(db, user_id)
-    answers = dict(health.answers) if health else {}
-    store = health.custom_questions if health else {"sets": []}
+    all_sets = health.all_sets if health else []
+    questionnaires = []
+    for item in ASPECT_SKILLS:
+        sets = [s for s in all_sets if s["skill_key"] == item["key"]]
+        history = [_profile_set_payload(s) for s in sets[-3:]]
+        questionnaires.append({
+            "skill_key": item["key"],
+            "name": item["name"],
+            "slash": f"/{item['slash_alias']}",
+            "aspects": list(item["aspects"]),
+            "latest": history[-1] if history else None,
+            "history": history,
+        })
     return {
         "display_name": user.display_name,
         "gender": user.gender,
         "age": user.age,
         "status": user.status,
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        "health_profile": {
-            key: value for key, value in answers.items()
-            if not key.startswith(probe.PROBE_PREFIX)
-        },
         "health_profile_meta": {
             "filled": health is not None,
-            "record_count": len(health.entries) if health else 0,
-            "completed_at": health.completed_at.isoformat()
-            if health and health.completed_at else None,
+            "set_count": len(all_sets),
+            "skill_count": health.skill_count if health else 0,
             "created_at": health.created_at.isoformat()
             if health and health.created_at else None,
             "updated_at": health.updated_at.isoformat()
             if health and health.updated_at else None,
-            "custom_set_count": len(store["sets"]),
         },
-        "custom_health_profile": probe.latest_qa(store, answers),
-        "custom_health_profile_history": probe.history_qa(store, answers),
-        "custom_health_profile_aspect_coverage": probe.aspect_coverage(store),
+        "aspect_questionnaires": questionnaires,
         "note": (
             "身高、体重等身体数据在身材数据中，不在基本资料里；"
-            "health_profile 是用户自己写的固定档案（开放式文本，未填写为空对象）；"
-            "custom_health_profile 是“健康档案测试”角色生成的最新一套定制问答（只有已回答项）；"
-            "custom_health_profile_history 是全部历史定制问答，按生成时间倒序，含未答项（answer 为空），"
-            "用于观察用户历史、避免重复提问；custom_health_profile_aspect_coverage 按固定 aspect "
-            "统计方面出现题数与涉及套数，出题前优先补覆盖少的基础方面；两者都只作参考，不要当作诊断结论；"
-            "本工具不返回密码等敏感字段。"
+            "aspect_questionnaires 是九个健康档案专项的问答，latest 是最近一套，history 是最近三套；"
+            "qa 中未答项 answer 为空，只作背景，不要当作诊断结论；"
+            "要补某个专项时，让用户触发对应 slash 专项命令，不要用一套题混合多个专项；"
+            "本工具只读，不返回密码等敏感字段。"
         ),
     }

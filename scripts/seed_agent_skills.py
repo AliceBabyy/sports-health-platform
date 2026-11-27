@@ -1,4 +1,4 @@
-"""平台技能种子（幂等）：减重分析、游泳复盘。
+"""平台技能种子（幂等）：减重分析、游泳复盘、9 个健康档案专项。
 
 用法：
     python scripts/seed_agent_skills.py
@@ -28,6 +28,7 @@ def main() -> None:
                     scope="system", owner_user_id=None, skill_key=key, name=code.name,
                     description=code.description, kind="code", category=code.category,
                     status="active", current_version_no=code.version,
+                    slash_alias=code.slash_alias,
                 )
                 db.add(skill)
                 db.flush()
@@ -37,6 +38,7 @@ def main() -> None:
                 skill.kind = "code"
                 skill.category = code.category
                 skill.current_version_no = code.version
+                skill.slash_alias = code.slash_alias
                 # 管理员在 /system/skills 停用的代码技能不因种子脚本被强行重新启用
                 if skill.status in ("draft", "archived", None):
                     skill.status = "active"

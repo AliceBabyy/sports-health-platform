@@ -7,9 +7,11 @@
 - 角色显式白名单：``AgentPersona.tool_grants`` / ``skill_grants`` 非空时覆盖基线。
   管理员的勾选结果落库后，运行时按白名单装配；空数组表示该角色不使用任何工具/技能。
   未配置（NULL）继续沿用基线，保证历史角色不需要迁移即可保持原行为。
+  ``PROFILE_TEST_ONLY_TOOLS`` 例外：它是硬边界，显式白名单也不能把健康档案专项授给其他角色。
 
-专用工具示例：``save_health_profile_probe`` 只在 ``health_profile_test`` 的默认范围中；
-管理员显式把它勾给其他角色后，以显式白名单为准。
+健康档案专项：九个 ``skill_profile_*`` 与保存工具 ``save_health_profile_aspect``
+只允许 ``health_profile_test``，这是运行时的硬边界，角色显式白名单也不能绕开；
+其他角色仍可读 ``get_profile_info``，但不能执行专项技能或写入档案。
 """
 from __future__ import annotations
 
@@ -17,9 +19,21 @@ import hashlib
 import json
 from collections.abc import Iterable
 
+from app.modules.profile.aspect_skills import PROFILE_SKILL_KEYS
+
+PROFILE_TEST_PERSONA = "health_profile_test"
+PROFILE_TEST_ONLY_TOOLS: frozenset[str] = frozenset({
+    "save_health_profile_aspect",
+    *(f"skill_{key}" for key in PROFILE_SKILL_KEYS),
+})
+
 # 工具名（含 skill_<key>） -> 默认允许使用的角色 key；未登记 = 所有角色可用。
 TOOL_PERSONA_SCOPES: dict[str, frozenset[str]] = {
-    "save_health_profile_probe": frozenset({"health_profile_test"}),
+    "save_health_profile_aspect": frozenset({PROFILE_TEST_PERSONA}),
+    **{
+        f"skill_{key}": frozenset({PROFILE_TEST_PERSONA})
+        for key in PROFILE_SKILL_KEYS
+    },
 }
 
 SKILL_TOOL_PREFIX = "skill_"
@@ -51,7 +65,9 @@ def _grants(persona, name: str) -> frozenset[str] | None:
 
 
 def tool_visible(tool_name: str, persona_key: str | None) -> bool:
-    """代码基线的默认可见性；显式白名单由 tools_for_persona / available_skills 处理。"""
+    """代码基线可见性；健康档案专项是硬边界，任何角色都不能越权。"""
+    if tool_name in PROFILE_TEST_ONLY_TOOLS:
+        return persona_key == PROFILE_TEST_PERSONA
     scopes = TOOL_PERSONA_SCOPES.get(tool_name)
     if scopes is None:
         return True
@@ -61,6 +77,8 @@ def tool_visible(tool_name: str, persona_key: str | None) -> bool:
 def _tool_allowed(tool_name: str, persona_key: str | None,
                   tool_grants: frozenset[str] | None,
                   skill_grants: frozenset[str] | None) -> bool:
+    if tool_name in PROFILE_TEST_ONLY_TOOLS:
+        return persona_key == PROFILE_TEST_PERSONA
     if tool_name.startswith(SKILL_TOOL_PREFIX):
         if skill_grants is not None:
             return tool_name[len(SKILL_TOOL_PREFIX):] in skill_grants

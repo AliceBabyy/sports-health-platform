@@ -11,7 +11,7 @@
   let lastUserText = "";
   let activeAsk = null; // 当前唯一等待回答的卡片，主输入框也复用它作答
   let webSearchOn = false; // 本轮联网开关：默认关闭，只对下一次发送（含重生成/续写/作答）生效
-  const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false };
+  const skillPick = { all: [], items: [], index: 0, open: false, loaded: false, loading: false, personaId: null };
 
   const SIDEBAR_KEY = "sh.agent.sessions.collapsed";
   const CURRENT_KEY = "sh.agent.current";
@@ -691,6 +691,7 @@
     syncModelSelect(conv);
     renderSessions();
     await loadMessages(conv);
+    await loadSkillOptions(true);
   }
 
   /* ---------- 新建 / 重命名 / 删除 ---------- */
@@ -1371,11 +1372,21 @@
     return score;
   }
 
-  async function loadSkillOptions() {
-    if (skillPick.loading || skillPick.loaded) return;
+  async function loadSkillOptions(force = false) {
+    const conv = current();
+    const personaId = conv && conv.persona_id ? Number(conv.persona_id) : null;
+    if (force) {
+      skillPick.loaded = false;
+      skillPick.loading = false;
+      skillPick.all = [];
+    }
+    if (skillPick.loading || (skillPick.loaded && skillPick.personaId === personaId)) return;
     skillPick.loading = true;
     try {
-      const res = await fetch("/api/agent/skills");
+      const url = personaId
+        ? "/api/agent/skills/available?persona_id=" + encodeURIComponent(personaId)
+        : "/api/agent/skills/available";
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         skillPick.all = (data.list || []).filter(s => s.status === "active");
@@ -1383,6 +1394,7 @@
     } catch (e) {
       // 技能列表不可用时静默降级为普通输入
     } finally {
+      skillPick.personaId = personaId;
       skillPick.loaded = true;
       skillPick.loading = false;
       if (skillPick.open) refreshSkillSuggest();

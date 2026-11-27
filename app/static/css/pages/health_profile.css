@@ -1,33 +1,11 @@
-/* 健康/运动档案：只读分组卡 + 问卷/编辑表单（全部题目为开放式文本） */
-
-/* 页面内的 hidden 必须压过容器 display（.hp-stack 是 grid），否则两态会同时显示 */
-[hidden] { display: none !important; }
+/* 健康档案：只展示已存储专项套，套内直接编辑 */
 
 .hp-stack { display: grid; gap: 18px; }
 
-/* 只读答案行：左标签右文本，长文本按原换行展示 */
-.hp-row {
-  display: grid;
-  grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
-  gap: 16px;
-  padding: 10px 0;
-  border-top: 1px solid var(--color-border);
-  font-size: 13px;
-  line-height: 1.7;
-}
-.hp-row:first-of-type { border-top: 0; padding-top: 2px; }
-.hp-label { color: var(--color-text-secondary); }
-.hp-value { white-space: pre-line; word-break: break-word; }
-.hp-value.is-empty { color: var(--color-text-secondary); }
-
-/* 编辑表单：题目说明贴在上方，输入框随内容自动增高（由 health_profile.js 计算） */
 .hp-field + .hp-field { margin-top: 16px; }
 .hp-hint { margin: -2px 0 6px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.6; }
 .hp-textarea { resize: none; overflow-y: hidden; min-height: 74px; line-height: 1.65; }
 
-.hp-edit-note { font-size: 12.5px; color: var(--color-text-secondary); }
-
-/* 底部操作条：提示在左，按钮靠右；窄屏换行后按钮整行靠右 */
 .hp-form-foot {
   display: flex;
   align-items: center;
@@ -38,8 +16,10 @@
 .hp-foot-hint { font-size: 12.5px; color: var(--color-text-secondary); }
 .hp-foot-actions { display: flex; gap: 10px; margin-left: auto; }
 
+.hp-empty p { margin: 8px 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.7; }
+.hp-empty .btn { margin-top: 6px; }
+
 @media (max-width: 640px) {
-  .hp-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .hp-foot-actions { width: 100%; }
   .hp-foot-actions .btn { flex: 1; justify-content: center; }
 }

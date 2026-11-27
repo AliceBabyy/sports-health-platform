@@ -1,8 +1,4 @@
-"""个人信息 schemas：基本资料更新 / 修改密码 / 健康档案保存请求体。
-
-age 以字符串接收，复用注册口径的解析校验（空串 → None，1~120 整数），
-与 GET/POST /register 的错误文案保持一致。
-"""
+"""个人信息 schemas：基本资料更新 / 修改密码 / 健康档案逐题保存请求体。"""
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -23,13 +19,17 @@ class AccountDeleteIn(BaseModel):
     current_password: str
 
 
-class HealthProfileIn(BaseModel):
-    """健康/运动档案保存：只接受 `answers`（题目 key → 文本）。
+class HealthProfileItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    未知 key、超长答案由 service 校验并返回 400；未出现的 key 保持原值，
-    显式传空串表示清空该题（便于逐题修改）。
-    """
+    set_id: str = Field(min_length=1, max_length=16, description="档案套 id")
+    local_key: str = Field(pattern=r"^q[1-6]$", description="套内题号 q1~q6")
+    answer: str = Field(default="", max_length=255, description="文本答案，可空")
+
+
+class HealthProfileIn(BaseModel):
+    """页面保存：按 (set_id, local_key) 逐题更新已存储档案，空串表示清空该题。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    answers: dict[str, str] = Field(default_factory=dict)
+    items: list[HealthProfileItemIn] = Field(default_factory=list, max_length=200)

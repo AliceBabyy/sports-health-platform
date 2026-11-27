@@ -230,7 +230,7 @@ def test_platform_persona_prompts_fit_definition_limit():
     for prompt_id in (
         "persona_nutrition.v1",
         "persona_e_trainer.v1",
-        "persona_health_profile_test.v2",
+        "persona_health_profile_test.v3",
     ):
         errors, _ = validate_definition(
             {"schema_version": 1, "prompt": load_system_prompt(prompt_id)}

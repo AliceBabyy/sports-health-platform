@@ -46,13 +46,13 @@ def _should_continue(state: MessagesState) -> str:
     return END
 
 
-PROBE_SAVE_TOOL = "save_health_profile_probe"
-PROBE_SAVE_STATUSES = {"created", "updated", "already_exists"}
+PROFILE_SAVE_TOOL = "save_health_profile_aspect"
+PROFILE_SAVE_STATUSES = {"created", "updated", "already_exists"}
 
 
-def _probe_save_payload(message: ToolMessage) -> dict | None:
+def _profile_save_payload(message: ToolMessage) -> dict | None:
     """解析健康档案保存工具的结构化结果；非该工具或结果不可解析时返回 None。"""
-    if getattr(message, "name", None) != PROBE_SAVE_TOOL:
+    if getattr(message, "name", None) != PROFILE_SAVE_TOOL:
         return None
     raw = message.content
     if isinstance(raw, dict):
@@ -67,24 +67,25 @@ def _probe_save_payload(message: ToolMessage) -> dict | None:
 
 
 def _after_tools(state: MessagesState) -> str:
-    """健康档案保存成功后直接收口，避免模型在同一个会话里自动开始下一套问题。"""
-    payload = _probe_save_payload(state["messages"][-1])
-    if payload and payload.get("ok") and payload.get("status") in PROBE_SAVE_STATUSES:
-        return "finalize_probe_save"
+    """健康档案专项保存成功后直接收口，避免模型在同一个会话里自动开始下一项。"""
+    payload = _profile_save_payload(state["messages"][-1])
+    if payload and payload.get("ok") and payload.get("status") in PROFILE_SAVE_STATUSES:
+        return "finalize_profile_save"
     return "agent"
 
 
-def _finalize_probe_save(state: MessagesState) -> dict:
+def _finalize_profile_save(state: MessagesState) -> dict:
     """固定输出本轮结果并结束，不再给模型继续提问的机会。"""
-    payload = _probe_save_payload(state["messages"][-1]) or {}
+    payload = _profile_save_payload(state["messages"][-1]) or {}
     status = payload.get("status")
+    skill_name = payload.get("skill_name") or "健康档案"
     question_count = payload.get("question_count")
     answered_count = payload.get("answered_count")
     status_text = {
-        "created": "已新增一套定制问答",
-        "updated": "已更新本套定制问答",
-        "already_exists": "本套问答已是最新，未重复写入",
-    }.get(status, "已写入健康档案")
+        "created": f"已新增一套{skill_name}专项问答",
+        "updated": f"已更新{skill_name}专项问答",
+        "already_exists": f"{skill_name}专项问答已是最新，未重复写入",
+    }.get(status, f"已写入{skill_name}")
     detail = []
     if question_count is not None:
         detail.append(f"共 {question_count} 题")
@@ -93,7 +94,10 @@ def _finalize_probe_save(state: MessagesState) -> dict:
     suffix = f"（{'，'.join(detail)}）" if detail else ""
     return {
         "messages": [AIMessage(
-            content=f"{status_text}{suffix}。本轮健康档案测试结束；如需重新出题，请明确说“再来一套”。"
+            content=(
+                f"{status_text}{suffix}。本轮专项结束；"
+                "如需补另一项，请手动触发对应的专项命令。"
+            )
         )]
     }
 
@@ -175,7 +179,7 @@ def build_graph(checkpointer, tools=None, capabilities: str | None = None):
     graph = StateGraph(MessagesState)
     graph.add_node("agent", make_agent_node(tools, capabilities))
     graph.add_node("tools", ToolNode(tools))
-    graph.add_node("finalize_probe_save", _finalize_probe_save)
+    graph.add_node("finalize_profile_save", _finalize_profile_save)
 
     graph.add_edge(START, "agent")
     graph.add_conditional_edges(
@@ -186,7 +190,7 @@ def build_graph(checkpointer, tools=None, capabilities: str | None = None):
     graph.add_conditional_edges(
         "tools",
         _after_tools,
-        {"agent": "agent", "finalize_probe_save": "finalize_probe_save"},
+        {"agent": "agent", "finalize_profile_save": "finalize_profile_save"},
     )
-    graph.add_edge("finalize_probe_save", END)
+    graph.add_edge("finalize_profile_save", END)
     return graph.compile(checkpointer=checkpointer)

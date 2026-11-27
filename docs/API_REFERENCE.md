@@ -43,11 +43,11 @@
 | 个人信息 profile | `/profile`、`/api/profile` | 2 | 6 | 8 |
 | 总览 overview | `/overview`、`/api/overview` | 1 | 2 | 3 |
 | 电子教练 electronic_trainer | `/api/electronic-trainer` | 0 | 2 | 2 |
-| AI 助手 agent | `/agent`、`/api/agent` | 3 | 27 | 30 |
+| AI 助手 agent | `/agent`、`/api/agent` | 3 | 28 | 31 |
 | AI 运动报告 report | `/reports`、`/api/reports` | 1 | 4 | 5 |
 | 每日训练建议 daily_advice | `/api/daily-advice` | 0 | 2 | 2 |
 | 系统管理 system | `/system/scheduler`、`/system/personas`、`/system/skills`、`/api/system/scheduler`、`/api/system/system-personas`、`/api/system/system-skills` | 3 | 21 | 24 |
-| **合计** | — | **21** | **131** | **152** |
+| **合计** | — | **21** | **132** | **153** |
 
 ## 2. 全局与认证
 
@@ -176,9 +176,9 @@
 
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
-| `GET /state-record` | 无 | 无 | HTML 页面 | 状态记录页：月历 + 当日四类记录 + 全部记录 |
-| `GET /api/state-record` | Query | `page`、`page_size`、`type`（可选，`appetite`/`myalgia`/`inflammation`/`mood`） | 分页包（A.1），`list` 为状态记录对象（A.7） | 跨四表合并分页，日期与 id 倒序；`type` 非法 400 |
-| `GET /api/state-record/daily` | Query | `date`（必填） | `{date, records{appetite, myalgia, inflammation, mood：记录对象或 null}}` | 某日四类记录，未记录的类型为 `null` |
+| `GET /state-record` | 无 | 无 | HTML 页面 | 状态记录页：月历 + 当日五类记录 + 全部记录 |
+| `GET /api/state-record` | Query | `page`、`page_size`、`type`（可选，`appetite`/`myalgia`/`inflammation`/`mood`/`recovery`） | 分页包（A.1），`list` 为状态记录对象（A.7） | 跨五表合并分页，日期与 id 倒序；`type` 非法 400 |
+| `GET /api/state-record/daily` | Query | `date`（必填） | `{date, records{appetite, myalgia, inflammation, mood, recovery：记录对象或 null}}` | 某日五类记录，未记录的类型为 `null` |
 | `GET /api/state-record/calendar` | Query | `month`（`YYYY-MM`） | `{year, month, days:[{date, phase_key 或 null, phase_group 或 null, phase_label 或 null, has_record}]}` | 月历：复用周期阶段并归并三档，标记当日是否有记录 |
 | `POST /api/state-record` | JSON | `date`、`type`、`star`（0~5，可空）、`remark`（≤255，可空） | 状态记录对象（A.7） | 新建；同用户同类型同一天唯一，重复 409 |
 | `POST /api/state-record/batch-delete` | JSON | `items[]{id, type}`（1~200 条） | `{deleted:[{id,type}], skipped:[{id,type}]}` | 跨表批量删除，每条自带类型定位表 |
@@ -192,13 +192,13 @@
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
 | `GET /profile` | 无 | 无 | HTML 页面 | 账号资料页（基本资料、密码、注销；显示账号创建/更新时间） |
-| `GET /profile/health-profile` | 无 | 无 | HTML 页面 | 健康/运动档案页：固定问卷 + 最新一套角色定制问题；未填写直接展示问卷，已填写展示答案并支持编辑/清空 |
+| `GET /profile/health-profile` | 无 | 无 | HTML 页面 | 健康档案页：只展示已存储的专项套；每套逐题 textarea 直接编辑，无查看/编辑两态，无 9 张空卡 |
 | `POST /api/profile` | JSON | `display_name`（≤32，必填）、`gender`（`男`/`女`/空）、`age`（字符串，空或 1~120） | `{ok, display_name, gender, age}` | 更新基本资料，返回最新值供顶栏同步 |
 | `POST /api/profile/password` | JSON | `current_password`、`new_password`、`confirm_password` | `{ok}` | 修改密码：校验当前密码、两次新密码一致、新密码 ≥6 且不得与旧密码相同 |
 | `DELETE /api/profile/account` | JSON | `mode`（`retain`/`purge`）、`current_password` | `{ok}` | 注销账号：`retain` 停用保留数据，`purge` 删除用户及全部关联数据；成功后清会话 |
-| `GET /api/profile/health-profile` | 无 | 无 | `{ok, filled, completed_at, answers{题目key: 文本}, custom_questions{set_id, persona_key, generated_at, questions[]{key,aspect,group,label,hint,placeholder,max_length}} 或 null, custom_history_count}` | 读取健康/运动档案；未填写时 `filled=false`、`answers={}`；定制问题只返回最新一套与历史套数 |
-| `PUT /api/profile/health-profile` | JSON | `answers{题目key: 文本}`（固定题 key 见 `questions.py`；定制题 key 为 `probe_<set_id>_<qN>`，须属于已有定制套；未传的题保持原值，空串清空该题；单题长度按题目上限） | 同 GET（含 `custom_questions`、`custom_history_count`） | 保存档案；全部答案清空时删除该用户全部档案行并返回 `filled=false`；未知 key 或超长 400 |
-| `DELETE /api/profile/health-profile` | 无 | 无 | `{ok}` | 清空档案（删除档案行），页面回到问卷态 |
+| `GET /api/profile/health-profile` | 无 | 无 | `{ok, filled, sets:[{set_id, skill_key, name, generated_at, items[]{local_key, aspect, label, hint, placeholder, max_length, answer}}]}` | 读取已存储的专项档案；每个专项只返回最近一套，未填写时 `filled=false`、`sets=[]` |
+| `PUT /api/profile/health-profile` | JSON | `items[]{set_id, local_key(q1~q6), answer(≤255)}` | 同 GET | 逐题保存已存储档案：`(set_id, local_key)` 必须已存在，空串清空该题但保留题目；不新增、不删除套装；未知题或超长 400 |
+| `DELETE /api/profile/health-profile` | 无 | 无 | `{ok}` | 清空该用户全部专项档案行，页面回到空态 |
 
 ## 10. 总览 overview
 
@@ -235,13 +235,14 @@
 | `POST /api/agent/conversations/{conversation_id}/messages/regenerate` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选）、`web_search`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 重新生成最近一轮：回滚上一条 AI 回答后流式覆盖；该会话正等待回答时返回 409；前置校验失败以 JSON 返回 400/404/409 |
 | `POST /api/agent/conversations/{conversation_id}/messages/stop` | 路径参数 | 路径 `conversation_id` | `{conversation_id, stopped, settled, closed, title, last_message_at（可空）, partial}` | 中断该会话当前生成：置停止信号、等生成器收尾后回滚断在半途的工具调用，并把已流出正文作为一条中断回答留下；无进行中的生成时 `stopped=false`；8 秒内未收尾则 `settled=false` 并释放占位 |
 | `POST /api/agent/conversations/{conversation_id}/messages/continue` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选）、`web_search`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 续写最近一轮被中断的回答：不新增用户消息，在既有状态上以「续写」模式再跑一次模型；最近一轮已完成或为空返回 400，正等待回答返回 409 |
-| `GET /api/agent/personas` | 无 | 无 | `{list:[角色对象（A.20）]}` | 平台内置角色（2 个）+ 当前用户私有角色 |
+| `GET /api/agent/personas` | 无 | 无 | `{list:[角色对象（A.20）]}` | 平台内置角色（3 个）+ 当前用户私有角色 |
 | `GET /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | 角色对象（A.20） | 角色详情；不存在 404，非本人用户角色 403 |
 | `POST /api/agent/personas` | JSON | `name`（1~48）、`key`（1~48）、`description`（≤200）、`definition{schema_version,prompt}` | 角色对象（A.20） | 创建用户私有角色，保存即生成 v1 并生效；定义或键/名冲突 400 |
 | `PUT /api/agent/personas/{persona_id}` | 路径参数 + JSON | 路径 `persona_id`；体同 `POST` | 角色对象（A.20） | 保存用户角色：定义变化才新增版本并立即生效，已有角色会话仍用旧版本；平台角色 403 |
 | `POST /api/agent/personas/{persona_id}/status` | 路径参数 + JSON | 路径 `persona_id`；体 `status`（`active`/`disabled`） | 角色对象（A.20） | 启用/停用角色；停用只禁止新建角色会话，已绑定会话仍可继续；平台角色 403 |
 | `DELETE /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | `{ok}` | 删除用户角色及其版本；被角色会话引用时 409，平台角色 403 |
 | `GET /api/agent/skills` | 无 | 无 | `{list:[技能对象（A.14）]}` | 当前用户可见的平台技能与自己的私有技能 |
+| `GET /api/agent/skills/available` | Query | `persona_id`（可选，角色会话传） | `{list:[技能对象（A.14）]}` | 输入框斜杠建议按当前角色过滤；无角色时按普通会话范围，受限专项技能不返回；此路由必须位于 `/{skill_id}` 之前 |
 | `GET /api/agent/skills/runs` | Query | `limit`（默认 20，最大 100） | `{list:[技能运行记录（A.15）]}` | 当前用户全部技能运行记录；此路由必须位于 `/{skill_id}` 之前 |
 | `POST /api/agent/skills/validate` | JSON | `kind`（仅 `prompt`，默认 `prompt`）、`definition`（可空，定义对象） | `{ok, errors[], warnings[]}` | 校验用户提示词定义，不落库 |
 | `GET /api/agent/skills/{skill_id}` | 路径参数 | 路径 `skill_id` | 技能对象（A.14） | 技能详情；不存在 404，非本人用户技能 403 |
@@ -288,7 +289,7 @@
 | `GET /api/daily-advice` | Query | `date`（可选，`YYYY-MM-DD`，默认今天） | 每日建议视图（A.19） | 读取某天的建议；无行 `status="none"`，其余字段为 `null` |
 | `POST /api/daily-advice/regenerate` | JSON | `date`（可选，仅允许今天）、`force`（bool，默认 `false`） | 每日建议视图（A.19） | 生成或复用当天建议；跨天 400，生成中 409，模型失败 502 |
 
-> 只读本人当天一行，返回体不含 `facts` 与 `data_hash`。侧栏刷新按钮发送 `force=true`；同一行 60 秒内重复刷新直接返回已有结果，避免连点刷模型。`text` 为三段要点（今日建议 ≤20 字 / 健身建议 ≤20 字 / 依据 ≤40 字，每行 `- ` 开头、`\n` 分隔、句末无句号），前端用 `pre-line` 原样换行。
+> 只读本人当天一行，返回体不含 `facts` 与 `data_hash`。侧栏刷新按钮发送 `force=true`；同一行 60 秒内重复刷新直接返回已有结果，避免连点刷模型。`text` 为三句自然表达（运动强度 / 按近 30 天运动类型偏好推荐类型与部位 / 依据，约 15~30、20~35、30~45 字，服务端按 32/36/48 字上限收口，每行 `- ` 开头、`\n` 分隔、句末无句号），前端用 `pre-line` 原样换行。
 
 ## 15. 系统管理 system
 
@@ -393,7 +394,7 @@
 | 字段 | 说明 |
 | --- | --- |
 | `id`、`date`、`star`、`remark` | 主键、日期、星级（0~5 或 null）、描述 |
-| `type`、`type_label` | 类型 key 与中文标签（食欲/肌肉疼痛/炎症/情绪） |
+| `type`、`type_label` | 类型 key 与中文标签（食欲/肌肉疼痛/炎症/情绪/恢复） |
 | `created_at`、`updated_at` | 创建/更新时间 |
 
 ### A.8 身材快照 BodySnapshot
@@ -529,7 +530,7 @@
 | `status` / `mode` | `none`（未生成）/ `generating` / `ready` / `failed`；`ai`（模型生成）/ `rule`（无数据规则文案） |
 | `verdict` / `focus` / `intensity` | 适合 / 克制 / 休息；有氧 / 无氧 / 有氧+无氧 / 恢复；低 / 中 / 高（未生成时为 `null`） |
 | `body_parts` | 建议的健身部位数组，最多 2 个；休息与纯有氧日为空数组 |
-| `text` | 侧栏三段要点：今日建议 ≤20 字 / 健身建议 ≤20 字 / 依据 ≤40 字，每行以 `- ` 开头、行间用 `\n` 分隔、句末不带句号 |
+| `text` | 侧栏三句自然表达：运动强度 / 按近 30 天运动类型偏好推荐类型与部位 / 依据，约 15~30、20~35、30~45 字；每行以 `- ` 开头、行间用 `\n` 分隔、句末不带句号 |
 | `tag` | 标签色语义 `good` / `average` / `rest`，对应页面 `tag-good` / `tag-average` / `tag-rest` |
 | `generated_at` | 生成完成时间；未生成为 `null` |
 | `error` | 失败时 `{code, message}`，否则为 `null` |

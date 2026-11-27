@@ -20,7 +20,11 @@ from app.modules.agent.personas.management import (
 from app.modules.agent.skills.registry import available_skills
 from app.modules.agent.tools.catalog import tool_names
 from app.modules.agent.tools.catalog import tool_options as catalog_tool_options
-from app.modules.agent.tools.policy import tool_visible
+from app.modules.agent.tools.policy import (
+    PROFILE_TEST_ONLY_TOOLS,
+    PROFILE_TEST_PERSONA,
+    tool_visible,
+)
 
 SYSTEM_SCOPE = "system"
 MAX_SORT_ORDER = 9999
@@ -115,7 +119,9 @@ def _validate_payload(
     definition_errors, _ = validate_definition(payload.get("definition"))
     errors.extend(definition_errors)
     tools = _normalise_grants(payload, "tool_grants", tool_names(), errors)
-    available_skill_keys = {skill.key for skill in available_skills(db, 0)}
+    available_skill_keys = {
+        skill.key for skill in available_skills(db, 0, include_restricted=True)
+    }
     skills = _normalise_grants(payload, "skill_grants", available_skill_keys, errors)
     if tools is not None:
         for name_ in tools:
@@ -124,6 +130,21 @@ def _validate_payload(
                     "field": "tool_grants",
                     "reason": f"{name_} 属于技能，请使用 skill_grants 管理",
                 })
+        if key != PROFILE_TEST_PERSONA and PROFILE_TEST_ONLY_TOOLS & set(tools):
+            errors.append({
+                "field": "tool_grants",
+                "reason": "健康档案专项技能与保存工具只允许 health_profile_test 角色使用",
+            })
+    if skills is not None and key != PROFILE_TEST_PERSONA:
+        restricted = [
+            skill_key for skill_key in skills
+            if f"skill_{skill_key}" in PROFILE_TEST_ONLY_TOOLS
+        ]
+        if restricted:
+            errors.append({
+                "field": "skill_grants",
+                "reason": "健康档案专项技能只允许 health_profile_test 角色使用",
+            })
     if errors:
         raise PersonaValidationError(errors)
     return tools, skills
@@ -144,7 +165,7 @@ def _default_skills(db: Session, persona_key: str) -> list[str]:
 
 def _available_skill_keys(db: Session) -> set[str]:
     return {
-        skill.key for skill in available_skills(db, 0)
+        skill.key for skill in available_skills(db, 0, include_restricted=True)
         if skill.scope == SYSTEM_SCOPE
     }
 
@@ -301,7 +322,7 @@ def tool_options() -> list[dict]:
 
 def skill_options(db: Session) -> list[dict]:
     skills = [
-        skill for skill in available_skills(db, 0)
+        skill for skill in available_skills(db, 0, include_restricted=True)
         if skill.scope == SYSTEM_SCOPE
     ]
     order = {"code": 0, "declarative": 1, "prompt": 2}

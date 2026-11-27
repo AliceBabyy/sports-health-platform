@@ -15,7 +15,7 @@ class DailyAdvice(BaseModel):
     intensity: Literal["低", "中", "高"] = Field(description="建议强度")
     body_parts: list[str] = Field(default_factory=list, description="健身部位，最多 2 个")
     text: str = Field(
-        description="侧栏三段要点：今日建议（≤20 字）/ 健身建议（≤20 字）/ 依据（≤40 字），每行以「- 」开头、行间换行、句末不写句号"
+        description="侧栏三句话（一句一行）：运动强度与总体判断 / 建议运动类型（按近 30 天运动类型偏好，健身时含部位）/ 依据；大致 15~30、20~35、30~45 字，不必精确卡字数，不加小标题、编号或固定前缀"
     )
 
 

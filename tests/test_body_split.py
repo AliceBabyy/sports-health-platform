@@ -64,7 +64,7 @@ def test_latest_snapshot_merges_groups_and_bmi(db):
 def test_list_records_merges_by_date(db):
     """不同日期的 4 组记录按日期合并，同一日期合并为一行的 values。"""
     body_service.upsert_group(db, USER, "basic", _d("2026-10-20"), {"weight": 60.0})
-    body_service.upsert_group(db, USER, "girth", _d("2026-10-20"), {"waist": 68.0})
+    body_service.upsert_group(db, USER, "girth", _d("2026-10-20"), {"waist": 68.0, "arm": 30.0, "calf": 35.0})
     body_service.upsert_group(db, USER, "basic", _d("2026-10-21"), {"weight": 61.0})
     res = body_service.list_records(db, USER, 1, 10)
     assert res["total"] == 2
@@ -72,6 +72,8 @@ def test_list_records_merges_by_date(db):
     assert by_date["2026-10-21"]["weight"] == 61.0
     assert by_date["2026-10-20"]["weight"] == 60.0
     assert by_date["2026-10-20"]["waist"] == 68.0
+    assert by_date["2026-10-20"]["arm"] == 30.0
+    assert by_date["2026-10-20"]["calf"] == 35.0
 
 
 def test_delete_day_removes_all_groups(db):

@@ -1,4 +1,4 @@
-"""状态记录单测：三表 CRUD、跨表合并分页、当日聚合、跨表批量删除、月历阶段归并与有记录标记。"""
+"""状态记录单测：多表 CRUD、跨表合并分页、当日聚合、跨表批量删除、月历阶段归并与有记录标记。"""
 from datetime import date
 from types import SimpleNamespace
 
@@ -28,7 +28,10 @@ def test_create_and_get_by_date(db):
     assert day["inflammation"]["remark"] is None
 
     empty = service.get_by_date(db, U1, date(2026, 11, 11))
-    assert empty == {"appetite": None, "myalgia": None, "inflammation": None, "mood": None}
+    assert empty == {
+        "appetite": None, "myalgia": None, "inflammation": None,
+        "mood": None, "recovery": None,
+    }
 
 
 def test_same_type_same_day_unique(db):
@@ -40,7 +43,7 @@ def test_same_type_same_day_unique(db):
     service.create_record(db, U1, _payload("2026-11-10", "myalgia", 1, "疼痛"))
 
 
-def test_list_merges_three_tables_and_sorts(db):
+def test_list_merges_state_tables_and_sorts(db):
     service.create_record(db, U1, _payload("2026-11-08", "appetite", 3))
     service.create_record(db, U1, _payload("2026-11-10", "myalgia", 2))
     service.create_record(db, U1, _payload("2026-11-09", "inflammation", 4))
@@ -101,7 +104,7 @@ def test_star_out_of_range_rejected():
 
 
 def test_mood_record_roundtrip_and_daily(db):
-    """情绪记录与另外三类同构：可建、可读、可改，且当日聚合与同类型唯一生效。"""
+    """情绪记录与其余记录项同构：可建、可读、可改，且当日聚合与同类型唯一生效。"""
     row = service.create_record(db, U1, _payload("2026-11-10", "mood", 4, "心情平稳"))
     assert row["type"] == "mood"
     assert row["type_label"] == "情绪"
@@ -134,11 +137,31 @@ def test_list_includes_mood_and_type_filter(db):
     assert filtered["list"][0]["type_label"] == "情绪"
 
 
-def test_state_types_cover_four_records():
+def test_recovery_record_roundtrip_and_daily(db):
+    """恢复记录与其余记录项同构：可建、可读、可改，0 分为合法最低分。"""
+    row = service.create_record(db, U1, _payload("2026-11-10", "recovery", 4, "睡眠充足，精力恢复"))
+    assert row["type"] == "recovery"
+    assert row["type_label"] == "恢复"
+    assert row["star"] == 4
+
+    day = service.get_by_date(db, U1, date(2026, 11, 10))
+    assert day["recovery"]["id"] == row["id"]
+    assert day["recovery"]["remark"] == "睡眠充足，精力恢复"
+
+    updated = service.update_record(db, U1, row["id"], _payload("2026-11-10", "recovery", 0, "仍感疲惫"))
+    assert updated["star"] == 0
+
+    with pytest.raises(AppError) as exc:
+        service.create_record(db, U1, _payload("2026-11-10", "recovery", 3, "重复"))
+    assert exc.value.status == 409
+
+
+def test_state_types_cover_all_records():
     from app.modules.state_record.models import STATE_MODELS, STATE_TYPE_LABELS, STATE_TYPES
-    assert STATE_TYPES == ("appetite", "myalgia", "inflammation", "mood")
+    assert STATE_TYPES == ("appetite", "myalgia", "inflammation", "mood", "recovery")
     assert set(STATE_MODELS) == set(STATE_TYPES)
     assert STATE_TYPE_LABELS["mood"] == "情绪"
+    assert STATE_TYPE_LABELS["recovery"] == "恢复"
 
 
 def test_delete_record(db):

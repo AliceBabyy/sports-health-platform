@@ -12,13 +12,13 @@ from datetime import date
 from typing import Any
 
 from app.modules.agent.tools.queries import BODY_METRIC_WHITELIST, SPORT_KEYS
+from app.modules.state_record.models import STATE_TYPES
 
 SCHEMA_VERSION = 1
 PARAM_TYPES = ("date", "int", "bool", "enum")
 SOURCE_TYPES = ("body_metric", "swim_records", "fitness_records", "dance_records",
                 "workout_summary", "state_records", "cycle_records", "profile_info")
 STEP_OPS = ("first", "last", "count", "sum", "avg", "min", "max", "group_count")
-STATE_TYPES = ("appetite", "myalgia", "inflammation", "mood")
 
 KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 REF_RE = re.compile(r"\$([a-z][a-z0-9_]*)(?:\.([a-z][a-z0-9_]*))?")

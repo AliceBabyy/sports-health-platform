@@ -104,7 +104,7 @@ class DailyAdvice(Base):
         JSON, nullable=True, comment="建议的健身部位数组（最多 2 个）"
     )
     text: Mapped[str | None] = mapped_column(
-        String(200), nullable=True, comment="侧栏正文（≤72 字）"
+        String(200), nullable=True, comment="侧栏三句正文（≤124 字）"
     )
     facts: Mapped[dict] = mapped_column(
         JSON, nullable=False, comment="生成时的事实快照（确定性计算，含硬约束）"
@@ -114,7 +114,7 @@ class DailyAdvice(Base):
     )
     model_name: Mapped[str | None] = mapped_column(String(64), nullable=True, comment="生成所用模型")
     prompt_version: Mapped[str | None] = mapped_column(
-        String(48), nullable=True, comment="提示词版本 ID（如 daily_advice.v1）"
+        String(48), nullable=True, comment="提示词版本 ID（如 daily_advice.v3）"
     )
     generation_ms: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0", comment="模型耗时 ms"

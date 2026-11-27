@@ -1,4 +1,4 @@
-"""状态记录 schemas：四类共用一套字段（日期 / 类型 / 星级 / 描述）。"""
+"""状态记录 schemas：各记录项共用一套字段（日期 / 类型 / 星级 / 描述）。"""
 from datetime import date
 from typing import Literal
 
@@ -22,6 +22,6 @@ class StateBatchItem(BaseModel):
 
 
 class StateBatchDeleteIn(BaseModel):
-    """跨三表批量删除：每条记录自带类型定位表。"""
+    """跨表批量删除：每条记录自带类型定位表。"""
 
     items: list[StateBatchItem] = Field(min_length=1, max_length=200)

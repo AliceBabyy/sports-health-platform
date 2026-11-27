@@ -1,4 +1,4 @@
-/* 状态记录页：月历（阶段三档圆点）+ 当日三类记录 + 全部记录分页列表 */
+/* 状态记录页：月历（阶段三档圆点）+ 当日各记录项 + 全部记录分页列表 */
 
 /* ---------- 布局：三卡片上下纵向堆叠，内容随卡片宽度自适应铺满 ---------- */
 .state-layout > * { min-width: 0; }
@@ -67,8 +67,15 @@
 .day-detail .dd-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .day-detail .dd-date { font-size: 15px; font-weight: 400; }
 .day-detail .dd-meta { font-size: 12.5px; color: var(--color-text-secondary); margin-top: 3px; }
-.dd-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
-.dd-block:first-of-type { margin-top: 12px; padding-top: 0; border-top: 0; }
+/* 各记录项双列：桌面每行 2 项，窄屏单列；列内用上分隔线区分行 */
+.dd-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; margin-top: 16px; }
+.dd-block {
+  min-width: 0;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+.dd-block:nth-child(-n+2) { margin-top: 0; padding-top: 0; border-top: 0; }
 .dd-block .dd-title {
   font-size: 13px;
   display: flex;
@@ -111,6 +118,11 @@
 .star-hint { font-size: 12px; color: var(--color-text-tertiary); }
 
 /* ---------- 响应式 ---------- */
+@media (max-width: 760px) {
+  .dd-grid { grid-template-columns: 1fr; column-gap: 0; margin-top: 0; }
+  .dd-block:nth-child(n) { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+  .dd-block:first-child { margin-top: 12px; padding-top: 0; border-top: 0; }
+}
 @media (max-width: 900px) {
   .cal-grid { gap: 4px; }
   .cal-day { min-height: 56px; padding: 5px 4px 6px; }

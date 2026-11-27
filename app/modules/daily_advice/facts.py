@@ -16,6 +16,7 @@ from app.core.constants import (
     SEGMENT_INFERRED,
     SEGMENT_PREDICTED,
     SEGMENT_RECORDED,
+    SPORT_AVERAGE,
     SPORT_LABELS,
     SPORT_REST,
     TR_STATUS_PLANNED,
@@ -37,8 +38,11 @@ from app.modules.training import service as training_service
 from app.modules.training.models import TrainingRecord
 
 # ---------- 硬约束阈值（模块内常量，不进 .env：只有一处口径） ----------
-PAIN_HIGH_STAR = 2            # 今日肌肉疼痛 / 经期疼痛 ≥2 → 强度封顶「低」
-INFLAMMATION_LOW_STAR = 1     # 今日炎症 ≤1 → 强度封顶「低」
+PAIN_HIGH_STAR = 2            # 经期疼痛 ≥2 → 强度封顶「低」且不留力量部位；单纯肌肉酸痛不触发
+INFLAMMATION_HIGH_STAR = 4    # 今日炎症 ≥4（明显）→ 强度封顶「低」
+INFLAMMATION_MID_STAR = 3     # 今日炎症 ≥3（偏重）→ 强度封顶「中」；0~2 不因炎症降档
+RECOVERY_LOW_STAR = 1         # 今日恢复 ≤1 → 强度封顶「低」
+RECOVERY_FAIR_STAR = 2        # 今日恢复 2 → 强度封顶「中」
 MOOD_LOW_STAR = 1             # 今日情绪 ≤1 → 强度封顶「中」
 HEAVY_VOLUME = 5000.0         # 昨日健身容量 ≥5000 → 强度封顶「中」
 VERY_HEAVY_VOLUME = 8000.0    # 昨日健身容量 ≥8000 → 强度封顶「低」
@@ -46,6 +50,7 @@ HEAVY_MINUTES = 90            # 昨日运动总时长 ≥90 分钟 → 强度封
 VERY_HEAVY_MINUTES = 120      # 昨日运动总时长 ≥120 分钟 → 强度封顶「低」
 WEIGHT_WINDOW_DAYS = 30       # 体重变化窗口
 RECENT_WEEKS_DAYS = 7
+RECENT_TYPE_WINDOW_DAYS = 30  # 近 30 天运动类型偏好窗口
 
 SOURCE_LABELS = {
     SEGMENT_RECORDED: "真实记录",
@@ -197,32 +202,38 @@ def _body_block(db: Session, user_id: int, day: date) -> dict:
 
 
 def _recent_block(db: Session, user_id: int, day: date) -> dict:
-    """近 3 天 / 近 7 天负荷：条数、时长、健身容量、部位分布、距上次健身。"""
+    """近 3 / 7 / 30 天负荷：近 7 天含部位分布，近 30 天含运动类型次数（用于推荐运动类型）。"""
     start7 = day - timedelta(days=RECENT_WEEKS_DAYS - 1)
+    start30 = day - timedelta(days=RECENT_TYPE_WINDOW_DAYS - 1)
     rows = {
         "fitness": db.query(TrainingRecord)
         .filter(
             TrainingRecord.user_id == user_id,
-            TrainingRecord.date >= start7,
+            TrainingRecord.date >= start30,
             TrainingRecord.date <= day,
         )
         .all(),
         "swim": db.query(SwimRecord)
-        .filter(SwimRecord.user_id == user_id, SwimRecord.date >= start7, SwimRecord.date <= day)
+        .filter(SwimRecord.user_id == user_id, SwimRecord.date >= start30, SwimRecord.date <= day)
         .all(),
         "dance": db.query(DanceRecord)
-        .filter(DanceRecord.user_id == user_id, DanceRecord.date >= start7, DanceRecord.date <= day)
+        .filter(DanceRecord.user_id == user_id, DanceRecord.date >= start30, DanceRecord.date <= day)
         .all(),
     }
     start3 = day - timedelta(days=2)
     start2 = day - timedelta(days=1)
     window7 = {"records": 0, "minutes": 0, "volume": 0.0}
     window3 = {"records": 0, "minutes": 0, "volume": 0.0}
+    window30 = {"records": 0, "fitness": 0, "swim": 0, "dance": 0}
     body_parts: dict[str, int] = {}
     parts_2d: dict[str, int] = {}
 
     for row in rows["fitness"]:
         if row.status != TR_STATUS_RECORDED:
+            continue
+        window30["records"] += 1
+        window30["fitness"] += 1
+        if row.date < start7:
             continue
         minutes = fitness_minutes(row)
         volume = (_fitness_entry(row).get("volume") or 0.0)
@@ -244,6 +255,10 @@ def _recent_block(db: Session, user_id: int, day: date) -> dict:
         for row in rows[key]:
             if row.status != TR_STATUS_RECORDED:
                 continue
+            window30["records"] += 1
+            window30[key] += 1
+            if row.date < start7:
+                continue
             minutes = _minutes_from_seconds(row.duration_s)
             window7["records"] += 1
             window7["minutes"] += minutes
@@ -255,6 +270,7 @@ def _recent_block(db: Session, user_id: int, day: date) -> dict:
     window3["volume"] = round(window3["volume"], 1)
     window7["days"] = RECENT_WEEKS_DAYS
     window3["days"] = 3
+    window30["days"] = RECENT_TYPE_WINDOW_DAYS
 
     last = (
         db.query(TrainingRecord)
@@ -279,6 +295,7 @@ def _recent_block(db: Session, user_id: int, day: date) -> dict:
     return {
         "window_3d": window3,
         "window_7d": window7,
+        "window_30d": window30,
         "body_part_counts": dict(sorted(body_parts.items(), key=lambda kv: -kv[1])),
         "recent_parts_2d": sorted(parts_2d, key=lambda part: -parts_2d[part]),
         "since_last_fitness": since,
@@ -286,7 +303,7 @@ def _recent_block(db: Session, user_id: int, day: date) -> dict:
 
 
 def _state_block(db: Session, user_id: int, day: date) -> dict:
-    """今天 / 昨天 / 近 3 天的四类状态（星级 + 备注）。"""
+    """今天 / 昨天 / 近 3 天的各记录项状态（星级 + 备注）。"""
     days = [day, day - timedelta(days=1), day - timedelta(days=2)]
     by_date = {d: state_service.get_by_date(db, user_id, d) for d in days}
 
@@ -352,7 +369,11 @@ def _cycle_block(db: Session, user_id: int, gender: str | None, day: date) -> di
 
 
 def _hard_limits(body: dict, yesterday: dict, recent: dict, state: dict, today: dict, cycle) -> list[dict]:
-    """代码判定的硬约束：cap_verdict / cap_intensity 是上限，不是取值。"""
+    """代码判定的硬约束：cap_verdict / cap_intensity 是上限，不是取值。
+
+    权重口径：周期四档与恢复是主信号；炎症按明显程度降档；单纯肌肉酸痛不触发硬约束
+    （只通过 recent_parts_2d 做部位避让，由提示词解释为正常训练反应）。
+    """
     limits: list[dict] = []
 
     def add(key: str, label: str, cap_verdict: str | None = None,
@@ -367,19 +388,27 @@ def _hard_limits(body: dict, yesterday: dict, recent: dict, state: dict, today: 
             }
         )
 
-    myalgia = (state["today"].get("myalgia") or {}).get("star")
     cycle_pain = (cycle or {}).get("pain_level")
-    if (myalgia is not None and myalgia >= PAIN_HIGH_STAR) or (
-        cycle_pain is not None and cycle_pain >= PAIN_HIGH_STAR
-    ):
-        add("pain_high", "今日疼痛偏重", cap_verdict="克制", cap_intensity="低", block_parts=True)
+    if cycle_pain is not None and cycle_pain >= PAIN_HIGH_STAR:
+        add("cycle_pain_high", "经期疼痛偏重", cap_verdict="克制", cap_intensity="低", block_parts=True)
 
-    if cycle and cycle.get("sport_level_key") == SPORT_REST:
-        add("cycle_rest", "周期状态建议休息", cap_verdict="克制", cap_intensity="低", block_parts=True)
+    if cycle:
+        if cycle.get("sport_level_key") == SPORT_REST:
+            add("cycle_rest", "周期状态建议休息", cap_verdict="克制", cap_intensity="低", block_parts=True)
+        elif cycle.get("sport_level_key") == SPORT_AVERAGE:
+            add("cycle_average", "周期状态一般", cap_intensity="中")
 
     inflammation = (state["today"].get("inflammation") or {}).get("star")
-    if inflammation is not None and inflammation <= INFLAMMATION_LOW_STAR:
-        add("inflammation_low", "今日炎症状态偏低", cap_intensity="低")
+    if inflammation is not None and inflammation >= INFLAMMATION_HIGH_STAR:
+        add("inflammation_high", "今日炎症明显", cap_intensity="低")
+    elif inflammation is not None and inflammation >= INFLAMMATION_MID_STAR:
+        add("inflammation_mid", "今日炎症偏重", cap_intensity="中")
+
+    recovery = (state["today"].get("recovery") or {}).get("star")
+    if recovery is not None and recovery <= RECOVERY_LOW_STAR:
+        add("recovery_low", "今日恢复不足", cap_intensity="低")
+    elif recovery is not None and recovery <= RECOVERY_FAIR_STAR:
+        add("recovery_fair", "今日恢复一般", cap_intensity="中")
 
     minutes = yesterday["totals"]["minutes"]
     volume = yesterday["totals"]["volume"]
@@ -432,14 +461,39 @@ def _completeness(body, yesterday, recent, state, today, cycle) -> dict:
     }
 
 
-def _health_profile_block(db: Session, user_id: int) -> dict:
-    """用户自填的健康/运动档案（开放式文本答案，可能为空）。
+def _health_profile_block(db: Session, user_id: int) -> list[dict]:
+    """用户已保存的专项档案（每项最近一套，只返回有答案的题）。
 
     文本只作模型参考，不做结构化解析，也不参与 hard_limits 判定：
     安全边界由代码固定的记录事实决定，不靠模型理解自由文本。
     """
+    from app.modules.profile.aspect_skills import skill_name
+    from app.modules.profile.aspects import aspect_label
+    from app.modules.profile.questionnaire import set_qa
+
     row = profile_service.get_health_profile(db, user_id)
-    return dict(row.answers) if row else {}
+    if row is None:
+        return []
+    result = []
+    for question_set in row.sets:
+        qa = [
+            {
+                "label": item["label"],
+                "group": aspect_label(item["aspect"]),
+                "answer": item["answer"],
+            }
+            for item in set_qa(question_set, answered_only=True)
+        ]
+        if not qa:
+            continue
+        generated_at = question_set.get("generated_at")
+        result.append({
+            "skill_key": question_set["skill_key"],
+            "name": skill_name(question_set["skill_key"]),
+            "generated_at": generated_at.isoformat() if generated_at else None,
+            "qa": qa,
+        })
+    return result
 
 
 def build_facts(db: Session, user, day: date | None = None) -> dict:

@@ -10,6 +10,7 @@
 | AI 功能 | `docs/ARCHITECTURE.md`、`docs/AI_ARCHITECTURE.md`、`docs/AIplan.md` | `docs/AI_ARCHITECTURE.md`；版本进度维护 `docs/AIplan.md`；并同步上述通用文档 |
 | 前端页面、样式或交互 | `docs/ARCHITECTURE.md`、`docs/FRONTEND_GUIDELINES.md` | `docs/FRONTEND_GUIDELINES.md`，并同步上述通用文档 |
 | 运动模块 | `docs/ARCHITECTURE.md`、`docs/SPORT_MODULE_GUIDELINES.md`、`docs/数据库建表设计.md` | `docs/SPORT_MODULE_GUIDELINES.md`、`docs/ARCHITECTURE.md`、`docs/数据库建表设计.md`、`scripts/schema.sql`，并同步 `README.md` |
+| 状态记录（新增或修改记录项） | `docs/ARCHITECTURE.md`、`docs/STATE_RECORD_GUIDELINES.md`、`docs/数据库建表设计.md` | `docs/STATE_RECORD_GUIDELINES.md`、`docs/ARCHITECTURE.md`、`docs/数据库建表设计.md`、`scripts/schema.sql`、`scripts/migrate_state_record.py`、`docs/API_REFERENCE.md`，并同步 `README.md` |
 | 数据库表或字段 | `docs/数据库建表设计.md`、`docs/ARCHITECTURE.md` | `docs/数据库建表设计.md`、`scripts/schema.sql`，并维护数据库 `COMMENT` 注释 |
 | 任意 HTTP 接口（新增、删除、改字段或改权限） | `docs/API_REFERENCE.md`、`docs/ARCHITECTURE.md` | `docs/API_REFERENCE.md`（同步模块表与计数）；涉及模块职责时同步 `docs/ARCHITECTURE.md` |
 

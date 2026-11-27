@@ -1,4 +1,4 @@
-"""状态记录四表：食欲 / 肌肉疼痛 / 炎症 / 情绪（按天记录，每类每天一行）。
+"""状态记录五表：食欲 / 肌肉疼痛 / 炎症 / 情绪 / 恢复（按天记录，每类每天一行）。
 
 本模块不是运动模块，不套用 SportRecordMixin（无计划态、起止时间、心率、热量等字段）；
 统一字段：id / user_id / date / star（0~5，可空；0=明确最低分，null=未评）/ remark（可空）/ created_at / updated_at。
@@ -15,18 +15,20 @@ TYPE_APPETITE = "appetite"
 TYPE_MYALGIA = "myalgia"
 TYPE_INFLAMMATION = "inflammation"
 TYPE_MOOD = "mood"
+TYPE_RECOVERY = "recovery"
 
-STATE_TYPES = (TYPE_APPETITE, TYPE_MYALGIA, TYPE_INFLAMMATION, TYPE_MOOD)
+STATE_TYPES = (TYPE_APPETITE, TYPE_MYALGIA, TYPE_INFLAMMATION, TYPE_MOOD, TYPE_RECOVERY)
 STATE_TYPE_LABELS = {
     TYPE_APPETITE: "食欲",
     TYPE_MYALGIA: "肌肉疼痛",
     TYPE_INFLAMMATION: "炎症",
     TYPE_MOOD: "情绪",
+    TYPE_RECOVERY: "恢复",
 }
 
 
 class _StateRecordMixin:
-    """三表共用字段（模块内私有；与运动记录契约无关）。"""
+    """各状态记录表共用字段（模块内私有；与运动记录契约无关）。"""
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="主键")
     user_id: Mapped[int] = mapped_column(
@@ -86,9 +88,21 @@ class MoodRecord(_StateRecordMixin, Base):
     )
 
 
+class RecoveryRecord(_StateRecordMixin, Base):
+    """恢复记录（user + date 唯一）。"""
+
+    __tablename__ = "state_recovery_record"
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_state_recovery_user_date"),
+        Index("ix_state_recovery_record_user_date_id", "user_id", "date", "id"),
+        {"comment": "恢复状态记录（按天，每类每天一行）"},
+    )
+
+
 STATE_MODELS = {
     TYPE_APPETITE: AppetiteRecord,
     TYPE_MYALGIA: MyalgiaRecord,
     TYPE_INFLAMMATION: InflammationRecord,
     TYPE_MOOD: MoodRecord,
+    TYPE_RECOVERY: RecoveryRecord,
 }

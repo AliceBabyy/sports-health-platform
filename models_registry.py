@@ -15,6 +15,7 @@ from app.modules.state_record.models import (  # noqa: F401
     InflammationRecord,
     MoodRecord,
     MyalgiaRecord,
+    RecoveryRecord,
 )
 from app.modules.agent.models import (  # noqa: F401
     AgentConversation,

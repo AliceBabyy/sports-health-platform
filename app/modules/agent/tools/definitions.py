@@ -14,6 +14,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from app.core.exceptions import AppError
+from app.modules.state_record.models import STATE_TYPES
 from database import SessionLocal
 from . import queries
 
@@ -26,7 +27,7 @@ BODY_METRIC = Literal[
 ]
 SPORT = Literal["all", "fitness", "swim", "dance"]
 STATUS = Literal["all", "planned", "recorded"]
-STATE_TYPE = Literal["all", "appetite", "myalgia", "inflammation", "mood"]
+STATE_TYPE = Literal["all", *STATE_TYPES]  # type: ignore[valid-type]
 
 
 def _resolve_range(
@@ -175,10 +176,10 @@ async def get_state_records(
     limit: int | None = None,
     config: RunnableConfig = None,
 ) -> dict:
-    """取状态记录：食欲 appetite / 肌肉疼痛 myalgia / 炎症 inflammation / 情绪 mood（星级 0~5 可空 + 描述）。
+    """取状态记录：食欲 appetite / 肌肉疼痛 myalgia / 炎症 inflammation / 情绪 mood / 恢复 recovery（星级 0~5 可空 + 描述）。
 
     范围可选：days_back 或 start_date + end_date；都不传取全部历史；limit 为可选条数。
-    问某天 / 某段时间的食欲、肌肉酸痛、炎症、情绪状态时调用。
+    问某天 / 某段时间的食欲、肌肉酸痛、炎症、情绪或恢复状态时调用。
     """
     uid = _user_id(config)
     start, end = _resolve_range(start_date, end_date, days_back, date.today())
@@ -207,10 +208,11 @@ async def get_cycle_records(
 
 @tool
 async def get_profile_info(config: RunnableConfig = None) -> dict:
-    """取当前登录用户的个人基本信息：昵称、性别、年龄、账号状态、注册时间、健康/运动档案。
+    """取当前登录用户的个人基本信息：昵称、性别、年龄、账号状态、注册时间、健康档案。
 
-    健康/运动档案是用户自己写的目标、每周训练次数、场地器材、习惯偏好与伤病限制（开放式文本，可能为空）。
-    问“我的性别 / 年龄 / 昵称”等基本资料，或问“我的目标 / 训练习惯 / 有什么限制”时调用；
+    健康档案按九个专项组织：目标、饮食、运动、睡眠、生活方式、生理期、形体、伤病、补充；
+    每个专项返回最近一套问答与最近三套历史（开放式文本，未答项为空，可能整体为空）。
+    问“我的性别 / 年龄 / 昵称”等基本资料，或问“我的目标 / 饮食 / 训练习惯 / 有什么限制”时调用；
     身高体重等身体数据请用身材工具，运动记录请用对应运动工具。
     """
     uid = _user_id(config)

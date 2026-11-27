@@ -58,7 +58,7 @@ def _check_basic(payload: dict, db: Session, user_id: int, exclude_id: int | Non
         errors.append({"field": "slash_alias", "reason": "斜杠别名需为 1~24 位文字、字母、数字、下划线或短横线"})
     if len(description) > 200:
         errors.append({"field": "description", "reason": "描述最多 200 字"})
-    if category not in ("body", "swim", "fitness", "dance", "custom"):
+    if category not in ("body", "swim", "fitness", "dance", "profile", "custom"):
         errors.append({"field": "category", "reason": "分类不合法"})
     if kind not in USER_SKILL_KINDS:
         errors.append({"field": "kind", "reason": "用户技能只支持提示词类型"})

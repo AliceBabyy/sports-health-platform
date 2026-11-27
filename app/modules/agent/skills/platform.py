@@ -1,4 +1,4 @@
-"""平台内置技能（代码实现）：减重分析、游泳复盘。
+"""平台内置技能（代码实现）：减重分析、游泳复盘、9 个健康档案专项。
 
 平台技能只读、不接受用户改定义；输入参数经 Pydantic 校验，查询复用只读工具层。
 """
@@ -6,13 +6,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Callable
+from typing import Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.modules.agent.tools import queries
 from app.modules.body.models import BodyBasicGoalRecord
+from app.modules.profile.aspect_skills import ASPECT_SKILLS
+from app.modules.profile.skill_runtime import run_profile_aspect
 
 
 class LoseWeightIn(BaseModel):
@@ -44,6 +46,17 @@ class RecentSwimIn(BaseModel):
         if self.main_stroke not in (None, "freestyle", "breaststroke", "backstroke", "butterfly", "mixed"):
             raise ValueError("泳姿不合法")
         return self
+
+
+class ProfileAspectIn(BaseModel):
+    """档案专项 skill 参数：只决定补缺口还是复核更新，不接收题目内容。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["补齐", "更新"] = Field(
+        default="补齐",
+        description="补齐=只问未答或不足的题；更新=逐题复核已有答案，只问需要修正或新增的题",
+    )
 
 
 def _resolve_period(start: date | None, end: date | None, days_back: int) -> tuple[date, date]:
@@ -237,6 +250,7 @@ class CodeSkill:
     version: int
     input_model: type[BaseModel]
     run: Callable[[Session, int, BaseModel], dict]
+    slash_alias: str | None = None
 
 
 CODE_SKILLS: dict[str, CodeSkill] = {
@@ -251,3 +265,22 @@ CODE_SKILLS: dict[str, CodeSkill] = {
         "swim", 1, RecentSwimIn, run_recent_swim,
     ),
 }
+
+
+def _profile_runner(skill_key: str):
+    def run(db: Session, user_id: int, args: ProfileAspectIn) -> dict:
+        return run_profile_aspect(db, user_id, skill_key, args.mode)
+    return run
+
+
+for _item in ASPECT_SKILLS:
+    CODE_SKILLS[_item["key"]] = CodeSkill(
+        key=_item["key"],
+        name=_item["name"],
+        description=_item["description"],
+        category="profile",
+        version=1,
+        input_model=ProfileAspectIn,
+        run=_profile_runner(_item["key"]),
+        slash_alias=_item["slash_alias"],
+    )

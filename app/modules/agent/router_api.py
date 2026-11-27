@@ -1,14 +1,14 @@
 """AI Agent API 路由（/api/agent 系列）：会话 CRUD、消息流式 SSE、技能管理、角色管理。"""
 from datetime import date
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.agent import schemas, service
-from app.modules.agent.models import AgentSkill
+from app.modules.agent.models import AgentPersona, AgentSkill
 from app.modules.agent.personas.management import (
     PersonaValidationError,
     create_persona,
@@ -34,6 +34,7 @@ from app.modules.agent.skills.management import (
     set_status,
     validate_definition_payload,
 )
+from app.modules.agent.skills.registry import available_skills
 from app.modules.auth.models import User
 from database import get_db
 
@@ -212,6 +213,40 @@ def list_skills_api(
     user: User = Depends(get_current_user),
 ):
     return {"list": [_skill_dict(row, version, user.id) for row, version in list_skills(db, user.id)]}
+
+
+@router.get("/skills/available")
+def available_skills_api(
+    persona_id: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """会话输入框的斜杠建议：按当前角色过滤，不把受限专项技能展示给其他角色。"""
+    persona = None
+    if persona_id is not None:
+        persona = db.get(AgentPersona, persona_id)
+        if (
+            persona is None
+            or persona.status != "active"
+            or (persona.scope != "system" and persona.owner_user_id != user.id)
+        ):
+            raise AppError(404, "角色不存在")
+    grants = None
+    if persona is not None and persona.skill_grants is not None:
+        grants = frozenset(str(item) for item in persona.skill_grants)
+    resolved = {
+        item.id: item
+        for item in available_skills(
+            db, user.id,
+            persona.persona_key if persona is not None else None,
+            skill_grants=grants,
+        )
+    }
+    rows = [
+        (row, version) for row, version in list_skills(db, user.id)
+        if row.id in resolved
+    ]
+    return {"list": [_skill_dict(row, version, user.id) for row, version in rows]}
 
 
 @router.get("/skills/runs")

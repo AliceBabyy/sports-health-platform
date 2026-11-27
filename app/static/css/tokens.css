@@ -77,10 +77,11 @@
   --sr-foll-dot:   #599b59;  --sr-foll-fg:   #447846;  --sr-foll-bg:   #f1f7f0;
   --sr-luteal-dot: #b18a30;  --sr-luteal-fg: #80651f;  --sr-luteal-bg: #fbf5e6;
 
-  /* 状态记录 · 类型 chip：食欲橙 / 肌肉疼痛灰（复用 tag-gray）/ 炎症红 / 情绪紫 */
+  /* 状态记录 · 类型 chip：食欲橙 / 肌肉疼痛灰（复用 tag-gray）/ 炎症红 / 情绪紫 / 恢复蓝 */
   --tag-appetite-bg: rgba(199, 126, 8, 0.10);  --tag-appetite-fg: #8a5a08;  --tag-appetite-dot: var(--state-warning);
   --tag-inflam-bg:   rgba(192, 57, 43, 0.10);  --tag-inflam-fg:   #a03327;  --tag-inflam-dot:   var(--state-danger);
   --tag-mood-bg:     rgba(111, 90, 168, 0.10); --tag-mood-fg:     #5b4a8c;  --tag-mood-dot:     #6f5aa8;
+  --tag-recovery-bg: rgba(59, 130, 246, 0.10); --tag-recovery-fg: #1e5aa8;  --tag-recovery-dot: #3b82f6;
 
   /* 图表：ECharts 读不到 CSS 变量，由 common.js 的 App.cssVar 运行时读取 */
   --color-chart-axis: #d7dce3;              /* 坐标轴线 */

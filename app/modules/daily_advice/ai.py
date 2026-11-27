@@ -18,9 +18,9 @@ from app.modules.daily_advice.models import (
 from app.modules.daily_advice.schemas import DailyAdvice
 from config import settings
 
-PROMPT_ID = "daily_advice.v1"
-# 侧栏正文三段：今日建议 ≤20 字、健身建议 ≤20 字、依据 ≤40 字；每行「- 」开头、不带句末标点
-LINE_LIMITS = (20, 20, 40)
+PROMPT_ID = "daily_advice.v3"
+# 侧栏正文三句：强度 / 运动类型与部位 / 依据；服务端按大致上限收口，不要求精确字数
+LINE_LIMITS = (32, 36, 48)
 MAX_LINES = len(LINE_LIMITS)
 MAX_TEXT = sum(limit + 2 for limit in LINE_LIMITS) + (MAX_LINES - 1)
 MAX_BODY_PARTS = 2
@@ -56,7 +56,7 @@ def _split_lines(raw: str | None) -> list[str]:
 
 
 def clean_text(raw: str | None, line_limits: tuple[int, ...] = LINE_LIMITS) -> str:
-    """规整成侧栏三段：每行一句、以「- 」开头、去句末标点，各行按对应字数上限收口。"""
+    """规整成侧栏三句：每行一句、以「- 」开头、去句末标点，各行按大致上限收口。"""
     lines: list[str] = []
     for index, line in enumerate(_split_lines(raw)):
         if index >= len(line_limits):

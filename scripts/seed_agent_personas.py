@@ -14,8 +14,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.ai.prompts.loader import load_system_prompt
 from app.modules.agent.models import AgentPersona, AgentPersonaVersion
 from app.modules.agent.personas.definition import validate_definition
+from app.modules.profile.aspect_skills import PROFILE_SKILL_KEYS
 import models_registry  # noqa: F401  确保 users 等关联表注册到 Base
 from database import SessionLocal
+
+PROFILE_TEST_READ_TOOLS = [
+    "ask_user",
+    "get_profile_info",
+    "get_body_measurements",
+    "get_workout_summary",
+    "get_fitness_records",
+    "get_swim_records",
+    "get_dance_records",
+    "get_state_records",
+    "get_cycle_records",
+    "save_health_profile_aspect",
+]
 
 PLATFORM_PERSONAS = [
     {
@@ -35,9 +49,11 @@ PLATFORM_PERSONAS = [
     {
         "key": "health_profile_test",
         "name": "健康档案测试",
-        "description": "根据你的记录定制健康问题，回答后写入健康档案",
-        "prompt_id": "persona_health_profile_test.v2",
+        "description": "按专项逐项建立健康档案，回答后写入档案",
+        "prompt_id": "persona_health_profile_test.v3",
         "sort_order": 3,
+        "tool_grants": PROFILE_TEST_READ_TOOLS,
+        "skill_grants": sorted(PROFILE_SKILL_KEYS),
     },
 ]
 
@@ -76,6 +92,11 @@ def main() -> None:
                 persona.description = item["description"]
                 persona.status = "active"
                 persona.sort_order = item["sort_order"]
+
+            if "tool_grants" in item:
+                persona.tool_grants = item["tool_grants"]
+            if "skill_grants" in item:
+                persona.skill_grants = item["skill_grants"]
 
             latest = db.query(AgentPersonaVersion).filter(
                 AgentPersonaVersion.persona_id == persona.id

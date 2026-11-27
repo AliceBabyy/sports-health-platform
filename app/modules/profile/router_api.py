@@ -6,7 +6,7 @@ from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
 from app.modules.profile import service
-from app.modules.profile import probe
+from app.modules.profile.aspect_skills import skill_name
 from app.modules.profile.schemas import (
     AccountDeleteIn,
     HealthProfileIn,
@@ -18,16 +18,34 @@ from database import get_db
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
 
+def _set_payload(question_set: dict) -> dict:
+    generated_at = question_set.get("generated_at")
+    return {
+        "set_id": question_set["set_id"],
+        "skill_key": question_set["skill_key"],
+        "name": skill_name(question_set["skill_key"]),
+        "generated_at": generated_at.isoformat() if generated_at else None,
+        "items": [
+            {
+                "local_key": item["local_key"],
+                "aspect": item["aspect"],
+                "label": item["label"],
+                "hint": item["hint"],
+                "placeholder": item["placeholder"],
+                "max_length": item["max_length"],
+                "answer": item["answer"],
+            }
+            for item in question_set["questions"]
+        ],
+    }
+
+
 def _health_profile_payload(db: Session, user: User) -> dict:
     row = service.get_health_profile(db, user.id)
-    store = probe.parse_store(row.custom_questions if row else None)
     return {
         "ok": True,
         "filled": row is not None,
-        "completed_at": row.completed_at.isoformat() if row and row.completed_at else None,
-        "answers": dict(row.answers or {}) if row else {},
-        "custom_questions": probe.latest_payload(store),
-        "custom_history_count": len(store["sets"]),
+        "sets": [_set_payload(item) for item in (row.sets if row else [])],
     }
 
 
@@ -72,7 +90,7 @@ def read_health_profile(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """读取健康/运动档案：未填写时 `filled=false`、`answers={}`。"""
+    """读取已存储的专项档案；未填写时 `filled=false`、`sets=[]`。"""
     return _health_profile_payload(db, user)
 
 
@@ -82,13 +100,8 @@ def save_health_profile(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """保存档案：只更新提交的题目，空串清空该题；全部清空后删除档案行。"""
-    row = service.save_health_profile(db, user, payload.answers)
-    if row is None:
-        return {
-            "ok": True, "filled": False, "completed_at": None, "answers": {},
-            "custom_questions": None, "custom_history_count": 0,
-        }
+    """逐题保存已存储档案：空串清空该题，但保留该套与题目结构。"""
+    service.save_health_profile_items(db, user, payload.items)
     return _health_profile_payload(db, user)
 
 
@@ -97,6 +110,6 @@ def clear_health_profile(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """清空档案：删除档案行，页面回到问卷态。"""
+    """清空档案：删除全部套装行。"""
     service.clear_health_profile(db, user)
     return {"ok": True}

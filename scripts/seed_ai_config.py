@@ -66,14 +66,17 @@ def _insert_model(conn, provider_id: int, alias: str, capabilities: frozenset[st
     })
 
 
-def _insert_route(conn, feature_key: str, alias: str, override: dict, remark: str) -> None:
+def _insert_route(conn, feature_key: str, alias: str, override: dict, remark: str,
+                  timeout: float | None = None) -> None:
     conn.execute(text("""
-        INSERT INTO ai_feature_routes (feature_key, model_alias, params_override, remark)
-        VALUES (:key, :alias, CAST(:override AS jsonb), :remark)
+        INSERT INTO ai_feature_routes (feature_key, model_alias, timeout_seconds,
+                                       params_override, remark)
+        VALUES (:key, :alias, :timeout, CAST(:override AS jsonb), :remark)
         ON CONFLICT (feature_key) DO NOTHING
     """), {
         "key": feature_key,
         "alias": alias,
+        "timeout": timeout,
         "override": json.dumps(override, ensure_ascii=False),
         "remark": remark,
     })
@@ -90,13 +93,19 @@ def main() -> None:
     default_model = settings.ai_default_model
     report_model = settings.report_model or default_model
     routes = [
-        ("agent.chat", default_model, {}, "AI 对话默认（会话级 model_name 为空时使用）"),
-        ("agent.skill_parse", default_model, {}, "斜杠技能参数解析"),
-        ("import.text", settings.ai_import_model, {}, "AI 导入·纯文字"),
-        ("import.vision", settings.ai_import_vision_model, {}, "AI 导入·带图（需 vision 能力）"),
-        ("report.weekly", report_model, _report_override(report_model), "AI 周报"),
-        ("report.monthly", report_model, _report_override(report_model), "AI 月报"),
-        ("advice.daily", default_model, {}, "每日训练建议"),
+        ("agent.chat", default_model, {}, "AI 对话默认（会话级 model_name 为空时使用）",
+         settings.ai_timeout_seconds),
+        ("agent.skill_parse", default_model, {}, "斜杠技能参数解析",
+         settings.ai_timeout_seconds),
+        ("import.text", settings.ai_import_model, {}, "AI 导入·纯文字",
+         settings.ai_import_timeout_seconds),
+        ("import.vision", settings.ai_import_vision_model, {}, "AI 导入·带图（需 vision 能力）",
+         settings.ai_import_timeout_seconds),
+        ("report.weekly", report_model, _report_override(report_model), "AI 周报",
+         settings.report_timeout_seconds),
+        ("report.monthly", report_model, _report_override(report_model), "AI 月报",
+         settings.report_timeout_seconds),
+        ("advice.daily", default_model, {}, "每日训练建议", settings.advice_timeout_seconds),
     ]
 
     with engine.begin() as conn:
@@ -106,13 +115,13 @@ def main() -> None:
 
         # .env 指向了注册表之外的模型时补一条占位记录，能力按最保守声明，待人工补齐
         known = set(MODELS)
-        extra = {alias for _, alias, _, _ in routes} - known
+        extra = {alias for _, alias, _, _, _ in routes} - known
         for offset, alias in enumerate(sorted(extra)):
             _insert_model(conn, provider_id, alias, frozenset({"text", "structured_output"}),
                           len(known) + offset, "来自 .env，能力未声明，请补齐")
 
-        for feature_key, alias, override, remark in routes:
-            _insert_route(conn, feature_key, alias, override, remark)
+        for feature_key, alias, override, remark, timeout in routes:
+            _insert_route(conn, feature_key, alias, override, remark, timeout)
 
         missing = conn.execute(text("""
             SELECT DISTINCT r.model_alias

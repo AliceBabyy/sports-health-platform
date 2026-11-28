@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -35,6 +36,10 @@ class AgentConversation(Base):
             name="ck_agent_conversations_persona",
         ),
         Index("ix_agent_conversations_user_last", "user_id", text("last_message_at DESC")),
+        Index(
+            "ix_agent_conversations_user_pinned_last", "user_id",
+            text("pinned DESC"), text("last_message_at DESC"),
+        ),
         {"comment": "AI Agent 会话（元数据 + LangGraph thread_id + 角色绑定；消息由 checkpointer 管理）"},
     )
 
@@ -62,6 +67,10 @@ class AgentConversation(Base):
     )
     last_message_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, comment="最近消息时间（列表排序冗余）",
+    )
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false"),
+        comment="是否置顶；置顶会话排在未置顶之前",
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at: Mapped[datetime] = mapped_column(

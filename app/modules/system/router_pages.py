@@ -7,8 +7,10 @@ from fastapi import APIRouter
 from app.modules.system.scheduler.router_pages import router as scheduler_pages
 from app.modules.system.personas.router_pages import router as personas_pages
 from app.modules.system.skills.router_pages import router as skills_pages
+from app.modules.system.ai_config.router_pages import router as ai_config_pages
 
 router = APIRouter(prefix="/system")
 router.include_router(scheduler_pages)
 router.include_router(personas_pages)
 router.include_router(skills_pages)
+router.include_router(ai_config_pages)

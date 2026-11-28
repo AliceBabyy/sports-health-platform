@@ -7,10 +7,10 @@ import json
 import logging
 import time
 
+from app.ai.models.registry import current_alias
 from app.ai.runtime.invoke import invoke_structured
 from app.modules.report.facts import Period
 from app.modules.report.schemas import EvidenceItem, ReportNarrative
-from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -72,17 +72,6 @@ def sanitize_narrative(narrative: ReportNarrative, metrics: dict) -> tuple[Repor
     return cleaned, warnings
 
 
-def _extra_body(model_name: str | None) -> dict | None:
-    """报告是非流式结构化调用：qwen 系思考模式会先想再吐 JSON，实测 90~120s 顶满读超时。
-
-    默认关闭思考（实测 20~25s）；仅对 qwen* 模型传参，换用其他厂商模型时不传。
-    """
-    if settings.report_enable_thinking:
-        return None
-    selected = model_name or settings.report_model or settings.ai_default_model
-    return {"enable_thinking": False} if selected.startswith("qwen") else None
-
-
 def generate_narrative(
     period: Period,
     facts: dict,
@@ -91,10 +80,11 @@ def generate_narrative(
 ) -> tuple[ReportNarrative, dict]:
     """调用模型生成叙事；失败抛出 AIServiceError，由 service 记为 failed。"""
     prompt_id = PROMPT_IDS[period.type]
-    model = model_name or settings.report_model or None
+    feature = f"report.{period.type}"
     started = time.monotonic()
     narrative = invoke_structured(
-        model_name=model,
+        feature=feature,
+        model_name=model_name,
         prompt_id=prompt_id,
         schema=ReportNarrative,
         input_text=json.dumps(facts, ensure_ascii=False, separators=(",", ":")),
@@ -104,15 +94,13 @@ def generate_narrative(
             "period_range": period.range_label,
             "status_note": _status_note(period),
         },
-        timeout=settings.report_timeout_seconds,
-        extra_body=_extra_body(model),
     )
     elapsed_ms = int((time.monotonic() - started) * 1000)
     narrative, warnings = sanitize_narrative(narrative, facts.get("metrics") or {})
     if not cycle_allowed:
         narrative.cycle_note = ""
     meta = {
-        "model": model or settings.ai_default_model,
+        "model": current_alias(feature, model_name),
         "prompt_version": prompt_id,
         "elapsed_ms": elapsed_ms,
         "warnings": warnings,

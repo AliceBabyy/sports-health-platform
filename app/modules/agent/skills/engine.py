@@ -6,9 +6,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.modules.agent.skills.definition import DeclarativeDefinition, SkillSource
 from app.modules.agent.skills.expression import ExpressionError, evaluate
 from app.modules.agent.tools import queries
+from app.modules.auth.models import User
 
 
 def _as_date(value: Any) -> date | None:
@@ -62,6 +64,9 @@ def _load_source(db: Session, user_id: int, source: SkillSource, params: dict) -
         data = queries.state_records(db, user_id, start, end, state_type=source.state_type or "all", limit=limit)
         return data["records"], {"count": data["count"], "range": data["range"]}
     if source.type == "cycle_records":
+        user = db.get(User, user_id)
+        if user is None or not is_female(user.gender):
+            raise ValueError("生理周期数据源仅女性账号可用")
         data = queries.cycle_records(db, user_id, start, end)
         return data, {"count": data["period_count"], "range": data["range"]}
     if source.type == "profile_info":

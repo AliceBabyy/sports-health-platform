@@ -19,7 +19,7 @@ from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, Tool
 from langgraph.types import Command
 from sqlalchemy.orm import Session
 
-from app.ai.models.registry import MODELS
+from app.ai.models.registry import is_chat_model
 from app.core.exceptions import AppError
 from app.modules.agent.models import (
     AUTO_TITLE_LEN,
@@ -66,7 +66,7 @@ class _Stopped(Exception):
 
 
 def _validate_model(model_name: str | None) -> None:
-    if model_name is not None and model_name not in MODELS:
+    if not is_chat_model(model_name):
         raise AppError(400, "不支持该模型")
 
 
@@ -82,6 +82,7 @@ def conversation_to_dict(row: AgentConversation, persona: AgentPersona | None = 
         "persona_status": persona.status if persona else None,
         "persona_version_no": row.persona_version_no,
         "last_message_at": row.last_message_at.isoformat() if row.last_message_at else None,
+        "pinned": bool(row.pinned),
         "created_at": row.created_at.isoformat(),
     }
 
@@ -91,6 +92,7 @@ def list_conversations(db: Session, user_id: int) -> list[dict]:
         db.query(AgentConversation)
         .filter(AgentConversation.user_id == user_id)
         .order_by(
+            AgentConversation.pinned.desc(),
             AgentConversation.last_message_at.desc().nullslast(),
             AgentConversation.id.desc(),
         )
@@ -164,6 +166,17 @@ def create_conversation(db: Session, user_id: int, model_name: str | None, perso
 def rename_conversation(db: Session, user_id: int, conversation_id: int, title: str) -> dict:
     row = get_conversation(db, user_id, conversation_id)
     row.title = title.strip()
+    db.commit()
+    db.refresh(row)
+    persona = db.get(AgentPersona, row.persona_id) if row.persona_id else None
+    return conversation_to_dict(row, persona)
+
+
+def set_conversation_pinned(
+    db: Session, user_id: int, conversation_id: int, pinned: bool
+) -> dict:
+    row = get_conversation(db, user_id, conversation_id)
+    row.pinned = bool(pinned)
     db.commit()
     db.refresh(row)
     persona = db.get(AgentPersona, row.persona_id) if row.persona_id else None
@@ -723,6 +736,7 @@ BASE_TOOL_LABELS = {
     "get_cycle_records": "生理周期",
     "get_profile_info": "个人资料",
     "save_today_workout_plan": "保存今日计划",
+    "import_sport_records": "导入运动记录",
     "web_search": "联网搜索",
 }
 
@@ -907,10 +921,11 @@ def _finish(db: Session, row: AgentConversation, content: str | None, persona) -
 
 async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runtime: dict, payload, human_content: str | None = None, replay: bool = False, continuation: bool = False):
     # 走进这一轮就记活动时间：只有「新建后从没发过消息」的会话才算空会话，
-    # 失败、中断或续写都不会让它退回空会话被「新建」复用
-    if row.last_message_at is None:
-        row.last_message_at = datetime.now()
-        db.commit()
+    # 失败、中断或续写都不会让它退回空会话被「新建」复用；同时让会话列表
+    # 按最近一次真实对话排序，而不是等模型回答结束才更新。
+    activity_at = datetime.now()
+    row.last_message_at = activity_at
+    db.commit()
     persona = resolve_for_conversation(db, row, row.user_id)
     skill_scope = persona.key if persona is not None else None
     graph = graph_for_user(db, row.user_id, runtime, persona)
@@ -951,6 +966,7 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
             "conversation_id": row.id,
             "thread_id": thread_id,
             "resume": pending_ask is not None,
+            "last_message_at": activity_at.isoformat(),
         })
 
         if continuation:

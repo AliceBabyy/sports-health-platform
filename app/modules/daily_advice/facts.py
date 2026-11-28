@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.constants import (
     PHASE_LABELS,
     SEGMENT_CURRENT,
@@ -360,7 +361,7 @@ def _state_block(db: Session, user_id: int, day: date) -> dict:
 
 def _cycle_block(db: Session, user_id: int, gender: str | None, day: date) -> dict | None:
     """仅女性且存在月经记录时生成；真实 / 补推 / 预测分开标注。"""
-    if gender == "男":
+    if not is_female(gender):
         return None
     if db.query(PeriodRecord.id).filter(PeriodRecord.user_id == user_id).first() is None:
         return None

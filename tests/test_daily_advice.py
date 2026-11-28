@@ -146,10 +146,12 @@ def test_cycle_only_for_female_with_records(db):
     db.commit()
     female = facts.build_facts(db, _user("女"), TODAY)
     male = facts.build_facts(db, _user("男"), TODAY)
+    unknown = facts.build_facts(db, _user(""), TODAY)
     assert female["cycle"] is not None
     assert female["cycle"]["cycle_day"] == 9
     assert female["cycle"]["sport_level"]
     assert male["cycle"] is None
+    assert unknown["cycle"] is None
 
 
 def test_hard_limits_muscle_soreness_does_not_cap(db):

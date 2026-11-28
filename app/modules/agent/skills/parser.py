@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import get_args
 
+from app.ai.models.registry import current_alias
 from app.ai.runtime.invoke import AIServiceError, ainvoke_structured
 from app.modules.agent.skills.argument import (
     STROKE_LABELS,
@@ -16,7 +17,6 @@ from app.modules.agent.skills.argument import (
     validate_args,
 )
 from app.modules.agent.skills.registry import ResolvedSkill, build_args_model
-from config import settings
 
 CN_NUM = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
 
@@ -218,7 +218,7 @@ async def parse_skill_args(skill: ResolvedSkill, text: str, today: date) -> Pars
                 "params_json": _param_json(skill),
             }
             parsed = await ainvoke_structured(
-                model_name=settings.ai_default_model,
+                feature="agent.skill_parse",
                 prompt_id="skill_arg_parse.v1",
                 schema=schema,
                 input_text=text or "（用户没有补充参数）",
@@ -247,7 +247,7 @@ async def parse_skill_args(skill: ResolvedSkill, text: str, today: date) -> Pars
         strategy = "invalid"
 
     meta = {
-        "model": settings.ai_default_model if strategy != "rule" else None,
+        "model": current_alias("agent.skill_parse") if strategy != "rule" else None,
         "prompt_version": "skill_arg_parse.v1" if strategy != "rule" else None,
         "strategy": strategy,
         "elapsed_ms": int((time.perf_counter() - started) * 1000),

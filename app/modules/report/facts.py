@@ -17,6 +17,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.constants import (
     PHASE_LABELS,
     SPORT_LABELS as SPORT_LEVEL_LABELS,
@@ -442,7 +443,7 @@ def _state_facts(db: Session, user_id: int, start: date, end: date) -> dict:
 # ---------- 生理周期 ----------
 def _cycle_facts(db: Session, user, days: list[date], workouts_by_day: dict) -> dict | None:
     """只对女性且存在月经记录生成；真实/推算/预测分开统计。"""
-    if user.gender == "男" or not days:
+    if not is_female(user.gender) or not days:
         return None
     months = sorted({(d.year, d.month) for d in days})
     day_map: dict[str, dict] = {}

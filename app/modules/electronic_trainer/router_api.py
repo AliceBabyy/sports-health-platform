@@ -2,12 +2,11 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.ai.models.registry import MODELS, ModelConfigurationError
+from app.ai.models.registry import ModelConfigurationError, public_models, resolve_model
 from app.ai.runtime.invoke import AIServiceError, invoke_structured
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
-from config import settings
 
 router = APIRouter(prefix="/api/electronic-trainer", tags=["electronic-trainer"])
 
@@ -23,16 +22,14 @@ class ProbeOut(BaseModel):
 
 @router.get("/models")
 def list_models(user: User = Depends(get_current_user)):
-    return {"models": [
-        {"name": spec.name, "capabilities": sorted(spec.capabilities)}
-        for spec in MODELS.values()
-    ]}
+    return {"models": public_models()}
 
 
 @router.post("/probe")
 def probe(payload: ProbeIn, user: User = Depends(get_current_user)):
     try:
         result = invoke_structured(
+            feature=None,
             model_name=payload.model,
             prompt_id="foundation_probe.v1",
             schema=ProbeOut,
@@ -43,5 +40,5 @@ def probe(payload: ProbeIn, user: User = Depends(get_current_user)):
         raise AppError(400, str(exc)) from exc
     except AIServiceError as exc:
         raise AppError(502, str(exc)) from exc
-    return {"model": payload.model or settings.ai_default_model,
+    return {"model": resolve_model(None, payload.model).alias,
             "prompt_version": "foundation_probe.v1", **result.model_dump()}

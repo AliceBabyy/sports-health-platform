@@ -8,6 +8,7 @@ import re
 import time
 from datetime import date
 
+from app.ai.models.registry import current_alias
 from app.ai.runtime.invoke import invoke_structured
 from app.modules.daily_advice.models import (
     FOCUS_RECOVERY,
@@ -16,7 +17,6 @@ from app.modules.daily_advice.models import (
     VERDICT_REST,
 )
 from app.modules.daily_advice.schemas import DailyAdvice
-from config import settings
 
 PROMPT_ID = "daily_advice.v4"
 # 侧栏五句：判断 / 训练安排 / 最近健身播报 / 健康档案与状态提示 / 鼓励
@@ -167,6 +167,7 @@ def generate_advice(facts: dict, model_name: str | None = None) -> tuple[DailyAd
     cycle_scope = CYCLE_SCOPE_HAS if facts.get("cycle") else CYCLE_SCOPE_NONE
     started = time.monotonic()
     raw = invoke_structured(
+        feature="advice.daily",
         model_name=model_name,
         prompt_id=PROMPT_ID,
         schema=DailyAdvice,
@@ -176,7 +177,6 @@ def generate_advice(facts: dict, model_name: str | None = None) -> tuple[DailyAd
             "weekday": WEEKDAY_CN[day.weekday()],
             "cycle_scope": cycle_scope,
         },
-        timeout=settings.advice_timeout_seconds,
     )
     advice, warnings = sanitize(
         raw,
@@ -184,7 +184,7 @@ def generate_advice(facts: dict, model_name: str | None = None) -> tuple[DailyAd
         avoid_parts=(facts.get("recent_load") or {}).get("recent_parts_2d") or [],
     )
     meta = {
-        "model": model_name or settings.ai_default_model,
+        "model": current_alias("advice.daily", model_name),
         "prompt_version": PROMPT_ID,
         "elapsed_ms": int((time.monotonic() - started) * 1000),
         "warnings": warnings,

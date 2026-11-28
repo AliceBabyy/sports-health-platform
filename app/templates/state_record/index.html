@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head">
   <h1>状态记录</h1>
-  <div class="page-desc">按天记录食欲、肌肉疼痛、炎症、情绪与恢复状况，结合生理周期阶段回看身体状态。</div>
+  <div class="page-desc">{% if calendar.cycle_enabled %}按天记录食欲、肌肉疼痛、炎症、情绪与恢复状况，结合生理周期阶段回看身体状态。{% else %}按天记录食欲、肌肉疼痛、炎症、情绪与恢复状况。{% endif %}</div>
 </div>
 
 <div class="three-row-stack state-layout">
@@ -26,11 +26,13 @@
       <div class="cal-weekday">四</div><div class="cal-weekday">五</div><div class="cal-weekday">六</div><div class="cal-weekday">日</div>
     </div>
     <div class="cal-grid" id="calGrid" style="margin-top:6px"></div>
+    {% if calendar.cycle_enabled %}
     <div class="legend">
       <span class="legend-block"><span class="swatch sw-menses"></span>经期</span>
       <span class="legend-block"><span class="swatch sw-foll"></span>卵泡期 · 排卵前后</span>
       <span class="legend-block"><span class="swatch sw-luteal"></span>黄体期</span>
     </div>
+    {% endif %}
   </div>
 
   <!-- 当日状态（各记录项就地填写，无弹窗） -->

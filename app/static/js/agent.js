@@ -50,6 +50,10 @@
     '<circle cx="8" cy="5.5" r="2.2"/>' +
     '<path d="M3.8 13c.4-2.1 2-3.1 4.2-3.1s3.8 1 4.2 3.1"/>' +
     '</svg>';
+  const ICON_PIN =
+    '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">' +
+    '<path d="M4.2 2.6h7.6v10.8L8 10.4l-3.8 3z" stroke-linejoin="round"/>' +
+    '</svg>';
 
   const els = {
     workbench: document.getElementById("agentWorkbench"),
@@ -156,24 +160,64 @@
   }
 
   /* ---------- 会话列表 ---------- */
+  function conversationTimestamp(conv) {
+    const ts = conv && conv.last_message_at ? Date.parse(conv.last_message_at) : 0;
+    return Number.isNaN(ts) ? 0 : ts;
+  }
+
+  // 与服务端列表口径一致：置顶优先，再按最近消息时间、id 倒序
+  function sortConversations() {
+    conversations.sort((a, b) =>
+      (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) ||
+      conversationTimestamp(b) - conversationTimestamp(a) ||
+      b.id - a.id
+    );
+  }
+
+  function sessionItemHtml(c) {
+    return '<div class="session-item' + (c.id === currentId ? ' active' : '') +
+      (c.kind === "persona" ? ' persona-session' : '') +
+      (c.pinned ? ' pinned' : '') + '" data-id="' + c.id + '">' +
+      '<span class="s-title">' + App.escapeHtml(c.title) + '</span>' +
+      (c.pinned
+        ? '<span class="s-pin" title="已置顶" aria-label="已置顶">' + ICON_PIN + '</span>'
+        : '') +
+      (c.kind === "persona" && c.persona_name
+        ? '<span class="s-persona" title="角色会话 · ' + App.escapeHtml(c.persona_name) + '">' +
+          ICON_PERSONA + '<span class="s-persona-name">' + App.escapeHtml(c.persona_name) + '</span></span>'
+        : '') +
+      '<span class="s-actions">' +
+        '<button class="s-more" data-act="menu" type="button" title="更多" aria-label="更多">' + ICON_MORE + '</button>' +
+      '</span>' +
+    '</div>';
+  }
+
   function renderSessions() {
+    sortConversations();
     if (!conversations.length) {
       els.sessionList.innerHTML = '<div class="chat-empty">暂无会话</div>';
       return;
     }
-    els.sessionList.innerHTML = conversations.map(c =>
-      '<div class="session-item' + (c.id === currentId ? ' active' : '') +
-        (c.kind === "persona" ? ' persona-session' : '') + '" data-id="' + c.id + '">' +
-        '<span class="s-title">' + App.escapeHtml(c.title) + '</span>' +
-        (c.kind === "persona" && c.persona_name
-          ? '<span class="s-persona" title="角色会话 · ' + App.escapeHtml(c.persona_name) + '">' +
-            ICON_PERSONA + '<span class="s-persona-name">' + App.escapeHtml(c.persona_name) + '</span></span>'
-          : '') +
-        '<span class="s-actions">' +
-          '<button class="s-more" data-act="menu" type="button" title="更多" aria-label="更多">' + ICON_MORE + '</button>' +
-        '</span>' +
-      '</div>'
-    ).join("");
+    const pinned = conversations.filter(c => c.pinned);
+    const rest = conversations.filter(c => !c.pinned);
+    const parts = [];
+    if (pinned.length) {
+      parts.push(
+        '<div class="session-group">' +
+          '<div class="session-group-title">置顶</div>' +
+          pinned.map(sessionItemHtml).join("") +
+        '</div>'
+      );
+    }
+    if (rest.length) {
+      parts.push(
+        '<div class="session-group">' +
+          (pinned.length ? '<div class="session-group-title">全部会话</div>' : '') +
+          rest.map(sessionItemHtml).join("") +
+        '</div>'
+      );
+    }
+    els.sessionList.innerHTML = parts.join("");
   }
 
   /* 会话操作菜单：body 级固定定位弹层，避免被侧栏滚动容器裁剪 */
@@ -195,16 +239,19 @@
         if (!b) return;
         closeMenus();
         if (b.dataset.act === "rename") startRename(Number(menu.dataset.id));
+        else if (b.dataset.act === "pin") togglePin(Number(menu.dataset.id));
         else if (b.dataset.act === "delete") remove(Number(menu.dataset.id));
       });
     }
     menu.dataset.id = id;
+    const conv = conversations.find(c => c.id === id);
     menu.innerHTML =
+      '<button type="button" data-act="pin">' + (conv && conv.pinned ? '取消置顶' : '置顶') + '</button>' +
       '<button type="button" data-act="rename">重命名</button>' +
       '<button type="button" data-act="delete" class="danger">删除会话</button>';
     const r = anchorBtn.getBoundingClientRect();
     menu.style.right = (window.innerWidth - r.right) + "px";
-    if (r.bottom + 84 > window.innerHeight) {
+    if (r.bottom + 116 > window.innerHeight) {
       menu.style.top = "auto";
       menu.style.bottom = (window.innerHeight - r.top + 4) + "px";
     } else {
@@ -703,7 +750,16 @@
 
   function applyEvent(turn, evt) {
     const d = evt.data || {};
-    if (evt.event === "tool_start") startToolRun(turn, d);
+    if (evt.event === "start") {
+      if (d.last_message_at) {
+        const conv = conversations.find(c => c.id === d.conversation_id) || current();
+        if (conv) {
+          conv.last_message_at = d.last_message_at;
+          renderSessions();
+        }
+      }
+    }
+    else if (evt.event === "tool_start") startToolRun(turn, d);
     else if (evt.event === "tool_result") finishToolRun(turn, d);
     else if (evt.event === "delta") appendDelta(turn, d.content || "");
     else if (evt.event === "ask") appendAskBlock(turn, d);
@@ -975,6 +1031,23 @@
       else if (e.key === "Escape") { settled = true; renderSessions(); }
     });
     input.addEventListener("blur", commit);
+  }
+
+  async function togglePin(id) {
+    const conv = conversations.find(c => c.id === id);
+    if (!conv) return;
+    const pinned = !conv.pinned;
+    try {
+      const updated = await App.api("/api/agent/conversations/" + id + "/pin", {
+        method: "PUT",
+        body: { pinned },
+      });
+      conv.pinned = !!updated.pinned;
+      sortConversations();
+      renderSessions();
+    } catch (err) {
+      App.toast(err.message, true);
+    }
   }
 
   async function remove(id) {

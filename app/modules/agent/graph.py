@@ -26,7 +26,7 @@ from app.modules.agent.tools.web_search import WEB_SEARCH_TOOL_NAME
 
 MAX_HISTORY_MESSAGES = 20
 
-# 续写模式取值：写入 agent_chat.v8 的 {run_mode}，具体规则由提示词定义，代码只负责传递模式
+# 续写模式取值：写入 agent_chat.v9 的 {run_mode}，具体规则由提示词定义，代码只负责传递模式
 RUN_MODE_NORMAL = "常规"
 RUN_MODE_CONTINUE = "续写"
 
@@ -141,7 +141,7 @@ def make_agent_node(tools, capabilities: str):
         bound_tools = tools if web_on else [
             tool for tool in tools if tool.name != WEB_SEARCH_TOOL_NAME
         ]
-        model = get_model(model_name, required="tools").bind_tools(bound_tools)
+        model = get_model(model_name, feature="agent.chat", required="tools").bind_tools(bound_tools)
 
         now = datetime.now()
         persona_block = configurable.get("persona_block") or DEFAULT_PERSONA_BLOCK
@@ -150,7 +150,7 @@ def make_agent_node(tools, capabilities: str):
         if web_on:
             cap_text = f"{capabilities}\n\n{WEB_SEARCH_CAPABILITY}"
         system_text = load_system_prompt(
-            "agent_chat.v8",
+            "agent_chat.v9",
             today=now.date().isoformat(),
             weekday="周" + "一二三四五六日"[now.weekday()],
             now_time=now.strftime("%H:%M"),

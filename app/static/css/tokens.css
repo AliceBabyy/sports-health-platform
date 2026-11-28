@@ -10,6 +10,8 @@
   --color-accent: #17b3a6;              /* 清新蓝绿（初音未来发色系）：按钮描边 + 按钮字体 */
   --color-accent-strong: #0f9d92;       /* 蓝绿 hover/加深态 */
   --color-accent-soft: rgba(23, 179, 166, 0.10); /* 蓝绿 hover 浅底 */
+  --color-accent-soft-hover: rgba(23, 179, 166, 0.14); /* 置顶会话 hover 浅底 */
+  --color-accent-soft-active: rgba(23, 179, 166, 0.18); /* 置顶会话选中浅底 */
   --color-accent-light: #74d6cd;         /* 蓝绿渐变浅端（目标箭头） */
   --color-accent-ring: rgba(23, 179, 166, 0.18); /* 输入聚焦外圈 */
   --color-on-dark: #ffffff;              /* 深色底上的文字/图标（不等于卡片白） */

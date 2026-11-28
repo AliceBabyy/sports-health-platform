@@ -16,6 +16,10 @@ class ConversationRenameIn(BaseModel):
     title: str = Field(min_length=1, max_length=TITLE_MAX_CHARS)
 
 
+class ConversationPinIn(BaseModel):
+    pinned: bool
+
+
 class MessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=settings.agent_max_input_chars)
     client_msg_id: str = Field(min_length=1, max_length=64)

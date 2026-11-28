@@ -29,3 +29,4 @@ from app.modules.profile.models import HealthProfile  # noqa: F401
 from app.modules.report.models import Report  # noqa: F401
 from app.modules.daily_advice.models import DailyAdvice  # noqa: F401
 from app.modules.system.scheduler.models import JobRun, ScheduledJob  # noqa: F401
+from app.modules.system.ai_config.models import AiFeatureRoute, AiModel, AiProvider  # noqa: F401

@@ -107,9 +107,11 @@ def test_cycle_only_for_female_with_records(db):
     p = facts.resolve_period("weekly", LAST_WEEK, today=TODAY)
     female = facts.build_facts(db, _user("女"), p)
     male = facts.build_facts(db, _user("男"), p)
+    unknown = facts.build_facts(db, _user(""), p)
     assert female["cycle"] is not None
     assert female["cycle"]["phase_groups"]
     assert male["cycle"] is None
+    assert unknown["cycle"] is None
 
 
 # ---------- 生成 ----------
@@ -259,11 +261,5 @@ def test_sanitize_evidence_filters_and_drops():
     assert warnings
 
 
-# ---------- 思考模式开关 ----------
-def test_extra_body_only_disables_qwen_thinking(monkeypatch):
-    monkeypatch.setattr(ai.settings, "report_enable_thinking", False)
-    monkeypatch.setattr(ai.settings, "report_model", "qwen4-max")
-    assert ai._extra_body(None) == {"enable_thinking": False}
-    assert ai._extra_body("deepseek-v4.1-flash") is None
-    monkeypatch.setattr(ai.settings, "report_enable_thinking", True)
-    assert ai._extra_body(None) is None
+# 思考开关已从代码内的 qwen* 前缀判断改为 ai_models.extra_body /
+# ai_feature_routes.params_override，由 DB 配置驱动；解析与合并见 test_ai_config。

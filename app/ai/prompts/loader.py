@@ -11,7 +11,7 @@ PROMPTS = {
     "sport_import_training.v1": "sport_import_training_v1.txt",
     "sport_import_swim.v1": "sport_import_swim_v1.txt",
     "sport_import_dance.v1": "sport_import_dance_v1.txt",
-    "agent_chat.v8": "agent_chat_v8.txt",
+    "agent_chat.v9": "agent_chat_v9.txt",
     "persona_nutrition.v1": "persona_nutrition_v1.txt",
     "persona_e_trainer.v3": "persona_e_trainer_v3.txt",
     "persona_training_coach.v2": "persona_training_coach_v2.txt",

@@ -213,4 +213,11 @@ def test_calendar_marks_records_and_blank_phase_without_cycle(db):
 
     male = SimpleNamespace(id=U1, gender="男")
     male_cal = service.calendar_with_records(db, male, 2026, 11)
+    assert male_cal["cycle_enabled"] is False
     assert all(d["phase_key"] is None for d in male_cal["days"])
+
+    unknown = SimpleNamespace(id=U1, gender=None)
+    unknown_cal = service.calendar_with_records(db, unknown, 2026, 11)
+    assert unknown_cal["cycle_enabled"] is False
+    assert all(d["phase_key"] is None for d in unknown_cal["days"])
+    assert cal["cycle_enabled"] is True

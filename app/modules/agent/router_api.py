@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.agent import schemas, service
@@ -36,6 +37,7 @@ from app.modules.agent.skills.management import (
 )
 from app.modules.agent.skills.registry import available_skills
 from app.modules.auth.models import User
+from app.modules.profile.aspect_skills import skill_female_only
 from database import get_db
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
@@ -70,6 +72,16 @@ def rename_conversation(
     user: User = Depends(get_current_user),
 ):
     return service.rename_conversation(db, user.id, conversation_id, payload.title)
+
+
+@router.put("/conversations/{conversation_id}/pin")
+def set_conversation_pin(
+    conversation_id: int,
+    payload: schemas.ConversationPinIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return service.set_conversation_pinned(db, user.id, conversation_id, payload.pinned)
 
 
 @router.delete("/conversations/{conversation_id}")
@@ -224,7 +236,11 @@ def list_skills_api(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return {"list": [_skill_dict(row, version, user.id) for row, version in list_skills(db, user.id)]}
+    return {"list": [
+        _skill_dict(row, version, user.id)
+        for row, version in list_skills(db, user.id)
+        if is_female(user.gender) or not skill_female_only(row.skill_key)
+    ]}
 
 
 @router.get("/skills/available")
@@ -253,6 +269,7 @@ def available_skills_api(
             persona.persona_key if persona is not None else None,
             skill_grants=grants,
         )
+        if is_female(user.gender) or not skill_female_only(item.key)
     }
     rows = [
         (row, version) for row, version in list_skills(db, user.id)
@@ -286,6 +303,15 @@ def validate_new_skill_api(
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
+def _hidden_female_only(row: AgentSkill, user: User) -> bool:
+    """平台生理期专项对非女性账号不可见（列表、详情、试运行与运行记录统一按 404 处理）。"""
+    return (
+        row.scope == "system"
+        and not is_female(user.gender)
+        and skill_female_only(row.skill_key)
+    )
+
+
 @router.get("/skills/{skill_id}")
 def get_skill_api(
     skill_id: int,
@@ -293,7 +319,7 @@ def get_skill_api(
     user: User = Depends(get_current_user),
 ):
     row = db.get(AgentSkill, skill_id)
-    if row is None:
+    if row is None or _hidden_female_only(row, user):
         raise AppError(404, "技能不存在")
     if row.scope == "user" and row.owner_user_id != user.id:
         raise AppError(403, "无权查看该技能")
@@ -392,7 +418,7 @@ def test_skill_api(
     user: User = Depends(get_current_user),
 ):
     row = db.get(AgentSkill, skill_id)
-    if row is None:
+    if row is None or _hidden_female_only(row, user):
         raise AppError(404, "技能不存在")
     if row.scope == "user" and row.owner_user_id != user.id:
         raise AppError(403, "无权试运行该技能")
@@ -417,7 +443,7 @@ def skill_runs_api(
     user: User = Depends(get_current_user),
 ):
     row = db.get(AgentSkill, skill_id)
-    if row is None:
+    if row is None or _hidden_female_only(row, user):
         raise AppError(404, "技能不存在")
     if row.scope == "user" and row.owner_user_id != user.id:
         raise AppError(403, "无权查看该技能")

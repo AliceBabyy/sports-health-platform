@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.ai.models.registry import current_alias
 from app.modules.auth.models import User
 from app.modules.report import service
 from app.modules.report.facts import build_facts, resolve_period
@@ -124,7 +125,8 @@ def main() -> int:
     logging.info(
         "报告任务开始 scan=%s type=%s anchor=%s user=%s dry_run=%s auto=%s model=%s",
         args.scan, args.type, args.anchor, args.user, args.dry_run,
-        settings.report_auto_enabled, settings.report_model or settings.ai_default_model,
+        settings.report_auto_enabled,
+        current_alias("report.monthly" if args.type == "monthly" else "report.weekly"),
     )
     return run_one(args)
 

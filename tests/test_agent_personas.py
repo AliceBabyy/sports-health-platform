@@ -1,6 +1,6 @@
 """多角色（Persona）数据层、管理、会话绑定与预留接缝测试。"""
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -219,6 +219,34 @@ def test_create_conversation_reuses_untouched_empty_conversation(db):
     assert service.create_conversation(db, u1.id, None, persona.id)["id"] == persona_conv["id"]
 
 
+def test_conversation_pin_sorts_first_and_is_user_scoped(db):
+    """置顶会话排在未置顶之前；取消置顶后回到最近消息排序；越权操作按 404 拦截。"""
+    u1 = _user(db, "pin_conv_u1")
+    u2 = _user(db, "pin_conv_u2")
+    now = datetime.now()
+    made = []
+    for offset in (3, 1, 2):
+        conv = service.create_conversation(db, u1.id, None)
+        row = db.get(AgentConversation, conv["id"])
+        row.last_message_at = now - timedelta(minutes=offset)
+        db.commit()
+        made.append(conv["id"])
+
+    assert [c["id"] for c in service.list_conversations(db, u1.id)] == [made[1], made[2], made[0]]
+
+    pinned = service.set_conversation_pinned(db, u1.id, made[2], True)
+    assert pinned["pinned"] is True
+    assert [c["id"] for c in service.list_conversations(db, u1.id)][0] == made[2]
+
+    service.set_conversation_pinned(db, u1.id, made[2], False)
+    assert [c["id"] for c in service.list_conversations(db, u1.id)] == [made[1], made[2], made[0]]
+    assert service.list_conversations(db, u2.id) == []
+
+    with pytest.raises(AppError) as foreign:
+        service.set_conversation_pinned(db, u2.id, made[0], True)
+    assert foreign.value.status == 404
+
+
 def test_render_persona_block(db):
     assert render_persona_block(None) == DEFAULT_PERSONA_BLOCK
 
@@ -269,17 +297,19 @@ def test_platform_persona_prompts_fit_definition_limit():
         assert not errors, f"{prompt_id}: {errors}"
 
 
-def test_prompt_v8_persona_block_and_v7_removed():
+def test_prompt_v9_persona_block_and_v8_removed():
     assert "agent_chat.v6" not in PROMPTS
     assert "agent_chat.v7" not in PROMPTS
+    assert "agent_chat.v8" not in PROMPTS
     text = load_system_prompt(
-        "agent_chat.v8", today="2026-11-18", weekday="周三", now_time="09:00",
+        "agent_chat.v9", today="2026-11-18", weekday="周三", now_time="09:00",
         capabilities="只读工具", persona_block="当前角色：营养师（v1）。", run_mode="常规",
     )
     assert "角色设定" in text and "当前角色：营养师（v1）" in text
     assert text.index("规则优先级") > text.index("角色设定")
     assert "本轮模式：常规" in text
     assert "联网搜索" in text
+    assert "import_sport_records" in text
 
 
 def test_conversation_persona_pair_constraint(db):

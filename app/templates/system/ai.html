@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}AI 配置 · 系统设置 · 体序{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/pages/agent_skills.css?v=20261117t">
+<link rel="stylesheet" href="/static/css/pages/system_ai.css?v=20261128a">
+{% endblock %}
+{% block content %}
+<div class="skills-page system-ai-page">
+  <aside class="skills-rail">
+    <div class="rail-actions">
+      <button class="rail-new" id="btnNewProvider" type="button">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
+        新建来源
+      </button>
+      <button class="rail-new" id="btnNewModel" type="button">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
+        新建模型
+      </button>
+    </div>
+
+    <div class="rail-scroll">
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">模型来源</span>
+          <span class="skills-count" id="providerCount">0</span>
+        </div>
+        <div class="skills-list" id="providerList"></div>
+      </div>
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">模型清单</span>
+          <span class="skills-count" id="modelCount">0</span>
+        </div>
+        <div class="skills-list" id="modelList"></div>
+      </div>
+      <div class="skills-group">
+        <div class="skills-group-head">
+          <span class="skills-group-title">功能路由</span>
+          <span class="skills-count" id="routeCount">0</span>
+        </div>
+        <div class="skills-list" id="routeList"></div>
+      </div>
+    </div>
+
+    <div class="rail-footer">
+      <div class="rail-status" id="snapshotStatus">配置未加载</div>
+      <button class="btn btn-primary btn-sm" id="btnApply" type="button">应用配置</button>
+    </div>
+  </aside>
+
+  <section class="skills-work">
+    <header class="work-head">
+      <div class="work-identity">
+        <div class="work-kicker" id="editorKicker">AI 配置</div>
+        <div class="work-name-row">
+          <h1 class="work-name" id="editorName">选择左侧条目</h1>
+        </div>
+      </div>
+      <div class="work-badges" id="editorBadges"></div>
+    </header>
+
+    <div class="work-scroll">
+      <div class="editor-empty" id="editorEmpty">
+        <div class="empty-graphic" aria-hidden="true">
+          <span>来源</span><i></i><span>模型</span><i></i><span>功能路由</span>
+        </div>
+        <div class="empty-title">来源提供地址与密钥，模型提供别名与能力，功能路由决定每个 AI 功能用谁</div>
+        <div class="empty-sub">保存即生效：会话、导入、报告与每日建议下一次调用就按新配置执行。密钥默认留在 .env，也可以加密存库。</div>
+      </div>
+
+      <form class="skill-editor" id="providerForm" hidden>
+        <section class="editor-section">
+          <div class="section-head">来源信息</div>
+          <div class="field-grid">
+            <label class="field">
+              <span>来源标识（唯一，小写字母/数字/-/_）</span>
+              <input class="input mono" id="pKey" maxlength="48" required>
+            </label>
+            <label class="field">
+              <span>显示名称</span>
+              <input class="input" id="pName" maxlength="64" required>
+            </label>
+            <label class="field field-wide">
+              <span>接口地址（OpenAI 兼容；可只填主机名，缺协议按 https 处理）</span>
+              <input class="input mono" id="pBaseUrl" maxlength="255" placeholder="company-ai.lyokm.cn" required>
+            </label>
+            <label class="field">
+              <span>密钥变量名（.env 中的键）</span>
+              <input class="input mono" id="pKeyEnv" maxlength="64" placeholder="AI_API_KEY">
+            </label>
+            <label class="field">
+              <span>写入密钥（留空则保持不变）</span>
+              <input class="input mono" id="pApiKey" type="password" maxlength="512" autocomplete="off">
+            </label>
+            <label class="field">
+              <span>默认读超时（秒）</span>
+              <input class="input" id="pTimeout" type="number" min="1" max="600" step="0.1">
+            </label>
+            <label class="field">
+              <span>重试次数（0~5）</span>
+              <input class="input" id="pRetries" type="number" min="0" max="5" step="1">
+            </label>
+            <label class="field field-wide">
+              <span>附加请求头 JSON（可空）</span>
+              <textarea class="code-editor" id="pHeaders" rows="3" placeholder="{}"></textarea>
+            </label>
+            <label class="field">
+              <span>状态</span>
+              <select class="select" id="pStatus">
+                <option value="active">启用</option>
+                <option value="disabled">停用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>备注</span>
+              <input class="input" id="pRemark" maxlength="200">
+            </label>
+            <div class="field field-wide">
+              <span>密钥状态</span>
+              <div class="editor-hint" id="pKeyState">—</div>
+              <label class="inline-check"><input type="checkbox" id="pClearKey"> 清除库内密钥，改回 .env 变量</label>
+            </div>
+          </div>
+        </section>
+      </form>
+
+      <form class="skill-editor" id="modelForm" hidden>
+        <section class="editor-section">
+          <div class="section-head">模型信息</div>
+          <div class="field-grid">
+            <label class="field">
+              <span>业务别名（创建后不可改）</span>
+              <input class="input mono" id="mAlias" maxlength="64" required>
+            </label>
+            <label class="field">
+              <span>所属来源</span>
+              <select class="select" id="mProvider" required></select>
+            </label>
+            <label class="field">
+              <span>上游模型名（发给服务商的 model）</span>
+              <input class="input mono" id="mUpstream" maxlength="128" required>
+            </label>
+            <label class="field">
+              <span>结构化方式</span>
+              <select class="select" id="mMethod">
+                <option value="json_schema">json_schema</option>
+                <option value="function_calling">function_calling</option>
+                <option value="json_mode">json_mode</option>
+              </select>
+            </label>
+            <div class="field field-wide">
+              <span>能力声明（功能路由按此校验）</span>
+              <div class="cap-row">
+                <label class="inline-check"><input type="checkbox" id="mText"> 文本</label>
+                <label class="inline-check"><input type="checkbox" id="mVision"> 图片输入</label>
+                <label class="inline-check"><input type="checkbox" id="mTools"> 工具调用</label>
+                <label class="inline-check"><input type="checkbox" id="mStructured"> 结构化输出</label>
+              </div>
+            </div>
+            <label class="field">
+              <span>模型级超时（秒，可空）</span>
+              <input class="input" id="mTimeout" type="number" min="1" max="600" step="0.1">
+            </label>
+            <label class="field">
+              <span>排序</span>
+              <input class="input" id="mSort" type="number" step="1">
+            </label>
+            <label class="field">
+              <span>状态</span>
+              <select class="select" id="mStatus">
+                <option value="active">启用</option>
+                <option value="disabled">停用</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>对话下拉可选</span>
+              <select class="select" id="mSelectable">
+                <option value="1">是</option>
+                <option value="0">否</option>
+              </select>
+            </label>
+            <label class="field field-wide">
+              <span>extra_body JSON（如思考开关）</span>
+              <textarea class="code-editor" id="mExtraBody" rows="3" placeholder='{"enable_thinking": false}'></textarea>
+            </label>
+            <label class="field field-wide">
+              <span>通用参数 JSON（temperature / max_tokens 等）</span>
+              <textarea class="code-editor" id="mParams" rows="3" placeholder="{}"></textarea>
+            </label>
+            <label class="field field-wide">
+              <span>备注</span>
+              <input class="input" id="mRemark" maxlength="200">
+            </label>
+          </div>
+        </section>
+      </form>
+
+      <form class="skill-editor" id="routeForm" hidden>
+        <section class="editor-section">
+          <div class="section-head" id="rHead">功能路由</div>
+          <div class="editor-hint" id="rDesc"></div>
+          <div class="route-issues" id="routeIssues" hidden></div>
+          <div class="field-grid">
+            <label class="field">
+              <span>使用模型</span>
+              <select class="select" id="rModel" required></select>
+            </label>
+            <label class="field">
+              <span>该功能读超时（秒，可空）</span>
+              <input class="input" id="rTimeout" type="number" min="1" max="600" step="0.1">
+            </label>
+            <label class="field">
+              <span>启用</span>
+              <select class="select" id="rEnabled">
+                <option value="1">启用</option>
+                <option value="0">停用（回落 .env）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>能力要求</span>
+              <div class="editor-hint" id="rRequired">—</div>
+            </label>
+            <label class="field field-wide">
+              <span>参数覆盖 JSON（extra_body / temperature 等）</span>
+              <textarea class="code-editor" id="rOverride" rows="3" placeholder='{"extra_body": {"enable_thinking": false}}'></textarea>
+            </label>
+            <label class="field field-wide">
+              <span>备注</span>
+              <input class="input" id="rRemark" maxlength="200">
+            </label>
+          </div>
+        </section>
+      </form>
+
+      <div class="editor-result" id="editorResult" hidden></div>
+    </div>
+
+    <footer class="work-actions" id="workActions" hidden>
+      <span class="work-hint" id="editorHint"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" id="btnTest" type="button">测试连接</button>
+      <button class="btn btn-ghost btn-sm danger" id="btnDelete" type="button">删除</button>
+      <button class="btn btn-primary btn-sm" id="btnSave" type="button">保存并生效</button>
+    </footer>
+  </section>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+window.INIT_AI_CONFIG = {{ config | tojson }};
+</script>
+<script src="/static/js/system_ai.js?v=20261128a"></script>
+{% endblock %}

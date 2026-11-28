@@ -4,7 +4,7 @@
     python scripts/migrate_ai_config.py
 
 说明：只新增三张表，不改动已有表、不迁移数据；可重复执行。种子数据见
-`scripts/seed_ai_config.py`。本轮只落数据层，运行时仍读 `.env`（接入在后续版本）。
+`scripts/seed_ai_config.py`；运行时由 `app/ai/models/registry.py` 解析，管理页为 `/system/ai`。
 """
 import sys
 from pathlib import Path

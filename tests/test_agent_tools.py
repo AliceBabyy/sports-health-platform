@@ -264,3 +264,16 @@ def test_profile_info_hides_password(db):
     assert result["age"] == 29
     assert "password_hash" not in result
     assert "username" not in result
+
+
+def test_profile_info_cycle_aspect_only_for_female(db):
+    db.add(User(username="male", password_hash="x", display_name="M", gender="男"))
+    db.commit()
+    male = queries.profile_info(db, U1)
+    assert "profile_cycle" not in {q["skill_key"] for q in male["aspect_questionnaires"]}
+
+    female = User(username="female", password_hash="x", display_name="F", gender="女")
+    db.add(female)
+    db.commit()
+    female_result = queries.profile_info(db, female.id)
+    assert "profile_cycle" in {q["skill_key"] for q in female_result["aspect_questionnaires"]}

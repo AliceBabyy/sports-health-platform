@@ -9,6 +9,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.exceptions import AppError
 from app.core.security import hash_password, verify_password
 from app.modules.auth.models import User
@@ -239,7 +240,7 @@ def _page_set_questions(raw_questions, skill: dict) -> tuple[list[dict], dict[st
 def _check_profile_skill_access(db: Session, user_id: int, skill: dict) -> None:
     if skill["female_only"]:
         user = db.get(User, user_id)
-        if user is None or user.gender != "女":
+        if user is None or not is_female(user.gender):
             raise AppError(400, "生理期档案仅适用于女性用户")
 
 
@@ -377,7 +378,7 @@ def save_health_profile_aspect(
         raise AppError(400, "未知的档案专项")
     if skill["female_only"]:
         user = db.get(User, user_id)
-        if user is None or user.gender != "女":
+        if user is None or not is_female(user.gender):
             raise AppError(400, "生理期档案仅适用于女性用户")
 
     try:

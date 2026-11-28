@@ -42,6 +42,7 @@ TRAINING_COACH_TOOLS = [
     "get_state_records",
     "get_cycle_records",
     "save_today_workout_plan",
+    "import_sport_records",
 ]
 
 PLATFORM_PERSONAS = [

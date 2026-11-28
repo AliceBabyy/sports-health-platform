@@ -142,6 +142,28 @@
   overflow-y: auto;
   min-height: 0;
 }
+.session-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.session-group + .session-group { margin-top: 10px; }
+.session-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+.session-group-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
 .session-item {
   display: flex;
   align-items: center;
@@ -153,6 +175,12 @@
 }
 .session-item:hover { background: var(--bg-section); }
 .session-item.active { background: var(--color-accent-soft); }
+.session-item.pinned {
+  background: var(--color-accent-soft);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.session-item.pinned:hover { background: var(--color-accent-soft-hover); }
+.session-item.pinned.active { background: var(--color-accent-soft-active); }
 .session-item .s-title {
   flex: 1;
   min-width: 0;
@@ -161,6 +189,21 @@
   white-space: nowrap;
 }
 .session-item.active .s-title { color: var(--color-accent-strong); }
+.session-item.pinned .s-title {
+  font-weight: 600;
+  color: var(--color-accent-strong);
+}
+.s-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-accent-ring);
+  color: var(--color-accent-strong);
+}
 .session-item .s-actions {
   position: relative;
   display: inline-flex;

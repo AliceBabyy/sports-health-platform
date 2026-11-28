@@ -140,3 +140,9 @@ def skill_aspects(skill_key: str) -> frozenset[str]:
 def skill_slash(skill_key: str) -> str:
     item = PROFILE_SKILL_MAP.get(skill_key)
     return f"/{item['slash_alias']}" if item else skill_key
+
+
+def skill_female_only(skill_key: str) -> bool:
+    """专项是否仅女性可用（目前只有 profile_cycle）。"""
+    item = PROFILE_SKILL_MAP.get(skill_key)
+    return bool(item and item.get("female_only"))

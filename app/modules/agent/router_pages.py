@@ -2,7 +2,8 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.ai.models.registry import MODELS
+from app.ai.models.registry import chat_model_names, current_alias
+from app.core.access import is_female
 from app.core.deps import get_current_user
 from app.core.templating import render_page
 from app.modules.agent import service
@@ -11,6 +12,7 @@ from app.modules.agent.skills.management import list_skills
 from app.modules.agent.tools.policy import TOOL_PERSONA_SCOPES
 from app.modules.agent.tools.web_search import web_search_available
 from app.modules.auth.models import User
+from app.modules.profile.aspect_skills import skill_female_only
 from config import settings
 from database import get_db
 
@@ -41,8 +43,8 @@ def agent_page(
         {
             "active": "agent_chat",
             "conversations": service.list_conversations(db, user.id),
-            "model_options": list(MODELS.keys()),
-            "default_model": settings.ai_default_model,
+            "model_options": chat_model_names(),
+            "default_model": current_alias("agent.chat"),
             "personas": _selectable_personas(db, user.id),
             "web_search_available": web_search_available(),
         },
@@ -68,6 +70,7 @@ def agent_skills_page(
             "definition": version.definition if version and row.kind in ("declarative", "prompt") else None,
         }
         for row, version in list_skills(db, user.id)
+        if is_female(user.gender) or not skill_female_only(row.skill_key)
     ]
     return render_page(
         request,

@@ -8,8 +8,10 @@ from fastapi import APIRouter
 from app.modules.system.scheduler.router_api import router as scheduler_api
 from app.modules.system.personas.router_api import router as personas_api
 from app.modules.system.skills.router_api import router as skills_api
+from app.modules.system.ai_config.router_api import router as ai_config_api
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 router.include_router(scheduler_api)
 router.include_router(personas_api)
 router.include_router(skills_api)
+router.include_router(ai_config_api)

@@ -3,7 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # extra=allow：AI 来源可引用任意 .env 变量名（如 A_AI_API_KEY → settings.a_ai_api_key）
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="allow")
 
     database_url: str = (
         "postgresql+psycopg2://postgres:123456@127.0.0.1:5432/sports-health-platform"

@@ -15,6 +15,7 @@ from app.modules.agent.tools.policy import TOOL_PERSONA_SCOPES, persona_graph_fi
 from app.modules.agent.skills.registry import available_skills
 from app.modules.auth.models import User
 from app.modules.profile import service
+from app.modules.profile import skill_runtime
 from app.modules.profile.aspect_skills import ASPECT_SKILLS, PROFILE_SKILL_KEYS
 from app.modules.profile.questionnaire import MAX_SETS_PER_SKILL, latest_set
 from app.modules.profile.questionnaire import normalize_questions
@@ -219,12 +220,17 @@ def test_normalize_questions_rejects_duplicate_key_and_label():
 def test_cycle_skill_is_female_only(db):
     male = _user(db, "cycle_male", gender="男")
     with pytest.raises(AppError):
+        skill_runtime.run_profile_aspect(db, male.id, "profile_cycle")
+    with pytest.raises(AppError):
         service.save_health_profile_aspect(
             db, male.id, "profile_cycle",
             _questions(["周期规律吗？", "经期几天？", "经期会运动吗？"], ["cycle"] * 3),
             {"q1": "不适用"},
         )
     female = _user(db, "cycle_female", gender="女")
+    runtime_result = skill_runtime.run_profile_aspect(db, female.id, "profile_cycle")
+    assert runtime_result["status"] == "ok"
+    assert "生理期" in runtime_result["summary"]
     result = service.save_health_profile_aspect(
         db, female.id, "profile_cycle",
         _questions(["周期规律吗？", "经期几天？", "经期会运动吗？"], ["cycle"] * 3),

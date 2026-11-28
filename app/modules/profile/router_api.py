@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
@@ -43,10 +44,13 @@ def _set_payload(question_set: dict) -> dict:
 
 def _health_profile_payload(db: Session, user: User) -> dict:
     row = service.get_health_profile(db, user.id)
+    sets = row.sets if row else []
+    if not is_female(user.gender):
+        sets = [item for item in sets if item["skill_key"] != "profile_cycle"]
     return {
         "ok": True,
-        "filled": row is not None,
-        "sets": [_set_payload(item) for item in (row.sets if row else [])],
+        "filled": bool(sets),
+        "sets": [_set_payload(item) for item in sets],
     }
 
 

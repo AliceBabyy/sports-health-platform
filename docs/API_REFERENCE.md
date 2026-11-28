@@ -43,11 +43,11 @@
 | 个人信息 profile | `/profile`、`/api/profile` | 2 | 8 | 10 |
 | 总览 overview | `/overview`、`/api/overview` | 1 | 2 | 3 |
 | 电子教练 electronic_trainer | `/api/electronic-trainer` | 0 | 2 | 2 |
-| AI 助手 agent | `/agent`、`/api/agent` | 3 | 29 | 32 |
+| AI 助手 agent | `/agent`、`/api/agent` | 3 | 30 | 33 |
 | AI 运动报告 report | `/reports`、`/api/reports` | 1 | 4 | 5 |
 | 每日训练建议 daily_advice | `/api/daily-advice` | 0 | 2 | 2 |
-| 系统管理 system | `/system/scheduler`、`/system/personas`、`/system/skills`、`/api/system/scheduler`、`/api/system/system-personas`、`/api/system/system-skills` | 3 | 21 | 24 |
-| **合计** | — | **21** | **135** | **156** |
+| 系统管理 system | `/system/scheduler`、`/system/personas`、`/system/skills`、`/system/ai`、`/api/system/scheduler`、`/api/system/system-personas`、`/api/system/system-skills`、`/api/system/ai-config` | 4 | 33 | 37 |
+| **合计** | — | **22** | **148** | **170** |
 
 ## 2. 全局与认证
 
@@ -158,7 +158,7 @@
 
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
-| `GET /cycle` | 无 | 无 | HTML 页面 / 303 | 周期页；男性账号 303 → `/body` |
+| `GET /cycle` | 无 | 无 | HTML 页面 / 303 | 周期页；非女性账号（男性或未填性别）303 → `/body` |
 | `GET /api/cycle/settings` | 无 | 无 | `{cycle_length, period_length}` | 读取参考周期与参考经期（默认 28 / 5） |
 | `PUT /api/cycle/settings` | JSON | `cycle_length`（22~45）、`period_length`（2~8） | `{cycle_length, period_length}` | 修改参考值；须满足 `period_length + 15 ≤ cycle_length` |
 | `GET /api/cycle/periods` | 无 | 无 | `{list:[{id, start_date, end_date, period_length, cycle_length}]}` | 月经记录列表，长度按记录实时派生，算不出为 `null` |
@@ -170,7 +170,7 @@
 | `PUT /api/cycle/note/{log_date}` | 路径参数 + JSON | 路径 `log_date`；体 `note`（≤255，可空串清空） | `{ok, log_date, note, pain_level, period_id}` | 写入/覆盖当日 note；非经期日保存时 `pain_level`、`period_id` 置 null |
 | `GET /api/cycle/calendar` | Query | `month`（`YYYY-MM`） | 周期月历（A.10） | 逐日阶段、双份激素文案、四档状态、三态经期、疼痛 / note 与今日概览 |
 
-> 男性账号访问本模块全部 API 返回 403 `{code:"FORBIDDEN", error:"男性账号不开放生理周期模块"}`。
+> 非女性账号（男性或性别未填）访问本模块全部 API 返回 403 `{code:"FORBIDDEN", error:"仅女性账号开放生理周期模块"}`。
 
 ## 8. 状态记录 state_record
 
@@ -179,7 +179,7 @@
 | `GET /state-record` | 无 | 无 | HTML 页面 | 状态记录页：月历 + 当日五类记录 + 全部记录 |
 | `GET /api/state-record` | Query | `page`、`page_size`、`type`（可选，`appetite`/`myalgia`/`inflammation`/`mood`/`recovery`） | 分页包（A.1），`list` 为状态记录对象（A.7） | 跨五表合并分页，日期与 id 倒序；`type` 非法 400 |
 | `GET /api/state-record/daily` | Query | `date`（必填） | `{date, records{appetite, myalgia, inflammation, mood, recovery：记录对象或 null}}` | 某日五类记录，未记录的类型为 `null` |
-| `GET /api/state-record/calendar` | Query | `month`（`YYYY-MM`） | `{year, month, days:[{date, phase_key 或 null, phase_group 或 null, phase_label 或 null, has_record}]}` | 月历：复用周期阶段并归并三档，标记当日是否有记录 |
+| `GET /api/state-record/calendar` | Query | `month`（`YYYY-MM`） | `{year, month, cycle_enabled, has_cycle, days:[{date, phase_key 或 null, phase_group 或 null, phase_label 或 null, has_record}]}` | 月历：复用周期阶段并归并三档，标记当日是否有记录；`cycle_enabled` 仅女性为 true，`has_cycle` 表示当月有周期记录 |
 | `POST /api/state-record` | JSON | `date`、`type`、`star`（0~5，可空）、`remark`（≤255，可空） | 状态记录对象（A.7） | 新建；同用户同类型同一天唯一，重复 409 |
 | `POST /api/state-record/batch-delete` | JSON | `items[]{id, type}`（1~200 条） | `{deleted:[{id,type}], skipped:[{id,type}]}` | 跨表批量删除，每条自带类型定位表 |
 | `PUT /api/state-record/{record_id}` | 路径参数 + JSON | 路径 `record_id`；体 `date`、`type`、`star`、`remark` | 状态记录对象（A.7） | 按 id 编辑；日期冲突 409，不存在 404 |
@@ -192,11 +192,11 @@
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
 | `GET /profile` | 无 | 无 | HTML 页面 | 账号资料页（基本资料、密码、注销；显示账号创建/更新时间） |
-| `GET /profile/health-profile` | 无 | 无 | HTML 页面 | 健康档案页：固定展示可用专项卡（女性 10 个，男性不显示生理期）；已建立显示最近一套，未建立显示新增入口；点「新增/编辑」打开弹窗，可改问题、改回答并追加新题 |
+| `GET /profile/health-profile` | 无 | 无 | HTML 页面 | 健康档案页：固定展示可用专项卡（女性 10 个；男性与未填性别 9 个，不含生理期）；已建立显示最近一套，未建立显示新增入口；点「新增/编辑」打开弹窗，可改问题、改回答并追加新题 |
 | `POST /api/profile` | JSON | `display_name`（≤32，必填）、`gender`（`男`/`女`/空）、`age`（字符串，空或 1~120） | `{ok, display_name, gender, age}` | 更新基本资料，返回最新值供顶栏同步 |
 | `POST /api/profile/password` | JSON | `current_password`、`new_password`、`confirm_password` | `{ok}` | 修改密码：校验当前密码、两次新密码一致、新密码 ≥6 且不得与旧密码相同 |
 | `DELETE /api/profile/account` | JSON | `mode`（`retain`/`purge`）、`current_password` | `{ok}` | 注销账号：`retain` 停用保留数据，`purge` 删除用户及全部关联数据；成功后清会话 |
-| `GET /api/profile/health-profile` | 无 | 无 | `{ok, filled, sets:[{set_id, skill_key, name, generated_at, items[]{local_key, aspect, label, hint, placeholder, max_length, answer}}]}` | 读取已存储的专项档案；每个专项只返回最近一套，未填写时 `filled=false`、`sets=[]` |
+| `GET /api/profile/health-profile` | 无 | 无 | `{ok, filled, sets:[{set_id, skill_key, name, generated_at, items[]{local_key, aspect, label, hint, placeholder, max_length, answer}}]}` | 读取已存储的专项档案；每个专项只返回最近一套，未填写时 `filled=false`、`sets=[]`；非女性账号不返回 `profile_cycle` 套 |
 | `PUT /api/profile/health-profile` | JSON | `items[]{set_id, local_key(q1~q10), answer(≤255)}` | 同 GET | 逐题保存已存储档案：`(set_id, local_key)` 必须已存在，空串清空该题但保留题目；不新增、不删除套装；未知题或超长 400 |
 | `POST /api/profile/health-profile/sets` | JSON | `skill_key`、`questions[]{local_key(q1~q10), aspect, label(≤48), hint(≤120), placeholder(≤120), max_length(50~255), answer(≤255)}`（1~10 题） | 同 GET | 页面新增专项：无该专项时建一套；已有最近一套时直接编辑；题号须从 q1 连续，aspect 须属于该专项；题目重复/超限 400 |
 | `PUT /api/profile/health-profile/sets/{set_id}` | 路径参数 + JSON | 路径 `set_id`；体 `skill_key`（可空，必须与套一致）、`questions[]`（字段同上） | 同 GET | 页面编辑专项：改问题文本与答案，并在末尾追加 qN+1；不创建新套；`set_id` 不存在或越权 400 |
@@ -228,9 +228,10 @@
 | `GET /agent` | 无 | 无 | HTML 页面 | AI 助手页（会话列表 + 对话区 + 模型下拉） |
 | `GET /agent/skills` | 无 | 无 | HTML 页面 | 技能管理页（平台/我的技能列表 + 用户提示词编辑/平台只读展示） |
 | `GET /agent/personas` | 无 | 无 | HTML 页面 | 角色管理页（平台角色只读 + 用户角色提示词编辑，保存即生效） |
-| `GET /api/agent/conversations` | 无 | 无 | `{list:[会话对象（A.11）]}` | 当前用户会话列表，按最近消息时间倒序；含角色会话标识与角色名 |
+| `GET /api/agent/conversations` | 无 | 无 | `{list:[会话对象（A.11）]}` | 当前用户会话列表，按置顶优先、最近消息时间倒序；含角色会话标识、角色名与置顶状态 |
 | `POST /api/agent/conversations` | JSON | `model_name`（可选，≤64）、`persona_id`（可选，角色 id） | 会话对象（A.11） | 新建会话（分配 `thread_id`）；传 `persona_id` 即创建角色会话并固定该角色版本，之后不可切换；同类会话已有空会话（默认标题且无消息时间）时直接复用该条并可按需更新模型，不重复建空会话；模型不支持 400，角色不可用 400/403 |
 | `PUT /api/agent/conversations/{conversation_id}` | 路径参数 + JSON | 路径 `conversation_id`；体 `title`（1~64） | 会话对象（A.11） | 重命名会话；不存在 404 |
+| `PUT /api/agent/conversations/{conversation_id}/pin` | 路径参数 + JSON | 路径 `conversation_id`；体 `pinned`（布尔） | 会话对象（A.11） | 置顶或取消置顶；置顶会话在列表最前，取消后按最近消息时间排序；不存在 404 |
 | `DELETE /api/agent/conversations/{conversation_id}` | 路径参数 | 路径 `conversation_id` | `{ok}` | 硬删除会话与 checkpointer 线程；生成中 409，不存在 404 |
 | `GET /api/agent/conversations/{conversation_id}/messages` | 路径参数 | 路径 `conversation_id` | `{conversation_id, generating, turns:[{user, interrupted（可空）, blocks:[{type:"text", content} \| {type:"ask", question, options[], multiple, answer（可空）, skipped（可空）, pending（可空）, call_id}], tool_runs:[{tool, label, kind, call_id（可空）, args, data（可空）}]}]}` | 按一轮问答聚合读取历史：`blocks` 为按出现顺序排列的正文段与中途提问段，`tool_runs` 携带工具标签与类别并按 `call_id` 配对结果；`generating=true` 表示该会话正在本进程生成；当前正等待回答的 ask 段带 `pending=true`，用户跳过的 ask 段带 `skipped=true` 且 `answer` 为空；最近一轮被用户中断时带 `interrupted=true` |
 | `POST /api/agent/conversations/{conversation_id}/messages` | 路径参数 + JSON | 路径 `conversation_id`；体 `content`（1~2000）、`client_msg_id`（1~64）、`model_name`（可选）、`skip_ask`（可选，默认 false）、`web_search`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 发送消息并以 SSE 流式返回回复；若该会话正等待 `ask_user` 回答，则 `content` 作为答案用 `Command(resume)` 恢复同一轮，不新增用户消息；`skip_ask=true` 表示跳过该问题，服务端以 `{answer:null, skipped:true}` 恢复，模型按已有信息继续；`web_search=true` 表示本轮开启联网，服务端才把 `web_search` 工具 bind 给模型；前置校验失败以 JSON 返回 400/404/409 |
@@ -238,17 +239,17 @@
 | `POST /api/agent/conversations/{conversation_id}/messages/ask-update` | 路径参数 + JSON | 路径 `conversation_id`；体 `ask_index`（1~20，本轮第几题）、`answer`（1~2000） | `{ok, ask_index, question, answer, skipped, pending（可空；对象：question、options[]、multiple）}` | 回改本轮某道已答提问：按本轮 ask_user 结果的顺序定位该题，原地替换工具结果（不新增消息、不重跑模型），并以 `Command(update)` 让当前待答问题保持挂起；该轮已结束（无挂起提问）返回 409，题号不存在返回 404，生成中 409 |
 | `POST /api/agent/conversations/{conversation_id}/messages/stop` | 路径参数 | 路径 `conversation_id` | `{conversation_id, stopped, settled, closed, title, last_message_at（可空）, partial}` | 中断该会话当前生成：置停止信号、等生成器收尾后回滚断在半途的工具调用，并把已流出正文作为一条中断回答留下；无进行中的生成时 `stopped=false`；8 秒内未收尾则 `settled=false` 并释放占位 |
 | `POST /api/agent/conversations/{conversation_id}/messages/continue` | 路径参数 + JSON | 路径 `conversation_id`；体 `client_msg_id`（1~64）、`model_name`（可选）、`web_search`（可选，默认 false） | `text/event-stream`，事件见 12.1 | 续写最近一轮被中断的回答：不新增用户消息，在既有状态上以「续写」模式再跑一次模型；最近一轮已完成或为空返回 400，正等待回答返回 409 |
-| `GET /api/agent/personas` | 无 | 无 | `{list:[角色对象（A.20）]}` | 平台内置角色（3 个）+ 当前用户私有角色 |
+| `GET /api/agent/personas` | 无 | 无 | `{list:[角色对象（A.20）]}` | 平台内置角色（4 个）+ 当前用户私有角色 |
 | `GET /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | 角色对象（A.20） | 角色详情；不存在 404，非本人用户角色 403 |
 | `POST /api/agent/personas` | JSON | `name`（1~48）、`key`（1~48）、`description`（≤200）、`definition{schema_version,prompt}` | 角色对象（A.20） | 创建用户私有角色，保存即生成 v1 并生效；定义或键/名冲突 400 |
 | `PUT /api/agent/personas/{persona_id}` | 路径参数 + JSON | 路径 `persona_id`；体同 `POST` | 角色对象（A.20） | 保存用户角色：定义变化才新增版本并立即生效，已有角色会话仍用旧版本；平台角色 403 |
 | `POST /api/agent/personas/{persona_id}/status` | 路径参数 + JSON | 路径 `persona_id`；体 `status`（`active`/`disabled`） | 角色对象（A.20） | 启用/停用角色；停用只禁止新建角色会话，已绑定会话仍可继续；平台角色 403 |
 | `DELETE /api/agent/personas/{persona_id}` | 路径参数 | 路径 `persona_id` | `{ok}` | 删除用户角色及其版本；被角色会话引用时 409，平台角色 403 |
-| `GET /api/agent/skills` | 无 | 无 | `{list:[技能对象（A.14）]}` | 当前用户可见的平台技能与自己的私有技能 |
-| `GET /api/agent/skills/available` | Query | `persona_id`（可选，角色会话传） | `{list:[技能对象（A.14）]}` | 输入框斜杠建议按当前角色过滤；无角色时按普通会话范围，受限专项技能不返回；此路由必须位于 `/{skill_id}` 之前 |
+| `GET /api/agent/skills` | 无 | 无 | `{list:[技能对象（A.14）]}` | 当前用户可见的平台技能与自己的私有技能；非女性账号不返回「测试-生理期档案」 |
+| `GET /api/agent/skills/available` | Query | `persona_id`（可选，角色会话传） | `{list:[技能对象（A.14）]}` | 输入框斜杠建议按当前角色过滤；无角色时按普通会话范围，受限专项技能不返回；非女性账号不返回生理期专项；此路由必须位于 `/{skill_id}` 之前 |
 | `GET /api/agent/skills/runs` | Query | `limit`（默认 20，最大 100） | `{list:[技能运行记录（A.15）]}` | 当前用户全部技能运行记录；此路由必须位于 `/{skill_id}` 之前 |
 | `POST /api/agent/skills/validate` | JSON | `kind`（仅 `prompt`，默认 `prompt`）、`definition`（可空，定义对象） | `{ok, errors[], warnings[]}` | 校验用户提示词定义，不落库 |
-| `GET /api/agent/skills/{skill_id}` | 路径参数 | 路径 `skill_id` | 技能对象（A.14） | 技能详情；不存在 404，非本人用户技能 403 |
+| `GET /api/agent/skills/{skill_id}` | 路径参数 | 路径 `skill_id` | 技能对象（A.14） | 技能详情；不存在 404，非本人用户技能 403；非女性账号访问生理期专项按 404 处理 |
 | `POST /api/agent/skills` | JSON | `name`（1~48）、`key`（1~48）、`slash_alias`（可空 ≤24）、`description`（≤200）、`category`、`kind`（仅 `prompt`，默认 `prompt`）、`definition` | 技能对象（A.14） | 创建用户私有提示词技能草稿；非法类型由请求模型返回 422，定义或键/别名冲突返回 400 |
 | `PUT /api/agent/skills/{skill_id}` | 路径参数 + JSON | 路径 `skill_id`；体同 `POST` | 技能对象（A.14） | 保存用户提示词技能草稿（定义变化才新增版本）；平台技能 403 |
 | `POST /api/agent/skills/{skill_id}/validate` | 路径参数 + JSON | 路径 `skill_id`；体 `definition`（可空，空则用当前版本） | `{ok, errors[], warnings[]}` | 按技能当前 kind 校验定义；平台代码技能返回不可修改警告 |
@@ -262,7 +263,7 @@
 
 | 事件 | `data` 字段 | 说明 |
 | --- | --- | --- |
-| `start` | `conversation_id`、`thread_id`、`resume` | 开始生成；`resume=true` 表示本次是在回答上一轮的 `ask`，从同一 thread 恢复 |
+| `start` | `conversation_id`、`thread_id`、`resume`、`last_message_at` | 开始生成；`resume=true` 表示本次是在回答上一轮的 `ask`，从同一 thread 恢复；`last_message_at` 为本轮消息到达时间，用于会话列表按最新对话排序 |
 | `delta` | `content` | 正文增量 token |
 | `tool_start` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`args`、`call_id`（可空） | 模型或斜杠链路发起工具/技能调用；`ask_user` 不发送该事件；联网检索为 `tool=web_search`、`label=联网搜索`、`kind=base` |
 | `tool_result` | `tool`、`label`、`kind`、`origin`、`version`、`skill`、`data`、`call_id`（可空） | 工具/技能返回结果（对象或 `{text}`），按 `call_id` 与调用配对；技能结果含 `outputs/caveats/meta`；联网结果为 `{ok, query, result_count, results:[{title, url, content, published_date（可空）}]}`，失败为 `{ok:false, error}`；`ask_user` 不发送该事件 |
@@ -296,13 +297,14 @@
 
 ## 15. 系统管理 system
 
-> 系统管理区为页面前缀 `/system` 与 API 前缀 `/api/system` 的聚合命名空间，由 `app/modules/system` 统一挂载；当前含 `scheduler/`（定时任务）、`personas/`（内置角色管理）与 `skills/`（内置技能管理）。
+> 系统管理区为页面前缀 `/system` 与 API 前缀 `/api/system` 的聚合命名空间，由 `app/modules/system` 统一挂载；当前含 `scheduler/`（定时任务）、`personas/`（内置角色管理）、`skills/`（内置技能管理）与 `ai_config/`（AI 来源/模型/功能路由配置）。
 
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
 | `GET /system/scheduler` | 无 | 无 | HTML 页面 | 任务卡列表、新建/编辑弹窗与执行历史 |
 | `GET /system/personas` | 无 | 无 | HTML 页面 | 内置角色列表、编辑区、工具/技能勾选 |
 | `GET /system/skills` | 无 | 无 | HTML 页面 | 内置技能列表、声明式定义编辑、基础信息与试运行/运行记录 |
+| `GET /system/ai` | 无 | 无 | HTML 页面 | AI 配置工作台：来源、模型清单与 7 个功能路由 |
 | `GET /api/system/scheduler/jobs` | 无 | 无 | `{list[], total}`，元素为 `scheduled_job`（A.17） | 任务列表：表达式、下次执行、上次结果与累计次数 |
 | `POST /api/system/scheduler/jobs` | JSON | `job_key`（必填，须存在于代码注册表）、`trigger_type`（`cron`/`date`/`interval`）、`trigger_expr`（必填）、`timezone`（可空，默认 Asia/Shanghai）、`params`（对象，默认 `{}`）、`enabled`（默认 true）、`misfire_grace_seconds`（可空，0~86400） | `scheduled_job`（201） | 新建任务；表达式与参数在此校验，保存即注册内存作业 |
 | `PATCH /api/system/scheduler/jobs/{job_id}` | JSON | 上述字段均可选且可空（`job_key` 不可改） | `scheduled_job` | 改表达式 / 启停 / 改名；停用即移除内存作业 |
@@ -324,12 +326,26 @@
 | `DELETE /api/system/system-skills/{skill_id}` | 路径参数 | 无 | `{ok:true}` | 删除提示词/声明式技能及版本/运行记录；代码技能 400，被角色白名单引用 409 |
 | `POST /api/system/system-skills/{skill_id}/test` | 路径参数 + JSON | `args`（对象，默认 `{}`） | 技能结果契约（A.15） | 以管理员身份试运行并写运行审计；参数缺失返回 `invalid_args` |
 | `GET /api/system/system-skills/{skill_id}/runs` | 路径参数 + Query | `limit`（默认 20，最大 100） | `{list:[技能运行记录（A.15）]}` | 平台技能最近运行审计（跨用户，不返回用户身份） |
+| `GET /api/system/ai-config` | 无 | 无 | `{providers[], models[], routes[], features[], snapshot{source}}`，`providers` 含 `key_state`（`db`/`env`/`missing`）与掩码 `key_preview`，`models` 含能力与在用路由，`routes` 含 `issues[]` | 管理页初始数据：三表全量视图与当前快照来源 |
+| `POST /api/system/ai-config/providers` | JSON | `provider_key`、`name`、`base_url`、`api_key_env`、`api_key`（可空，明文写入即加密）、`clear_api_key`、`timeout_seconds`、`max_retries`、`extra_headers`、`status`、`remark` | 来源对象（201） | 新建来源；`base_url` 可只填主机名，运行时补 `https://`，不改写库内原值 |
+| `PUT /api/system/ai-config/providers/{provider_id}` | 路径参数 + JSON | 同创建字段 | 来源对象 | 保存来源；停用前检查其模型是否仍被启用路由引用 |
+| `DELETE /api/system/ai-config/providers/{provider_id}` | 路径参数 | 无 | `{ok:true}` | 删除来源；仍有模型时 409 |
+| `POST /api/system/ai-config/providers/{provider_id}/test` | 路径参数 + JSON | `model_alias`（可空，默认该来源首个模型） | `{provider,model,ok,latency_ms,reply}`；失败 `{ok:false,error}` | 用已存配置发起一次最小对话，不经过路由 |
+| `POST /api/system/ai-config/models` | JSON | `alias`、`provider_id`、`upstream_name`、`supports_text`、`supports_vision`、`supports_tools`、`supports_structured_output`、`structured_method`、`timeout_seconds`（可空）、`extra_body`、`params`、`selectable_for_chat`、`status`、`sort_order`、`remark` | 模型对象（201） | 新建模型；至少声明一种能力，参数只允许 `temperature`/`max_tokens`/`top_p` 等白名单键 |
+| `PUT /api/system/ai-config/models/{model_id}` | 路径参数 + JSON | 同创建字段；`alias` 必须与原值一致 | 模型对象 | 保存模型；停用或减少能力时，若破坏启用路由能力要求则 400 |
+| `DELETE /api/system/ai-config/models/{model_id}` | 路径参数 | 无 | `{ok:true}` | 删除模型；仍被启用路由引用时 409 |
+| `POST /api/system/ai-config/models/{model_id}/test` | 路径参数 | 无 | `{model,provider,ok,latency_ms,reply}`；失败 `{ok:false,error}` | 按当前快照构造同款客户端并发起最小对话 |
+| `PUT /api/system/ai-config/routes/{feature_key}` | 路径参数 + JSON | `feature_key`（须与路径一致）、`model_alias`、`timeout_seconds`（可空）、`params_override`、`enabled`、`remark` | 路由对象 | 配置单个功能点；`feature_key` 限定为代码登记的 7 个键，保存时按能力契约校验 |
+| `DELETE /api/system/ai-config/routes/{feature_key}` | 路径参数 | 无 | `{ok:true}` | 删除路由；该功能回落 `.env` 旧键 |
+| `POST /api/system/ai-config/apply` | 无 | 无 | `{ok:true, source, providers, models, routes}` | 清空运行时快照并立即重读三表（保存本身已自动刷新，此接口用于手动兜底） |
 
 > 表达式口径：cron 为标准五段式（分 时 日 月 星期），**星期字段只接受 mon~sun 英文缩写**，数字写法返回 400；interval 形如 `10m`/`2h`/`1d`（最小 60 秒）；date 形如 `2026-11-20 15:40` 且必须晚于当前时间。任务参数结构由代码注册表约束，多余字段返回 422。任务为实例级配置，不按用户隔离。本模块全部页面与接口仅 `管理员` 可访问（401/403 口径见 1.2）。「立即执行」为同步执行，耗时较长时请求会等待。
 >
 > 内置角色口径：`scope=system`，普通用户只读，管理员可增删改查。`tool_grants` / `skill_grants` 为 `null` 时沿用平台默认范围；非空数组（含空数组）为显式白名单，空数组表示不使用任何工具/技能。`key` 创建后不可修改；删除被 `agent_conversations.persona_id` 引用的角色返回 409。
 >
 > 内置技能口径：平台技能固定 `scope=system`，普通用户在 `/agent/skills` 只读，管理员在 `/system/skills` 维护。代码技能定义由 `app/modules/agent/skills/platform.py` 注册，定义只读、删除 400；名称/描述/分类/斜杠别名/状态可在管理接口调整，不新增版本，保存后重建系统图。提示词技能可新建、编辑并被版本化，定义只承载 `{schema_version:1, prompt}`（1~4000 字）；声明式技能可新建、编辑并被版本化，定义仍走既有 DSL 白名单。保存/启停/删除后服务端重建常驻系统图并清空按用户图缓存，立即生效。删除被内置角色 `skill_grants` 显式引用的技能返回 409；`key` 创建后不可修改。
+>
+> AI 配置口径：三表为实例级配置、不挂 `user_id`，仅管理员可读写。模型别名是代码、会话、报告元信息与前端下拉唯一认的标识；上游模型名只发给服务商。能力要求写死在代码里：`agent.chat` 需 `tools`，`import.vision` 需 `vision`，其余功能需 `structured_output`；页面与接口不得绕过。密钥优先用 `api_key_cipher`（`SECRET_KEY` 派生 Fernet 加密），否则按 `api_key_env` 从进程环境或 `.env` 读取；接口只回状态与掩码。每次保存自动清空运行时快照，下一次模型调用按新配置执行；多 worker 由 45 秒 TTL 兜底。`base_url` 缺协议时运行时按 `https://` 处理，库内保留用户填写的原值。
 
 ## 16. 响应对象字典
 
@@ -437,6 +453,7 @@
 | `kind` | `default` 普通会话 / `persona` 角色会话；由 `persona_id` 派生，不落库 |
 | `persona_id` / `persona_name` / `persona_version_no` / `persona_status` | 角色会话绑定的角色、显示名、创建时版本号、角色当前状态；普通会话均为 `null` |
 | `last_message_at`、`created_at` | 最近消息时间、创建时间 |
+| `pinned` | 是否置顶；置顶会话在列表中优先展示 |
 
 ### A.12 AI 导入结果
 

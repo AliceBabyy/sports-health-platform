@@ -14,6 +14,14 @@ ADMIN_ROLE = "管理员"
 USER_ROLE = "普通用户"
 ROLES = (ADMIN_ROLE, USER_ROLE)
 
+FEMALE_GENDER = "女"
+
+
+def is_female(gender: str | None) -> bool:
+    """生理期相关功能的统一白名单：只有明确为「女」的账号开放。"""
+    return gender == FEMALE_GENDER
+
+
 ADMIN_PATH_PREFIXES = ("/system", "/api/system")
 
 

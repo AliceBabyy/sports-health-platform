@@ -17,7 +17,7 @@ from typing import Any, Callable
 from fastapi import UploadFile
 from pydantic import BaseModel
 
-from app.ai.models.registry import ModelConfigurationError
+from app.ai.models.registry import ModelConfigurationError, current_alias
 from app.ai.runtime.invoke import AIServiceError, invoke_ai_import
 from app.core.constants import today_local
 from app.core.exceptions import AppError
@@ -95,11 +95,11 @@ def run_import(
         raise AppError(400, "请提供文字描述或至少一张图片")
 
     today = today_local()
-    model_name = settings.ai_import_vision_model if image_urls else settings.ai_import_model
+    feature = "import.vision" if image_urls else "import.text"
     started = time.monotonic()
     try:
         raw = invoke_ai_import(
-            model_name=model_name,
+            feature=feature,
             prompt_id=profile.prompt_id,
             schema=profile.schema,
             input_text=text,
@@ -111,6 +111,7 @@ def run_import(
     except AIServiceError as exc:
         raise AppError(502, str(exc)) from exc
     elapsed_ms = int((time.monotonic() - started) * 1000)
+    model_name = current_alias(feature)
 
     payload, warnings = profile.normalize(raw, today)
     items = payload.get(profile.key) or []

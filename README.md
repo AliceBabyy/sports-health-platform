@@ -12,34 +12,34 @@ V2.3 把图升级为工具循环（`agent ⇄ tools`），模型按需调用 8 �
 4 个平台内置角色（营养师、电子私教、健身教练、健康档案测试）与用户自定义提示词角色，按「一整个会话归属一种角色」创建，
 会话内不可切换；管理员可在「系统设置 → 内置角色」中增删改查内置角色并勾选工具/技能。后续建设 LangGraph Store 跨会话画像（V2.5）和暂停追问后恢复（V2.6）。
 
-AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
-`deepseek-v4.1-flash`、`qwen3.8-flash`、`qwen3.8-2.4t-a95b`、`qwen3-vl-plus`。
-四个模型共用 `AI_API_KEY` 和 `AI_BASE_URL`，默认模型由
-`AI_DEFAULT_MODEL` 选择。示例见 `.env.example`；真实密钥仅放在被 Git 忽略的
-`.env`。统一使用 `/compatible-mode/v1`；`/api/v1` 是原生接口地址，
-不能直接作为 OpenAI 兼容客户端的 `base_url`。
+AI 基础设施已接入 LangChain 与 OpenAI 兼容协议。V2.0 初始注册
+`deepseek-v4.1-flash`、`qwen3.8-flash`、`qwen3.8-2.4t-a95b`、`qwen3-vl-plus`，
+四个模型共用 `AI_API_KEY` / `AI_BASE_URL`、由 `AI_DEFAULT_MODEL` 选默认；2026-11-28 起运行时已改由
+数据库三表解析（见下），`.env` 模型键只保留初始化种子与故障回滚用途。
+示例见 `.env.example`；真实密钥仅放在被 Git 忽略的 `.env`。OpenAI 兼容地址统一使用
+`/compatible-mode/v1`；`/api/v1` 是原生接口地址，不能直接作为兼容客户端 `base_url`。
 
-`app/ai/models/` 管模型注册，`app/ai/prompts/` 管版本化文件提示词，
+`app/ai/models/` 管模型注册表、密钥解析与数据库配置快照，`app/ai/prompts/` 管版本化文件提示词，
 `app/ai/runtime/` 管调用和结构化校验，`app/ai/tools/` 预留外部工具适配入口
 （Agent 的只读业务工具在 `app/modules/agent/tools/`）。
-受登录保护的 `GET /api/electronic-trainer/models` 返回已注册模型；
+受登录保护的 `GET /api/electronic-trainer/models` 返回当前可选对话模型；
 `POST /api/electronic-trainer/probe` 接收 `{"model": "...", "text": "..."}`
-并验证结构化输出。这两个旧命名接口仅用于 V2.0 连接验证，
-不读取运动数据，也不写库；不作为未来 Agent 主功能的路由约定。
-视觉能力只对 `qwen3-vl-plus` 声明（2026-11-10 实测通过）；四个模型的工具调用
-（function calling）已于 2026-11-13 实测通过，capabilities 均含 `tools`。
+并验证输出。这两个旧命名接口仅用于连接验证，不读取运动数据，也不写库。
+V2.0 四模型的工具调用（function calling）已于 2026-11-13 实测通过；当前能力以
+`ai_models` 的能力声明为准，视觉与工具能力在管理页按模型显式勾选。
 
-**AI 模型配置三表（2026-11-27，仅数据层）**：`ai_providers`（来源：`base_url` + 凭据来源，可配多条）、
+**AI 模型配置三表（2026-11-27 建表，2026-11-28 接入运行时与管理页）**：`ai_providers`（来源：`base_url` + 凭据来源，可配多条）、
 `ai_models`（模型清单：业务别名 → 来源 + 上游模型名 + 能力声明）、`ai_feature_routes`（功能键 → 模型别名，
-单模型不降级）。三表是实例级配置、不挂 `user_id`；密钥默认从 `api_key_env` 指定的环境变量读取，库内只存
-加密值（`SECRET_KEY` 派生密钥），明文不落库。本轮运行时仍读 `.env`，别名解析与管理页在后续版本接入；
-迁移 `python scripts/migrate_ai_config.py`，初始种子 `python scripts/seed_ai_config.py`（按 `.env` 幂等补行）。
+单模型不降级）。三表是实例级配置、不挂 `user_id`；密钥优先用库内加密值（`SECRET_KEY` 派生密钥），
+否则从 `api_key_env` 指定的环境变量或 `.env` 读取，明文不落库。运行时 `app/ai/models/registry.py`
+按功能键解析别名、来源地址、密钥、超时与 `extra_body`；`/system/ai` 管理页与 `/api/system/ai-config`
+提供来源/模型/路由增删改、能力校验、测试连接与保存即生效。迁移
+`python scripts/migrate_ai_config.py`，初始种子 `python scripts/seed_ai_config.py`（按 `.env` 幂等补行）。
 
 **AI 导入（2026-11-10）**：健身、游泳、舞蹈三页顶部均有「✦ AI 导入」入口。
-用户填一段文字、可选多张图片（最多 3 张、单张 ≤ 2MB），后端用
-`with_structured_output(输出模型, method="json_schema", strict=True)` 在解码期强制
-输出结构，纯文字默认 `qwen3.8-flash`、带图默认 `qwen3-vl-plus`（可用
-`AI_IMPORT_MODEL` / `AI_IMPORT_VISION_MODEL` 调整）。识别结果经规范化后复用各模块
+用户填一段文字、可选多张图片（最多 3 张、单张 ≤ 2MB），后端按模型配置的
+`structured_method` 在解码期强制输出结构；纯文字默认路由 `import.text → qwen3.8-flash`、带图默认
+`import.vision → qwen3-vl-plus`，可在 `/system/ai` 调整。识别结果经规范化后复用各模块
 `json_import` 的校验与落库函数，导入数据统一为 `recorded`；全程不反向调用
 `/import-json`。接口为 `POST /api/training/ai-import`、`/api/swim-records/ai-import`、
 `/api/dance-records/ai-import`（multipart：`prompt` + `images`）。前端一次完成，
@@ -47,13 +47,13 @@ AI 基础设施已接入 LangChain 与 OpenAI 兼容协议，当前注册
 JSON 面板手动修正。
 
 **V2.2 基础问答（2026-11-12）**：侧栏末项「AI助手」进入 `/agent`。会话元数据存
-`agent_conversations` 表（用户归属、标题、uuid `thread_id`、模型、`last_message_at`）；
+`agent_conversations` 表（用户归属、标题、uuid `thread_id`、模型、`last_message_at`、置顶状态）；
 消息不建消息表，由 checkpointer 在独立 `langgraph` schema 的框架表（checkpoints /
 checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用启动 lifespan
 建池并 `setup()`，按 `thread_id` 自动重放。回复走 SSE 流式（`start/delta/done/error`），
 前端 `fetch` + `ReadableStream` 解析；`trim_messages` 用 `token_counter=len` 按消息条数
 （上限 20）裁剪上下文；会话硬删除、历史永久保留、首条消息前 12 字自动标题、会话级模型
-下拉。checkpointer 用 psycopg3 异步，ORM 仍用 psycopg2；Windows 下启动前切换
+下拉；会话支持置顶/取消置顶，置顶项排在列表最前。checkpointer 用 psycopg3 异步，ORM 仍用 psycopg2；Windows 下启动前切换
 `WindowsSelectorEventLoopPolicy`。2026-11-13 前端改版：整页白底无卡片、会话侧栏细线分隔且可
 收起，空会话居中欢迎页与输入框，进入页面默认新会话（首条消息发送时才惰性建会话）。
 
@@ -63,8 +63,7 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 按业务域注册 8 个只读工具：`get_workout_summary`（跨三运动汇总，复用 overview 口径）、
 `get_fitness_records`（健身明细含动作与容量）、`get_swim_records`（游泳明细含配速/划频）、
 `get_dance_records`（舞蹈明细）、`get_body_measurements`（身材 4 组，`metric=all` 取整表或单指标趋势，
-未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪/恢复）、`get_cycle_records`
-（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段）、`get_profile_info`（昵称/性别/年龄 + 10 个专项档案的最近一套与最近 3 套历史 + `filled/set_count/skill_count`，不含密码）。
+未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪/恢复）、`get_cycle_records`（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段；仅女性账号，其他账号 403）、`get_profile_info`（昵称/性别/年龄 + 专项档案的最近一套与最近 3 套历史，女性 10 个、男性与未填性别 9 个不含生理期，+ `filled/set_count/skill_count`，不含密码）。
 取数范围由模型按用户意图决定：`days_back`、`start_date + end_date`、`limit` 均可选，
 **不传任何范围参数即取全部历史**，已移除原 366 天 / 20 条硬上限；一次拉全量或只拉最近几次
 都由意图决定。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具内部用独立短 session；
@@ -88,7 +87,7 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 **V2.4 多角色（2026-11-18）**：对话页「新建会话」旁新增「新建角色会话」，点击弹出角色选择弹窗（显示名称、来源与定位），从启用且已发布的角色中
 选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`、健身教练 `training_coach`、健康档案测试 `health_profile_test`，以及用户自定义角色）。角色会话创建时把
 `persona_id + persona_version_no` 一并落库，整段会话固定该角色、不提供切换；侧栏显示角色名徽标，
-历史消息与 SSE `done` 均携带角色快照。角色定义只提供提示词（`agent_chat.v8` 末尾「角色设定」+
+历史消息与 SSE `done` 均携带角色快照。角色定义只提供提示词（`agent_chat.v9` 末尾「角色设定」+
 「规则优先级（最高）」）；工具/技能默认范围由服务端 `TOOL_PERSONA_SCOPES` 提供，管理员可在
 `/system/personas` 给内置角色配置显式 `tool_grants` / `skill_grants` 白名单（`NULL` 表示沿用默认范围，空数组表示不使用），
 装配阶段按白名单过滤。角色改版后老会话仍读创建时版本。普通用户角色管理页
@@ -111,7 +110,7 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 `health_profile` 已重置为“一套专项问题多行、一行一道题”：字段为
 `set_id / skill_key / aspect / local_key(q1~q10) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，
 唯一约束 `(user_id,set_id,local_key)`，同一专项最多保留最近 3 套。页面 `/profile/health-profile`
-固定展示可用专项卡（女性 10 个，男性不显示生理期）：已建立卡默认只读展示全部问答，未建立卡显示新增入口；卡头按钮统一「新增/编辑」，
+固定展示可用专项卡（女性 10 个；男性与未填性别 9 个，不含生理期）：已建立卡默认只读展示全部问答，未建立卡显示新增入口；卡头按钮统一「新增/编辑」，
 点击打开弹窗，问题文字与回答均可修改，末尾「+ 添加一个问题」可自定义追加（最多 10 题）。页面手工保存走
 `POST /api/profile/health-profile/sets`（无套新建/已有套直接编辑）与 `PUT /api/profile/health-profile/sets/{set_id}`
 （改题与追加），旧逐题 PUT 保留兼容；空串清空该题，DELETE 清空全部。`get_profile_info` 返回 10 个专项的最近一套与最近 3 套历史。
@@ -151,6 +150,12 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 
 **V2.18 教练角色与定制计划（2026-11-27）**：电子私教提示词改为目标导向，先读用户目标档案、健身档案、形体矫正、伤病与训练/状态/周期数据，围绕最优先目标给阶段判断、动作、强度、恢复与进退阶。新增平台内置「健身教练」角色，聚焦健身档案与形体矫正，把体态结论转成动作选择、活动范围、负荷与替代动作约束。新增平台提示词技能 `custom_fitness_plan`（「定制健身计划」，斜杠 `/定制健身计划`）：读取专项档案与最近训练/身体数据，输出“今日重点/热身/主训练/形体矫正/放松/注意”文字方案，最后用 `ask_user` 询问是否保存，只有用户确认后才调用 `save_today_workout_plan` 写入今日计划。该技能默认只对 `training_coach` 可见；健身教练显式开放档案/运动只读工具、`ask_user` 与保存工具，技能只授权 `custom_fitness_plan`。种子 `python scripts/seed_agent_personas.py`、`python scripts/seed_agent_skills.py`；测试 `tests/test_agent_personas.py`、`tests/test_agent_skills.py`。
 
+**V2.19 会话置顶（2026-11-28）**：AI 会话列表的「三个点」菜单新增「置顶 / 取消置顶」；置顶会话用浅蓝绿底、左侧强调线和标题右侧书签标识突出，并在列表顶部单独成「置顶」组，未置顶项归入「全部会话」，取消后回到最近消息时间排序。`agent_conversations` 增加 `pinned boolean NOT NULL DEFAULT false` 与 `(user_id, pinned DESC, last_message_at DESC)` 索引，迁移脚本 `python scripts/migrate_agent_conversation_pin.py`；新增 `PUT /api/agent/conversations/{id}/pin`，体 `{pinned}`。测试 `tests/test_agent_personas.py`。
+
+**V2.20 AI 模型配置中心（2026-11-28）**：三表从「只建表」接入运行时与管理页。`app/ai/models/registry.py` 统一按功能键解析模型别名、来源 `base_url`、密钥、超时、`extra_body` 与结构化方式；对话、技能解析、文字/图片导入、周报、月报、每日建议 7 个入口全部改为读库，显式会话模型优先，未配路由时回落 `.env` 旧键。`/system/ai` 提供来源、模型、功能路由三组 CRUD，支持能力校验、加密写密钥、测试连接与保存即生效；`/api/system/ai-config` 见接口文档第 15 节。密钥新增 `cryptography` 依赖（`SECRET_KEY` 派生 Fernet）。测试 `tests/test_ai_config.py`。
+
+**V2.21 会话运动记录导入（2026-11-28）**：新增受控写工具 `import_sport_records`，用户可在对话里直接说“昨天游了 1500 米自由泳，40 分钟”“今天卧推 4 组 40 公斤”并写入健身/游泳/舞蹈记录。一次调用只处理一种运动、可批量 1~20 条；`user_id` 从 `RunnableConfig` 注入，入参不含 `user_id/status`，统一落 `recorded`。三运动复用各自 `ai_profile.py` 的 `normalize/validate/persist`，不新增表或落库通道；日期缺省今天、支持今天/昨天/前天，舞蹈分钟自动换算秒、游泳秒自动换算分钟；任一条校验失败整批不写。工具进入 `ACTION_TOOLS`、SSE 标签「导入运动记录」，健身教练种子授权追加该工具；提示词升级 `agent_chat.v9`，新增“运动记录导入：只写已完成记录”。测试 `tests/test_agent_sport_import.py`。
+
 **V2.16 内置技能元数据可编辑（2026-11-27）**：`/system/skills` 的代码技能不再只能启停，管理员可修改名称、
 斜杠别名、描述、分类与状态，技能键和代码定义仍只读；保存走同一 `PUT /api/system/system-skills/{id}`，不新增
 版本，保存后重建系统图立即生效。`scripts/seed_agent_skills.py` 对已存在的代码技能只同步 `kind` 与代码版本，
@@ -163,7 +168,7 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 模型无法假装检索。`query` 2~300 字、`topic ∈ {general, news}`、`days` 仅 news 且 1~365；结果条数、超时与摘要长度
 全部由服务端配置固定，模型不能传密钥、地址或任意参数。检索结果含标题、链接、摘要与可选发布时间，回答需保留来源；
 超时、HTTP 异常与空结果收敛为结构化错误，不打断本轮。工具不受角色 `tool_grants` 裁剪，开关随请求生效，无需重建图。
-提示词升级为 `agent_chat.v8`（新增「联网搜索：只在开启时可用」一节，删除 v7 文件与映射）。配置见
+提示词当时升级为 `agent_chat.v8`（现为 `v9`，联网规则保留；新增「联网搜索：只在开启时可用」一节，删除 v7 文件与映射）。配置见
 `WEB_SEARCH_ENABLED`、`TAVILY_API_KEY`、`TAVILY_SEARCH_URL`、`WEB_SEARCH_TIMEOUT_SECONDS`、`WEB_SEARCH_MAX_RESULTS`、
 `WEB_SEARCH_SNIPPET_CHARS`；测试 `tests/test_agent_web_search.py`。
 
@@ -171,7 +176,7 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 可多选，也可跳过），用户作答后从同一轮继续，不必重新解释请求。停点由 LangGraph `interrupt()` 与 Postgres
 checkpointer 承载；作答仍走 `POST .../messages`，服务端识别到挂起后以 `Command(resume=答案)` 恢复，
 问答与后续正文留在原轮次，刷新页面后卡片仍可继续作答。等待回答期间不可重新生成。提示词升到
-`agent_chat.v7`（现为 `v8`），新增 SSE `ask` 事件。
+`agent_chat.v7`（现为 `v9`），新增 SSE `ask` 事件。
 
 **V2.10 中断生成与续写（2026-11-19）**：流式生成期间发送按钮就地变为停止按钮（方形图标 + 深色底），再次点击即中断
 本轮；前端用 `AbortController` 立即断开 SSE，并调用 `POST /api/agent/conversations/{id}/messages/stop` 交给服务端收口。
@@ -179,7 +184,7 @@ checkpointer 承载；作答仍走 `POST .../messages`，服务端识别到挂�
 轨迹保留），8 秒内未收尾则释放占位，避免会话被永久锁住。中断后可点「继续」，或直接发“继续/接着/continue”：
 `POST .../messages/continue` 不新增用户消息，以 `run_mode=续写` 在原轮次接着写（不重复、不重开场），也可改用「重新生成」
 整段重写；刷新后由历史消息的 `interrupted` 标记恢复「继续」。中断只结束会话消息，不撤销已落库的业务写入。提示词
-`agent_chat.v7` 新增 `{run_mode}` 变量（现为 `v8`）。
+`agent_chat.v7` 新增 `{run_mode}` 变量（现为 `v9`）。
 
 **V2.5 AI 运动报告（2026-11-17）**：新增 `/reports` 单页（周报/月报 tab 切换），侧栏挂在
 「运动训练/计划」第四项，总览页顶部提供周报/月报入口。三层结构：事实层由代码确定性计算
@@ -215,7 +220,7 @@ SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **801
 
 V1 范围：注册/登录认证 + 模块（身材数据 BD / 状态记录 SR / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC / 个人信息 PR）。
 
-健康档案（2026-11-26 专项化重构，2026-11-27 视图优化）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，固定可用专项卡（女性 10 个，男性不显示生理期），已建立卡默认只读展示题目与答案全文（未答显示「—」），卡头「新增/编辑」打开弹窗，弹窗内可改问题文字和回答，末尾「+ 添加一个问题」可自定义追加，最多 10 题。页头展示已建立专项/累计问题/已填写回答/最近更新四项概况；题目由「健康档案测试」角色按 10 个专项（展示名统一 `测试-` 前缀：测试-目标档案/测试-饮食档案/测试-运动档案/测试-健身档案/测试-睡眠档案/测试-生活方式/测试-生理期档案/测试-形体矫正/测试-伤病档案/测试-档案补充）在对话中生成，每套 3~10 题（健身档案 6~10 题）；`health_profile` 按 `set_id` 分套、一行一道题，字段 `set_id / skill_key / aspect / local_key(q1~q10) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，唯一约束 `(user_id,set_id,local_key)`，同一专项最多保留最近 3 套。文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_aspects.py`（仅原表 0 行时执行）；已有数据的库补 `sport` aspect 运行 `python scripts/migrate_health_profile_sport.py`（只改 CHECK，不删数据）；曾建过四个临时健身专项的库运行 `python scripts/migrate_profile_fitness_merge.py` 清理旧技能（保留既有档案答案）。
+健康档案（2026-11-26 专项化重构，2026-11-27 视图优化）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，固定可用专项卡（女性 10 个；男性与未填性别 9 个，不含生理期），已建立卡默认只读展示题目与答案全文（未答显示「—」），卡头「新增/编辑」打开弹窗，弹窗内可改问题文字和回答，末尾「+ 添加一个问题」可自定义追加，最多 10 题。页头展示已建立专项/累计问题/已填写回答/最近更新四项概况；题目由「健康档案测试」角色按 10 个专项（展示名统一 `测试-` 前缀：测试-目标档案/测试-饮食档案/测试-运动档案/测试-健身档案/测试-睡眠档案/测试-生活方式/测试-生理期档案/测试-形体矫正/测试-伤病档案/测试-档案补充）在对话中生成，每套 3~10 题（健身档案 6~10 题）；`health_profile` 按 `set_id` 分套、一行一道题，字段 `set_id / skill_key / aspect / local_key(q1~q10) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，唯一约束 `(user_id,set_id,local_key)`，同一专项最多保留最近 3 套。文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_aspects.py`（仅原表 0 行时执行）；已有数据的库补 `sport` aspect 运行 `python scripts/migrate_health_profile_sport.py`（只改 CHECK，不删数据）；曾建过四个临时健身专项的库运行 `python scripts/migrate_profile_fitness_merge.py` 清理旧技能（保留既有档案答案）。
 
 账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。管理员角色已用于 `/system` 管理区（定时任务、内置角色、内置技能）；停用账号的恢复与清除仍通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。
@@ -394,7 +399,7 @@ sports-health-platform/
 - 字体与渲染（2026-11-11）：全局字体逐字照搬 GitHub 原栈（`-apple-system → Segoe UI → Noto Sans → Helvetica/Arial → sans-serif → emoji`），中文走系统默认兜底（本机实测即微软雅黑，与显式雅黑差约 1.5%）；全局 `letter-spacing: .03em` 放宽字距（中文在雅黑下偏挤显扁）；同时不使用 `-webkit-font-smoothing: antialiased`，避免 Windows 关闭 ClearType 导致小字发虚
 - 周期配色：日历格底色只按四档状态显示浅蓝绿、浅绿、浅黄、浅粉；阶段保留文字标签，图例与详情使用同一状态配色；窄屏月历保留两字状态名（旺盛/良好/一般/休息）；四档底色（2026-11-11）统一向白混合 50% 再浅一档，圆点与文字深阶保持不变
 - 心得（三表均 1:1 挂记录、仅记录态可填）：共有 `rating/notes`，健身另有 `best_movement/next_steps`，游泳另有 `stroke_insight`，舞蹈另有 `video_effect`；页面字段称呼维持现状
-- 状态记录（2026-11-11 建立，2026-11-26 新增恢复，非运动模块）：食欲 / 肌肉疼痛 / 炎症 / 情绪 / 恢复五项各一张表，同类同一天一行（重复新建 409）；字段仅日期、星级（0~5 可空；0=明确最低分，null=未评显示 —）、描述（≤255 可空），无计划态/起止时间/时长/心率/热量，不套运动契约。类型键、中文标签与模型映射集中注册在 `models.py`，页面筛选项与编辑弹窗从服务端类型表生成；跨五表列表在 service 内存合并分页（日期倒序、id 倒序），支持类型筛选；月历复用周期七阶段推算并归并经期/卵泡·排卵/黄体三档圆点，男性或无周期记录时阶段置空；跨表批量删除每条自带类型定位表。新增记录项的完整开发契约见 [`STATE_RECORD_GUIDELINES.md`](docs/STATE_RECORD_GUIDELINES.md)。性别开放（男女均可记录），无 Excel/JSON/AI 导入入口。页面自上而下三张卡片（月历 / 当日状态 / 全部记录）纵向堆叠、内容随卡片宽度自适应铺满；当日五项就地填写（桌面双列每行 2 项、窄屏单列；内联星级 + 描述 + 保存，有记录可块内删除），全部记录列表行内编辑才弹出表单弹窗。页面 `/state-record`，API `/api/state-record`
+- 状态记录（2026-11-11 建立，2026-11-26 新增恢复，非运动模块）：食欲 / 肌肉疼痛 / 炎症 / 情绪 / 恢复五项各一张表，同类同一天一行（重复新建 409）；字段仅日期、星级（0~5 可空；0=明确最低分，null=未评显示 —）、描述（≤255 可空），无计划态/起止时间/时长/心率/热量，不套运动契约。类型键、中文标签与模型映射集中注册在 `models.py`，页面筛选项与编辑弹窗从服务端类型表生成；跨五表列表在 service 内存合并分页（日期倒序、id 倒序），支持类型筛选；月历复用周期七阶段推算并归并经期/卵泡·排卵/黄体三档圆点，非女性账号或无周期记录时阶段置空，页头周期措辞与阶段图例仅女性显示；跨表批量删除每条自带类型定位表。新增记录项的完整开发契约见 [`STATE_RECORD_GUIDELINES.md`](docs/STATE_RECORD_GUIDELINES.md)。性别开放（男女均可记录），无 Excel/JSON/AI 导入入口。页面自上而下三张卡片（月历 / 当日状态 / 全部记录）纵向堆叠、内容随卡片宽度自适应铺满；当日五项就地填写（桌面双列每行 2 项、窄屏单列；内联星级 + 描述 + 保存，有记录可块内删除），全部记录列表行内编辑才弹出表单弹窗。页面 `/state-record`，API `/api/state-record`
 
 ## 2026-11 改版口径（运动训练/计划）
 

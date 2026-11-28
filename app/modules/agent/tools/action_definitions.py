@@ -1,8 +1,9 @@
-"""Agent 受控写工具：健身计划与健康档案。
+"""Agent 受控写工具：健身计划、健康档案与运动记录导入。
 
 与只读工具（definitions.py）严格区分：写操作边界由代码强制，不依赖提示词：
 - user_id 从 RunnableConfig 注入，模型不可填、不可伪造；
 - 健身计划日期固定为今天、状态固定 planned，模型不能指定日期 / 状态 / user_id；
+- 运动记录导入只写 recorded，复用三运动 AI 导入的 normalize / validate / persist；
 - 动作明细经 Pydantic 严格校验（extra=forbid），约束与训练模块 PlanItemIn 对齐；
 - 健康档案专用工具只授权给“健康档案测试”角色，问题与答案经严格校验后复用档案落库逻辑；
 - 今日已有完全相同的 planned 计划时不重复创建，返回 already_exists，防止工具循环重复落库。
@@ -22,6 +23,7 @@ from app.modules.training import service as training_service
 from app.modules.training.models import TrainingRecord
 from database import SessionLocal
 from .health_profile_actions import save_health_profile_aspect
+from .sport_import_actions import import_sport_records
 
 
 class PlanItemActionIn(BaseModel):
@@ -135,4 +137,4 @@ save_today_workout_plan = StructuredTool.from_function(
     args_schema=SaveTodayPlanIn,
 )
 
-ACTION_TOOLS = [save_today_workout_plan, save_health_profile_aspect]
+ACTION_TOOLS = [save_today_workout_plan, save_health_profile_aspect, import_sport_records]

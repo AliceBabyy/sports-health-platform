@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
-from app.core.access import ADMIN_ROLE
+from app.core.access import ADMIN_ROLE, is_female
 
 BASE_DIR = Path(__file__).resolve().parents[2]  # 项目根目录
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
@@ -48,6 +48,7 @@ NAV_GROUPS = [
             {"key": "scheduler", "url": "/system/scheduler", "label": "定时任务", "short": "定时"},
             {"key": "system_personas", "url": "/system/personas", "label": "内置角色", "short": "角色"},
             {"key": "system_skills", "url": "/system/skills", "label": "内置技能", "short": "技能"},
+            {"key": "system_ai", "url": "/system/ai", "label": "AI 配置", "short": "AI"},
         ],
     },
 ]
@@ -76,7 +77,8 @@ def _sidebar_daily_advice(user_id: int, today: date) -> dict:
 def render_page(request: Request, template_name: str, ctx: dict | None = None) -> object:
     """渲染业务页：自动注入登录用户、分组导航高亮、今日信息与常量。
 
-    性别联动：男性账号不显示“生理周期”导航入口与侧栏周期卡片（cycle_today 置空）。
+    性别联动：仅女性账号显示“生理周期”导航入口与侧栏周期卡片（cycle_today 置空）；
+    男性与未填性别的账号一律不显示。
     角色联动：非管理员不显示「系统设置」分组，进入管理员区由 AdminGateMiddleware 拦截。
     分组展开：active 落在分组头或其子菜单时，该分组默认展开（group_open）。
     面包屑：page_title 默认取当前 active 模块名，页面可显式覆盖。
@@ -85,8 +87,8 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
     today = date.today()  # 按请求取当天：进程长跑跨天也不会把「今天」停留在启动日
     is_admin_user = user is not None and user.role == ADMIN_ROLE
     cycle_info = {}
-    is_male = user is not None and user.gender == "男"
-    if user is not None and not is_male:
+    female = user is not None and is_female(user.gender)
+    if female:
         try:
             cycle_info = _sidebar_cycle_info(user.id)
         except Exception:  # 周期数据异常不阻塞页面
@@ -104,7 +106,7 @@ def render_page(request: Request, template_name: str, ctx: dict | None = None) -
     nav_groups = [
         g
         for g in NAV_GROUPS
-        if not (is_male and g["key"] == "cycle") and (g["key"] != "system" or is_admin_user)
+        if not (g["key"] == "cycle" and not female) and (g["key"] != "system" or is_admin_user)
     ]
     group_open = ""
     for g in nav_groups:

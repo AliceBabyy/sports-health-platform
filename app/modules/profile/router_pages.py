@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.deps import get_current_user
 from app.core.templating import render_page
 from app.modules.auth.models import User
@@ -55,7 +56,7 @@ def health_profile_page(
     cards = []
     visible_skills = [
         skill for skill in ASPECT_SKILLS
-        if not skill["female_only"] or user.gender == "女"
+        if not skill["female_only"] or is_female(user.gender)
     ]
     for index, skill in enumerate(visible_skills, start=1):
         question_set = latest_by_skill.get(skill["key"])
@@ -84,7 +85,7 @@ def health_profile_page(
         "profile/health_profile.html",
         {
             "active": "health_profile",
-            "filled": row is not None,
+            "filled": filled_count > 0,
             "cards": cards,
             "filled_count": filled_count,
             "total_questions": total_questions,

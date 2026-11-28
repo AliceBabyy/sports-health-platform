@@ -4,6 +4,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.auth.models import User
@@ -16,9 +17,9 @@ router = APIRouter(prefix="/api/cycle", tags=["cycle"])
 
 
 def _female_only(user: User = Depends(get_current_user)) -> User:
-    """性别守卫：男性账号不开放生理周期数据接口。"""
-    if user.gender == "男":
-        raise AppError(403, "男性账号不开放生理周期模块")
+    """性别守卫：只有女性账号开放生理周期数据接口，男性与未填性别一律 403。"""
+    if not is_female(user.gender):
+        raise AppError(403, "仅女性账号开放生理周期模块")
     return user
 
 

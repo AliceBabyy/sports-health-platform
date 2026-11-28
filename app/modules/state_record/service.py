@@ -5,13 +5,14 @@
 - 跨表列表：各类型表分别查询后在内存按日期倒序、id 倒序合并分页；个人日记量级可接受。
 - 月历阶段复用 cycle.service.calendar_month 的七阶段推算，三档归并：
   经期（menstrual）/ 卵泡期·排卵（follicular_pre、ovulation_day、follicular_post）/ 黄体期（luteal_*）。
-  男性账号或无月经记录时不展示阶段（phase 置空）。
+  男性与未填性别账号、或无月经记录时不展示阶段（phase 置空）。
 """
 import calendar as _calendar
 from datetime import date
 
 from sqlalchemy.orm import Session
 
+from app.core.access import is_female
 from app.core.exceptions import AppError
 from app.modules.cycle import service as cycle_service
 from app.modules.state_record.models import (
@@ -163,9 +164,9 @@ def batch_delete(db: Session, user_id: int, items: list[dict]) -> dict:
 
 
 def calendar_with_records(db: Session, user, year: int, month: int) -> dict:
-    """月历：复用周期推算阶段，附当日是否有状态记录；男性 / 无周期记录时阶段置空。"""
+    """月历：复用周期推算阶段，附当日是否有状态记录；非女性 / 无周期记录时阶段置空。"""
     cal = cycle_service.calendar_month(db, user.id, year, month)
-    has_cycle = bool(cal["overview"]["has_records"]) and user.gender != "男"
+    has_cycle = bool(cal["overview"]["has_records"]) and is_female(user.gender)
 
     record_dates: set[str] = set()
     last_day = _calendar.monthrange(year, month)[1]
@@ -192,4 +193,10 @@ def calendar_with_records(db: Session, user, year: int, month: int) -> dict:
                 "has_record": d["date"] in record_dates,
             }
         )
-    return {"year": year, "month": month, "days": days}
+    return {
+        "year": year,
+        "month": month,
+        "cycle_enabled": is_female(user.gender),
+        "has_cycle": has_cycle,
+        "days": days,
+    }

@@ -8,6 +8,9 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.ai.prompts.loader import load_system_prompt
+from app.core.access import is_female
+from app.core.exceptions import AppError
+from app.modules.auth.models import User
 from app.modules.profile import service
 from app.modules.profile.aspect_skills import PROFILE_SKILL_MAP
 from app.modules.profile.aspects import aspect_label
@@ -34,6 +37,10 @@ def run_profile_aspect(
     skill = PROFILE_SKILL_MAP.get(skill_key)
     if skill is None:
         raise ValueError("未知的档案专项")
+    if skill.get("female_only"):
+        user = db.get(User, user_id)
+        if user is None or not is_female(user.gender):
+            raise AppError(403, "生理期档案仅适用于女性用户")
     prompt = load_system_prompt(skill["prompt_id"])
     view = service.get_health_profile(db, user_id)
     latest = view.latest_for(skill_key) if view else None

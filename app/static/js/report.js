@@ -273,8 +273,6 @@
         evRow('周期疼痛≥2', esc(cy.pain_days) + ' 天'),
         evRow('最近周期长度', cy.latest_cycle_length ? esc(cy.latest_cycle_length) + ' 天' : '—'),
       ], '「预测」不是事实，只作安排参考；真实记录与推算分开统计。'));
-    } else {
-      blocks.push(evBlock('生理周期', [evRow('本期', '无周期数据')], '仅女性账号且存在月经记录时纳入分析。'));
     }
 
     const c = f.completeness;

@@ -1,9 +1,10 @@
-"""健康档案（health_profile）：一个专项 skill 生成的一套问题，按“套 + 题”行式存储。
+"""健康档案（health_profile）：一个专项 skill 的问题与答案，按“套 + 题”行式存储。
 
 - 每行是一套专项问题中的一道题；同一套由 set_id 关联。
 - ``skill_key`` 指向生成这套题的档案专项 skill（profile_goal / profile_diet ...）。
 - ``aspect`` 只能是该 skill 允许的固定方面，见 app/modules/profile/aspect_skills.py。
-- 同一用户同一套内的 local_key（q1~q10）唯一；不同套之间互不影响。
+- 同一用户同一套内的 local_key（q1、q2...）唯一；不同套之间互不影响。
+- AI 每批 3~10 题合并进当前套，页面也可继续追加，套内题数不设上限。
 - answer 为空表示题目已生成但尚未回答，页面仍展示为空输入框。
 """
 from datetime import datetime
@@ -67,7 +68,7 @@ class HealthProfile(Base):
         comment="档案方面，必须是该 skill 允许的 aspect，见 app/modules/profile/aspect_skills.py",
     )
     local_key: Mapped[str] = mapped_column(
-        String(8), nullable=False, comment="套内题号 q1~q10"
+        String(64), nullable=False, comment="套内题号 q1、q2...；页面题数不设上限"
     )
     label: Mapped[str] = mapped_column(
         String(120), nullable=False, default="", server_default="", comment="题目标题"

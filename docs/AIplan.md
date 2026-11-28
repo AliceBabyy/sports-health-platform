@@ -37,6 +37,8 @@ AI 能力分为两种运行方式：
 | V2.19 会话置顶 | 会话菜单增加置顶/取消置顶，列表按置顶优先、最近消息时间倒序 | 已实现 |
 | V2.20 AI 模型配置中心 | 三表驱动运行时：来源（多地址/多密钥）、模型（别名/上游名/能力/结构化方式）、7 个功能路由；`/system/ai` 管理页 CRUD、测试连接、保存即生效 | 已实现 |
 | V2.21 会话运动记录导入 | 新增受控写工具 `import_sport_records`：在对话中把已完成的健身/游泳/舞蹈记录批量写入 recorded，复用三运动 AI 导入的清洗、校验与落库 | 已实现 |
+| V2.22 角色配置自由化与通用对话 | 取消工具/技能角色硬边界，任意角色可勾选；新增「通用对话」范围配置 | 已实现 |
+| V2.23 健康档案题数增长 | 已有专项再次测试时同标题覆盖、新标题追加，套内总题数可超过 10；页面手工建档不设上限；AI 单批仍 3~10 题 | 已实现 |
 
 ## V2.0 基础骨架（已实现）
 
@@ -139,7 +141,9 @@ Tool（V2.4）                               角色专用写工具，仅授权�
 11. 角色运行时：`personas/runtime.py` 按会话记录的角色版本读取定义并渲染 `persona_block`，普通会话传固定默认句；角色定义只提供提示词，不进入 checkpointer。角色级 `tool_grants` / `skill_grants` 由管理员配置，非空时进入图装配与缓存指纹；`NULL` 时沿用默认范围。角色改版后老会话仍用创建时版本；停用只禁新建，已绑定会话继续；删除被会话引用的角色返回 409。
 12. 角色管理页：`/agent/personas` 挂在「AI助手 → 角色管理」，左侧平台/我的角色、右侧提示词编辑；平台角色普通用户只读，用户角色保存即生成新版本并生效（无草稿/发布），支持启停与删除。管理员页 `/system/personas` 挂在「系统设置 → 内置角色」，可新建/编辑/删除内置角色、调整排序与状态、编辑提示词，并按稳定清单勾选工具与平台技能；接口统一为 `/api/system/system-personas`。对话页新增「新建角色会话」，点击弹出角色选择弹窗，从启用且已发布的角色中选择；侧栏角色会话显示「人形图标 + 角色名」徽标，会话内无切换入口。
 13. 工具可见性：`tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 是代码基线，登记 10 个 `skill_profile_*` 与 `save_health_profile_aspect → {health_profile_test}`，并列入 `PROFILE_TEST_ONLY_TOOLS` 硬边界；`tools_for_persona` / `available_skills` 先检查硬边界，再看角色显式 `tool_grants` / `skill_grants`，非空时按白名单过滤，`NULL` 时回落基线；管理页用 `include_restricted=True` 列出受限技能供查看，非测试角色提交授权会校验失败。过滤后 `capabilities` 自动只列可用项；显式白名单或默认专用工具会把角色指纹加入图缓存 key。
-14. 健康档案专项化：`health_profile` 为单表行式存储（`id` 主键 + `user_id` 非唯一外键 + `set_id/skill_key/aspect/local_key`），同一套题由 `set_id` 分组、一行一道题，`local_key` 为 `q1~q10`。10 个专项固定为 `profile_goal/profile_diet/profile_exercise/profile_fitness/profile_sleep/profile_lifestyle/profile_cycle/profile_posture/profile_medical/profile_extra`，元数据与允许 aspect 见 `aspect_skills.py`（运动专项允许 `exercise/sport/training/environment/preference`；健身专项允许 `exercise/sport/goal/training/environment/preference`，可出 6~10 题）；10 段提示词合并在 `profile_aspect_skills_v1.txt`，按 section 加载。题目不写死注册表：模型每次在专项提示词约束下生成 3~10 题，逐题 `ask_user`，答完调用 `save_health_profile_aspect`；服务端只校验题数/题号/aspect 属于该专项/至少 1 题有答案，同专项最多保留最近 3 套。保存成功后图进入 `finalize_profile_save` 固定收口，不自动开始下一个专项。10 个专项 skill 与写工具默认只给 `health_profile_test`；其他角色只保留 `get_profile_info` 只读。档案页每个专项一张卡，默认只读展示全文，点卡头「编辑」才展开该卡文本框；`profile_info` 返回 10 个专项的最近一套与最近 3 套历史。
+14. 健康档案专项化：`health_profile` 为单表行式存储（`id` 主键 + `user_id` 非唯一外键 + `set_id/skill_key/aspect/local_key`），同一套题由 `set_id` 分组、一行一道题，`local_key` 为 `q1、q2...`（V2.23 起不再限制 q10）。10 个专项固定为 `profile_goal/profile_diet/profile_exercise/profile_fitness/profile_sleep/profile_lifestyle/profile_cycle/profile_posture/profile_medical/profile_extra`，元数据与允许 aspect 见 `aspect_skills.py`（运动专项允许 `exercise/sport/training/environment/preference`；健身专项允许 `exercise/sport/goal/training/environment/preference`，可出 6~10 题）；10 段提示词合并在 `profile_aspect_skills_v1.txt`，按 section 加载。题目不写死注册表：模型每次在专项提示词约束下生成 3~10 题，逐题 `ask_user`，答完调用 `save_health_profile_aspect`；服务端只校验题数/题号/aspect 属于该专项/至少 1 题有答案；V2.23 起改为合并进当前套、套内总题数不设上限。保存成功后图进入 `finalize_profile_save` 固定收口，不自动开始下一个专项。档案页每个专项一张卡，默认只读展示全文，点卡头「编辑」才展开该卡文本框；`profile_info` 返回 10 个专项的最近一套与最近 3 套历史。
+
+> 注：本节记录 V2.3/V2.4 当时的角色边界。V2.22 起 `TOOL_PERSONA_SCOPES` / `PROFILE_TEST_ONLY_TOOLS` 已清空，任意角色可自由勾选任意工具与平台技能；普通会话范围改由 `agent_chat_defaults` 管理。以下涉及“硬边界/默认基线”的表述仅作历史记录，当前口径以 V2.22 与 `docs/AI_ARCHITECTURE.md` 为准。
 
 **验收（已完成）**
 
@@ -150,12 +154,12 @@ Tool（V2.4）                               角色专用写工具，仅授权�
 - 管理页已做浏览器验收：创建、保存、发布、试运行、删除和运行记录可用；斜杠对话已在页面实测。对话页输入 `/` 会弹出 active 技能建议，支持名称/键/别名过滤、↑↓ 选择、Enter/Tab 插入、Esc 关闭和鼠标点选，已逐项实测。
 - 多角色：平台两个角色种子幂等；用户角色创建/保存（仅内容变化才升版）/启停/删除、平台只读、越权 403、被会话引用删除 409；角色会话创建时写入版本号，角色改版后老会话仍读旧版本；普通会话两列为空、行为不变。
 - `tests/test_agent_personas.py` 覆盖定义字段/长度、版本化、配额与平台遮蔽、权限、删除引用、会话版本快照与停用、角色段渲染、工具预留接缝、v6 变量与 v5 移除、会话两列一致性约束。
-- 健康档案专项：`tests/test_profile_aspect.py` 覆盖 10 个专项提示词加载、3~10 题与 q1~q10、专项 aspect 归属、同专项最多 3 套、cycle 仅女性、页面逐题保存/清空、`profile_info` 新结构、保存工具仅该角色可见且可调用、受限技能按角色过滤、保存成功后 `finalize_profile_save` 收口不自动续问、v3 guard；`tests/test_agent_ask.py` 覆盖 `ask_user` 连续两次中断与恢复、同一轮多张 ask 卡片的历史还原。
+- 健康档案专项：`tests/test_profile_aspect.py` 覆盖 10 个专项提示词加载、3~10 题与 q1~q10、专项 aspect 归属、同专项合并追加超过 10 题、cycle 仅女性、页面逐题保存/清空、`profile_info` 新结构、保存工具仅该角色可见且可调用、受限技能按角色过滤、保存成功后 `finalize_profile_save` 收口不自动续问、v3 guard；`tests/test_agent_ask.py` 覆盖 `ask_user` 连续两次中断与恢复、同一轮多张 ask 卡片的历史还原。
 - 内置角色管理：`tests/test_system_personas.py` 6 项覆盖创建/列表、`NULL` 默认范围、显式白名单、键不可改、提示词版本化、未知工具/技能拒绝、被会话引用删除 409、运行时工具过滤与图指纹；健康档案行式化迁移已执行，全量 `pytest` 354 项通过。
 
 **未实现/后续**
 
-- 角色级专用工具/技能授权已打通：`tools/policy.py` 的默认基线 + `agent_personas.tool_grants/skill_grants` 显式白名单；管理员页面可勾选、可恢复默认。仍待未来扩展的是：其他角色专属工具/技能、用户自定义角色是否可被授予平台专用工具、专用能力走平台技能还是独立代码工具。
+- 角色级工具/技能授权已完全自由化（V2.22）：`agent_personas.tool_grants/skill_grants` 与 `agent_chat_defaults` 只表达显式范围，任意角色可勾选任意已注册工具/平台技能，不再有角色硬边界。仍待未来扩展的是：按会话冻结范围、角色级工具调用审计，以及专用能力走平台技能还是独立代码工具。
 - 内置角色管理已从只读展示升级为管理员 CRUD + 工具/技能勾选；用户角色仍只编辑提示词，不开放工具/技能白名单。
 - 用户技能仅在定义内容变化时新增版本，纯名称/描述/别名修改不递增版本；当前无版本数量上限/清理策略。平台技能版本变化不会自动失效进程内图缓存，升级后需重启或清缓存。
 - PendingStore 为进程内状态，服务重启或多实例部署时待回答追问会失效。
@@ -474,14 +478,14 @@ CSS 需同时给 `.sidebar-nav` 加 `flex: 1 1 auto; min-height: 0; overflow-y: 
 1. 专项元数据集中在 `app/modules/profile/aspect_skills.py`，固定 10 个 key、名称、斜杠别名、允许 aspect、提示词 section；展示名统一加 `测试-` 前缀（如 `测试-目标档案`），斜杠别名保持 `/目标档案` 等原命令；不允许模型或用户新增专项。`profile_cycle` 标记 `female_only`，保存时服务端校验性别。
 2. 10 段提示词合并在 `app/ai/prompts/profile_aspect_skills_v1.txt`，用 `===== goal =====` 等 section 分隔；`loader.PROMPTS` 以 `(文件名, section)` 注册 10 个固定 ID，`registered_prompt_files()` 保证同一文件只登记一次。
 3. `platform.py` 的 `CodeSkill` 增加 `slash_alias`，动态注册 10 个代码技能；输入模型只有 `mode ∈ {补齐, 更新}`，执行时由 `skill_runtime.run_profile_aspect` 加载专项提示词并拼接该专项已有问答。
-4. 保存工具改为 `save_health_profile_aspect(skill_key, questions, answers)`：Pydantic 限制 3~10 题（健身档案 6~10 题）、`q1~q10`、标题 ≤48、提示/占位 ≤120、`max_length` 50~255；服务层校验 aspect 属于该专项、至少 1 题有答案；同专项签名相同更新，变化新增一套，最多保留最近 3 套。成功后图进入 `finalize_profile_save`。
-5. 权限：`TOOL_PERSONA_SCOPES` 为 10 个 `skill_profile_*` 与 `save_health_profile_aspect` 登记 `{health_profile_test}`，并作为 `PROFILE_TEST_ONLY_TOOLS` 硬边界；`available_skills` 增加 `include_restricted` 仅供 `/system/personas` 查看与校验，非测试角色提交这些授权会失败；种子给 `health_profile_test` 写入显式 `tool_grants` / `skill_grants`，其他角色保留 `get_profile_info` 只读。
+4. 保存工具改为 `save_health_profile_aspect(skill_key, questions, answers)`：Pydantic 限制 3~10 题（健身档案 6~10 题）、`q1~q10`、标题 ≤48、提示/占位 ≤120、`max_length` 50~255；服务层校验 aspect 属于该专项、至少 1 题有答案；V2.23 起改为同标题覆盖、新标题追加，套内总题数不设上限。成功后图进入 `finalize_profile_save`。
+5. 权限：V2.14 当时将 `skill_profile_*` 与 `save_health_profile_aspect` 登记为 `{health_profile_test}` 硬边界，并让非测试角色授权失败；该限制已在 V2.22 取消。现所有角色都可自由勾选这些专项工具/技能，启用后按各自 `tool_grants` / `skill_grants` 装配。
 6. 数据层：`health_profile` 在原表 0 行时重置为 `set_id/skill_key/aspect/local_key` 行式结构，唯一约束 `(user_id,set_id,local_key)`，索引 `(user_id,skill_key,set_generated_at)`；删除旧固定题、probe 与旧迁移脚本。页面/API 改为 `sets` 与逐题 PUT，DELETE 清空全部。
 7. `profile_info` 改为返回 10 个专项的 `latest` / `history` 与 `health_profile_meta`；`daily_advice` 事实层按专项最近一套注入已答问答；`agent.js` 斜杠建议改走 `GET /api/agent/skills/available?persona_id=`，按角色过滤并缓存。
 
 ### 测试
 
-`tests/test_profile_aspect.py` 覆盖提示词 section、专项归属、3~10 题、同专项 3 套上限、cycle 性别、页面逐题保存/清空、`profile_info`、保存工具、权限、`available_skills`、`finalize_profile_save` 与 v3 guard；`tests/test_ai_foundation.py` 校验 10 个 section 共用文件时注册表与文件一一对应；`tests/test_system_personas.py` 覆盖健康档案专项只允许测试角色、非测试角色授权会被拒绝。
+`tests/test_profile_aspect.py` 覆盖提示词 section、专项归属、AI 单批 3~10 题、同专项合并追加超过 10 题、cycle 性别、页面逐题保存/清空、`profile_info`、保存工具、权限（V2.22 后改为任意角色可自由授权）、`available_skills`、`finalize_profile_save` 与 v3 guard；`tests/test_ai_foundation.py` 校验 10 个 section 共用文件时注册表与文件一一对应；`tests/test_system_personas.py` 覆盖专项工具/技能可授权给任意角色。
 
 **未做**：页面新建专项套入口、专项套手动排序/重命名、跨专项统一画像生成、专项历史套的独立查看页。
 
@@ -538,7 +542,7 @@ CSS 需同时给 `.sidebar-nav` 加 `flex: 1 1 auto; min-height: 0; overflow-y: 
 1. 电子私教 `persona_e_trainer.v3`：先读目标、健身、形体矫正、伤病与训练/状态/周期数据，围绕最优先目标给阶段判断、动作、强度、恢复与进退阶；不把计划当记录，不做诊断。
 2. 健身教练 `persona_training_coach.v2`：以健身档案、形体矫正、伤病和最近训练/身体数据为依据，把体态结论转成动作选择、活动范围、负荷与替代动作约束；需要完整单次计划时走定制健身计划技能。
 3. 新增平台提示词技能 `custom_fitness_plan`（名称「定制健身计划」，斜杠 `/定制健身计划`）：读取 `profile_fitness/profile_posture/profile_goal/profile_medical`、最近健身记录、身体测量、状态与周期，输出“今日重点/热身/主训练/形体矫正/放松/注意”文字方案；最后用 `ask_user` 询问是否保存，只有确认后才调用 `save_today_workout_plan`，未确认不写库。
-4. 权限：`skill_custom_fitness_plan` 默认只对 `training_coach` 可见；健身教练显式开放档案/运动只读工具、`ask_user` 与 `save_today_workout_plan`，技能只授权 `custom_fitness_plan`。电子私教和其他角色默认看不到该技能。
+4. 权限（V2.18 初始口径）：`skill_custom_fitness_plan` 当时默认只对 `training_coach` 可见；V2.22 起取消该角色限制，任何角色都可勾选，默认 `NULL` 时全量可见。健身教练种子仍显式开放档案/运动只读工具、`ask_user` 与 `save_today_workout_plan`，并授权 `custom_fitness_plan` 作为推荐配置，不再是硬限制。
 5. 种子与文档：`seed_agent_personas.py` 写入四个内置角色及授权；`seed_agent_skills.py` 写入提示词技能并按 prompt 内容版本化；新增 `tests/test_agent_skills.py` 的提示词定义校验与 `tests/test_agent_personas.py` 的角色可见性校验。
 
 **未做**：把计划保存后的训练动作自动回填到健身记录、计划模板/周计划、按角色拆分更多专用技能。
@@ -586,18 +590,47 @@ CSS 需同时给 `.sidebar-nav` 加 `flex: 1 1 auto; min-height: 0; overflow-y: 
 
 **未做**：重复记录检测、导入后撤销、图片/文件在会话内解析、一次调用混合多种运动。
 
+## V2.22 角色配置自由化与通用对话（已实现，2026-11-28）
+
+**目标**：取消工具/技能的角色硬边界，让管理员能在任意角色中勾选任意已注册工具与平台技能；同时在角色配置页提供一个「通用对话」条目，统一管理所有未绑定角色的普通会话，而不是新增一个可选择的新角色。
+
+### 实现要点
+
+1. `app/modules/agent/tools/policy.py` 清空 `TOOL_PERSONA_SCOPES` / `PROFILE_TEST_ONLY_TOOLS`，`tool_visible` 恒为 `True`；`tools_for_persona` 只按 scope 显式 `tool_grants` / `skill_grants` 过滤，二者为 `NULL` 时全量、非空数组严格按数组、空数组不使用。健康档案专项技能、`save_health_profile_aspect`、`custom_fitness_plan` 等不再只对特定角色开放。
+2. `available_skills` 不再按 persona 排除专项技能，只按显式 `skill_grants` 过滤；`include_restricted` 保留为兼容参数，当前不影响结果。系统角色保存只保留「未知工具/技能」与「`skill_*` 不能放 `tool_grants`」两类数据完整性校验，不再拒绝任意角色授权 profile 专项能力。
+3. 新增单行配置表 `agent_chat_defaults`（固定 `id=1`、`tool_grants jsonb NULL`、`skill_grants jsonb NULL`、`updated_by`、时间戳、`CHECK (id=1)`），只表达普通会话的工具/技能范围，不是角色、不参与角色选择、不保存提示词；迁移脚本 `scripts/migrate_agent_chat_defaults.py` 幂等建表并初始化单行。
+4. 新增 `app/modules/agent/chat_defaults.py`：`DEFAULT_CHAT_KEY=default_chat`、`ChatDefaultScope`、`get_row/default_chat_scope/default_chat_dict/save_default_chat`。普通会话在 `service._resolve_chat_scopes` 中优先取角色，未绑定角色则取通用对话 scope；`runtime` 的系统图与普通会话按该 scope 构建，配置指纹参与图缓存。
+5. 管理接口新增 `GET/PUT /api/system/system-personas/default-chat`，PUT 只接受 `tool_grants` / `skill_grants`（`extra=forbid`），保存后 `refresh_system_graph` 即时重建常驻图；`/system/personas` 页面左栏固定「通用对话」伪条目，复用同一套工具/技能勾选器，隐藏角色名、角色键、提示词、状态与删除，只保留范围与保存。
+6. 页面与测试：`system_personas.html` 注入 `INIT_DEFAULT_CHAT`，`system_personas.js` 增加默认条目选中态与默认保存接口；`tests/test_agent_chat_defaults.py` 覆盖默认全量、显式范围、普通会话 scope、非法项校验与页面上下文；`tests/test_system_personas.py` / `test_profile_aspect.py` 改为任意角色可授权专项工具/技能；V2.23 后全量 `pytest` 416 项通过。
+
+**未做**：按会话冻结通用对话范围（当前配置对普通会话下一轮生效，历史普通会话不保留旧范围）；通用对话不配置默认提示词/模型/状态；工具与技能之外的性别、管理员门禁、用户归属等业务边界保持不变。
+
+## V2.23 健康档案题数增长（已实现，2026-11-28）
+
+**目标**：用户已有专项档案后，仍可再次做 AI 测试或手工新增问题；追加后总题数可以超过 10，同时保留 AI 单次出题 3~10 题的质量约束。
+
+### 实现要点
+
+1. 保存语义：同一专项已有当前套时不再新建套；本批 3~10 题按标题合并，标题相同覆盖旧题字段与答案（本次留空保留原答案），新标题追加为 qN+1。没有当前套时才新建 `set_id`。旧套不自动删除。
+2. 数量边界：AI 提示词与 `SaveHealthProfileAspectIn` / `save_health_profile_aspect` 仍限制单批 3~10 题、题号 q1~q10；页面 `HealthProfileSetIn` 与 `normalize_page_questions` 改为至少 1 题、不设上限，题号从 q1 连续。
+3. 数据层：`health_profile.local_key` 从 `varchar(8)` 放宽为 `varchar(64)`，迁移脚本 `scripts/migrate_health_profile_local_key.py` 幂等执行；数据库仍只有 `(user_id,set_id,local_key)` 唯一约束，无题数 CHECK。
+4. 页面：去掉「已到 10 题上限」与隐藏添加入口，始终显示「+ 添加一个问题」，题数计数只显示当前数量；未建立卡提示改为「题数不限」。
+5. 文档与测试：`tests/test_profile_aspect.py` 覆盖 AI 合并追加超过 10 题、AI 单批 11 题仍拒绝、页面一次保存 12 题与 schema 接受 12 题；全量 `pytest` 416 项通过；同步 API/架构/AI/数据库/前端文档。
+
+**未做**：按题目 id 精确覆盖（当前以标题作为同一题判定）、页面删除单题、多套历史独立查看。
+
 ## 拓展功能设想
 
 以下能力暂不排期、不在当前版本实现，仅记录方向与关键约束，避免在当前设计中提前背负复杂度；待主功能稳定后再单独立项、细化交互与验收。
 
 ### 1. 角色级专用工具与技能（已落地健康档案专用工具，其余预留）
 
-V2.4 已交付平台/用户角色与角色会话（创建时固定角色版本、不可切换），并在 V2.14 落地 10 个健康档案专项技能与保存工具 `save_health_profile_aspect`（均仅 `health_profile_test`）；本节保留后续扩展约束：
+V2.4 已交付平台/用户角色与角色会话（创建时固定角色版本、不可切换），V2.14 曾把 10 个健康档案专项技能与保存工具限定给 `health_profile_test`，V2.18 曾把 `custom_fitness_plan` 限定给 `training_coach`；这些硬边界已在 V2.22 全部取消，任意角色都可自由勾选任意已注册工具与平台技能。以下保留的是后续扩展约束：
 
-1. **声明位置**：默认范围只在服务端 `app/modules/agent/tools/policy.py` 的 `TOOL_PERSONA_SCOPES` 登记「工具名（含 `skill_<key>`）→ 允许的角色 key 集合」；未登记的工具对所有角色与普通会话可用。管理员显式白名单落库到 `agent_personas.tool_grants` / `skill_grants`，不得写进用户可编辑的角色定义，避免自助授权。
-2. **装配过滤**：`tools_for_persona` 在编译图时先看显式白名单、再看默认基线；被排除的工具不会 `bind` 给模型。`capabilities` 用过滤后的工具生成，保证提示词与实际注册一致。斜杠解析与 `/` 建议复用 `available_skills` 的 `persona_key` / `skill_grants` 参数过滤。
-3. **图缓存**：角色存在显式白名单或默认专用工具时，`persona_graph_fingerprint` 返回非空并进入缓存 key，按 `(user_id, 技能版本指纹, 角色指纹)` 编译，沿用上限 32 的 LRU；普通角色仍复用系统图。
-4. **待产品确认**：用户自定义角色能否被授予平台专用工具；其他平台专用能力走技能还是独立代码工具；是否需要角色级工具调用审计。
+1. **声明位置**：不再使用按角色名硬编码的 `TOOL_PERSONA_SCOPES` 基线；默认 `NULL` 表示全部工具/平台技能，管理员显式白名单落库到 `agent_personas.tool_grants` / `skill_grants`，普通会话落库到 `agent_chat_defaults`，不得写进用户可编辑的角色定义，避免自助授权。
+2. **装配过滤**：`tools_for_persona` 只按显式白名单过滤，`NULL`/空数组语义见 V2.22；被排除的工具不会 `bind` 给模型，`capabilities` 用过滤后的工具生成。斜杠解析与 `/` 建议复用 `available_skills` 的 `skill_grants`。
+3. **图缓存**：显式白名单会让 `persona_graph_fingerprint` 返回非空并进入缓存 key，按 `(user_id, 技能版本指纹, scope 指纹)` 编译，沿用上限 32 的 LRU；无差异时复用系统图。
+4. **待产品确认**：是否需要按会话冻结通用对话范围；是否需要角色级工具调用审计；其他平台专用能力走技能还是独立代码工具。
 5. 角色配额、版本化、提示词分层、归属隔离与删除引用保护已在 V2.4 实现，不在此重复；角色头像/主题色未做，用户角色仍只允许名称、定位与提示词。
 
 ### 2. 长期画像与跨会话偏好

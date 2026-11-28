@@ -2,18 +2,36 @@
 
 全部接口落在 /api/system 下，自动受 AdminGateMiddleware 管理员门禁保护，不再单独写鉴权依赖。
 """
-from fastapi import APIRouter, Depends, Body
+import logging
+
+from fastapi import APIRouter, Depends, Body, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.modules.agent.personas.management import PersonaValidationError
+from app.modules.agent.runtime import refresh_system_graph
 from app.modules.auth.models import User
 from app.modules.system.personas import service
-from app.modules.system.personas.schemas import SystemPersonaIn, SystemPersonaUpdateIn
+from app.modules.system.personas.schemas import (
+    DefaultChatUpdateIn,
+    SystemPersonaIn,
+    SystemPersonaUpdateIn,
+)
 from database import get_db
 
 router = APIRouter(prefix="/system-personas", tags=["system-personas"])
+logger = logging.getLogger(__name__)
+
+
+def _refresh_runtime(request: Request) -> None:
+    runtime = getattr(request.app.state, "agent_runtime", None)
+    if not runtime:
+        return
+    try:
+        refresh_system_graph(runtime)
+    except Exception:  # 图重建失败不影响已落库配置，重启后仍按最新配置加载
+        logger.exception("刷新通用对话配置图失败")
 
 
 def _validation_response(exc: PersonaValidationError) -> JSONResponse:
@@ -39,6 +57,26 @@ def system_persona_options(db: Session = Depends(get_db), user: User = Depends(g
         "tools": service.tool_options(),
         "skills": service.skill_options(db),
     }
+
+
+@router.get("/default-chat")
+def get_default_chat(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return service.get_default_chat(db)
+
+
+@router.put("/default-chat")
+def update_default_chat(
+    request: Request,
+    payload: DefaultChatUpdateIn = Body(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        saved = service.save_default_chat_config(db, payload.model_dump(), user.id)
+    except PersonaValidationError as exc:
+        return _validation_response(exc)
+    _refresh_runtime(request)
+    return saved
 
 
 @router.post("", status_code=201)

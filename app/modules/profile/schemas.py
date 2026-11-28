@@ -23,7 +23,11 @@ class HealthProfileItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     set_id: str = Field(min_length=1, max_length=16, description="档案套 id")
-    local_key: str = Field(pattern=r"^q(?:[1-9]|10)$", description="套内题号 q1~q10")
+    local_key: str = Field(
+        max_length=64,
+        pattern=r"^q[1-9]\d*$",
+        description="套内题号 q1、q2...；页面题数不设上限",
+    )
     answer: str = Field(default="", max_length=255, description="文本答案，可空")
 
 
@@ -40,7 +44,11 @@ class HealthProfileQuestionIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    local_key: str = Field(pattern=r"^q(?:[1-9]|10)$", description="套内题号 q1~q10")
+    local_key: str = Field(
+        max_length=64,
+        pattern=r"^q[1-9]\d*$",
+        description="套内题号 q1、q2...；页面题数不设上限",
+    )
     aspect: str = Field(min_length=1, max_length=32, description="专项内方面")
     label: str = Field(min_length=1, max_length=48, description="问题标题")
     hint: str = Field(default="", max_length=120, description="填写提示，可空")
@@ -50,9 +58,9 @@ class HealthProfileQuestionIn(BaseModel):
 
 
 class HealthProfileSetIn(BaseModel):
-    """页面新增/编辑一整套专项：允许 1~10 题，保存后原地刷新该卡。"""
+    """页面新增/编辑一整套专项：至少 1 题，可继续追加，不限制题数。"""
 
     model_config = ConfigDict(extra="forbid")
 
     skill_key: str = Field(default="", max_length=64, description="专项 key；编辑已有套时可空")
-    questions: list[HealthProfileQuestionIn] = Field(min_length=1, max_length=10)
+    questions: list[HealthProfileQuestionIn] = Field(min_length=1)

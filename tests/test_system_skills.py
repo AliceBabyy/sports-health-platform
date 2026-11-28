@@ -328,10 +328,16 @@ def test_refresh_system_graph_rebuilds_and_clears_user_cache(monkeypatch):
         def __exit__(self, *exc):
             return False
 
+    class _FakeScope:
+        key = "default_chat"
+        skill_grants = None
+
     new_graph = object()
     monkeypatch.setattr(agent_runtime, "SessionLocal", lambda: _FakeSession())
-    monkeypatch.setattr(agent_runtime, "available_skills", lambda db, user_id: [])
-    monkeypatch.setattr(agent_runtime, "build_user_graph", lambda saver, skills: new_graph)
+    monkeypatch.setattr(agent_runtime, "default_chat_scope", lambda db: _FakeScope())
+    monkeypatch.setattr(agent_runtime, "available_skills", lambda db, user_id, key=None, skill_grants=None: [])
+    monkeypatch.setattr(agent_runtime, "persona_graph_fingerprint", lambda scope: "")
+    monkeypatch.setattr(agent_runtime, "build_user_graph", lambda saver, skills, scope=None: new_graph)
     runtime = {
         "saver": object(), "graph": "old", "system_graph": "old",
         "graphs": {("user", "fingerprint"): "cached"},
@@ -339,4 +345,5 @@ def test_refresh_system_graph_rebuilds_and_clears_user_cache(monkeypatch):
     agent_runtime.refresh_system_graph(runtime)
     assert runtime["system_graph"] is new_graph
     assert runtime["graph"] is new_graph
+    assert runtime["system_default_fp"] == ""
     assert runtime["graphs"] == {}

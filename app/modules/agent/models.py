@@ -86,8 +86,8 @@ PERSONA_STATUSES = ("active", "disabled")
 class AgentPersona(Base):
     """角色主表：平台内置角色（scope=system）与用户自定义角色（scope=user）。
 
-    角色只保存人设提示词和角色级授权：tool_grants / skill_grants 为空表示沿用平台
-    默认范围（TOOL_PERSONA_SCOPES 等代码基线），非空表示管理员显式勾选的白名单。
+    角色只保存人设提示词和角色级授权：tool_grants / skill_grants 为空表示全部
+    已注册工具与全部平台技能，非空表示管理员显式勾选的白名单。
     """
     __tablename__ = "agent_personas"
     __table_args__ = (
@@ -129,7 +129,7 @@ class AgentPersona(Base):
     )
     tool_grants: Mapped[list[str] | None] = mapped_column(
         JSON, nullable=True,
-        comment="角色可用工具白名单 JSON 数组；NULL=按平台默认范围，空数组=不使用工具",
+        comment="角色可用工具白名单 JSON 数组；NULL=全部已注册工具，空数组=不使用工具",
     )
     skill_grants: Mapped[list[str] | None] = mapped_column(
         JSON, nullable=True,
@@ -165,6 +165,38 @@ SKILL_KINDS = ("code", "declarative", "prompt")
 SYSTEM_SKILL_KINDS = ("code", "declarative", "prompt")
 USER_SKILL_KINDS = ("prompt",)
 SKILL_STATUSES = ("draft", "active", "disabled", "archived")
+
+
+class AgentChatDefault(Base):
+    """普通会话默认配置：未绑定角色的新建会话使用的工具/技能范围。
+
+    单行配置（id=1），不是角色，不参与新建角色会话选择，也不保存提示词。
+    ``tool_grants`` / ``skill_grants`` 为 NULL 表示全部工具/平台技能可用；
+    空数组表示该普通会话不使用对应能力。
+    """
+    __tablename__ = "agent_chat_defaults"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_agent_chat_defaults_singleton"),
+        {"comment": "普通会话默认工具/技能配置（单行，id=1；不是角色）"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, comment="固定主键 1")
+    tool_grants: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True,
+        comment="普通会话可用工具白名单 JSON；NULL=全部工具，空数组=不使用工具",
+    )
+    skill_grants: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True,
+        comment="普通会话可用平台技能白名单 JSON；NULL=全部平台技能，空数组=不使用技能",
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+        comment="最后修改的管理员 user_id",
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), comment="创建时间")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间",
+    )
 
 
 class AgentSkill(Base):

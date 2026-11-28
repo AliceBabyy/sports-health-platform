@@ -9,6 +9,7 @@ from app.core.access import is_female
 from app.core.deps import get_current_user
 from app.core.exceptions import AppError
 from app.modules.agent import schemas, service
+from app.modules.agent.chat_defaults import default_chat_scope
 from app.modules.agent.models import AgentPersona, AgentSkill
 from app.modules.agent.personas.management import (
     PersonaValidationError,
@@ -249,7 +250,7 @@ def available_skills_api(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """会话输入框的斜杠建议：按当前角色过滤，不把受限专项技能展示给其他角色。"""
+    """会话输入框的斜杠建议：按当前角色或通用对话范围过滤。"""
     persona = None
     if persona_id is not None:
         persona = db.get(AgentPersona, persona_id)
@@ -259,15 +260,20 @@ def available_skills_api(
             or (persona.scope != "system" and persona.owner_user_id != user.id)
         ):
             raise AppError(404, "角色不存在")
-    grants = None
-    if persona is not None and persona.skill_grants is not None:
-        grants = frozenset(str(item) for item in persona.skill_grants)
+    if persona is not None:
+        scope_key = persona.persona_key
+        grants = (
+            frozenset(str(item) for item in persona.skill_grants)
+            if persona.skill_grants is not None else None
+        )
+    else:
+        scope = default_chat_scope(db)
+        scope_key = scope.key
+        grants = scope.skill_grants
     resolved = {
         item.id: item
         for item in available_skills(
-            db, user.id,
-            persona.persona_key if persona is not None else None,
-            skill_grants=grants,
+            db, user.id, scope_key, skill_grants=grants,
         )
         if is_female(user.gender) or not skill_female_only(item.key)
     }

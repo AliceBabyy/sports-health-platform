@@ -18,6 +18,7 @@ from app.modules.state_record.models import (  # noqa: F401
     RecoveryRecord,
 )
 from app.modules.agent.models import (  # noqa: F401
+    AgentChatDefault,
     AgentConversation,
     AgentPersona,
     AgentPersonaVersion,

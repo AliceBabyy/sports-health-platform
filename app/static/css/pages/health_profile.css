@@ -332,12 +332,6 @@
   border-color: var(--color-accent);
   color: var(--color-accent-strong);
 }
-.hp-add-limit {
-  margin: 14px 0;
-  text-align: center;
-  font-size: 11.5px;
-  color: var(--color-text-tertiary);
-}
 
 @media (max-width: 980px) {
   .hp-grid { column-count: 1; }

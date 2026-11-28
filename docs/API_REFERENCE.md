@@ -46,8 +46,8 @@
 | AI 助手 agent | `/agent`、`/api/agent` | 3 | 30 | 33 |
 | AI 运动报告 report | `/reports`、`/api/reports` | 1 | 4 | 5 |
 | 每日训练建议 daily_advice | `/api/daily-advice` | 0 | 2 | 2 |
-| 系统管理 system | `/system/scheduler`、`/system/personas`、`/system/skills`、`/system/ai`、`/api/system/scheduler`、`/api/system/system-personas`、`/api/system/system-skills`、`/api/system/ai-config` | 4 | 33 | 37 |
-| **合计** | — | **22** | **148** | **170** |
+| 系统管理 system | `/system/scheduler`、`/system/personas`、`/system/skills`、`/system/ai`、`/api/system/scheduler`、`/api/system/system-personas`、`/api/system/system-skills`、`/api/system/ai-config` | 4 | 35 | 39 |
+| **合计** | — | **22** | **150** | **172** |
 
 ## 2. 全局与认证
 
@@ -197,8 +197,8 @@
 | `POST /api/profile/password` | JSON | `current_password`、`new_password`、`confirm_password` | `{ok}` | 修改密码：校验当前密码、两次新密码一致、新密码 ≥6 且不得与旧密码相同 |
 | `DELETE /api/profile/account` | JSON | `mode`（`retain`/`purge`）、`current_password` | `{ok}` | 注销账号：`retain` 停用保留数据，`purge` 删除用户及全部关联数据；成功后清会话 |
 | `GET /api/profile/health-profile` | 无 | 无 | `{ok, filled, sets:[{set_id, skill_key, name, generated_at, items[]{local_key, aspect, label, hint, placeholder, max_length, answer}}]}` | 读取已存储的专项档案；每个专项只返回最近一套，未填写时 `filled=false`、`sets=[]`；非女性账号不返回 `profile_cycle` 套 |
-| `PUT /api/profile/health-profile` | JSON | `items[]{set_id, local_key(q1~q10), answer(≤255)}` | 同 GET | 逐题保存已存储档案：`(set_id, local_key)` 必须已存在，空串清空该题但保留题目；不新增、不删除套装；未知题或超长 400 |
-| `POST /api/profile/health-profile/sets` | JSON | `skill_key`、`questions[]{local_key(q1~q10), aspect, label(≤48), hint(≤120), placeholder(≤120), max_length(50~255), answer(≤255)}`（1~10 题） | 同 GET | 页面新增专项：无该专项时建一套；已有最近一套时直接编辑；题号须从 q1 连续，aspect 须属于该专项；题目重复/超限 400 |
+| `PUT /api/profile/health-profile` | JSON | `items[]{set_id, local_key(q1、q2...，≤64), answer(≤255)}` | 同 GET | 逐题保存已存储档案：`(set_id, local_key)` 必须已存在，空串清空该题但保留题目；不新增、不删除套装；未知题或超长 400 |
+| `POST /api/profile/health-profile/sets` | JSON | `skill_key`、`questions[]{local_key(q1、q2...，≤64), aspect, label(≤48), hint(≤120), placeholder(≤120), max_length(50~255), answer(≤255)}`（至少 1 题，不设上限） | 同 GET | 页面新增专项：无该专项时建一套；已有最近一套时直接编辑；题号须从 q1 连续，aspect 须属于该专项，题目总数不设上限；题目重复/超限 400 |
 | `PUT /api/profile/health-profile/sets/{set_id}` | 路径参数 + JSON | 路径 `set_id`；体 `skill_key`（可空，必须与套一致）、`questions[]`（字段同上） | 同 GET | 页面编辑专项：改问题文本与答案，并在末尾追加 qN+1；不创建新套；`set_id` 不存在或越权 400 |
 | `DELETE /api/profile/health-profile` | 无 | 无 | `{ok}` | 清空该用户全部专项档案行，页面回到空态 |
 
@@ -302,7 +302,7 @@
 | 路由地址 | 传参格式 | 请求字段 | 响应字段 | 简述作用 |
 | --- | --- | --- | --- | --- |
 | `GET /system/scheduler` | 无 | 无 | HTML 页面 | 任务卡列表、新建/编辑弹窗与执行历史 |
-| `GET /system/personas` | 无 | 无 | HTML 页面 | 内置角色列表、编辑区、工具/技能勾选 |
+| `GET /system/personas` | 无 | 无 | HTML 页面 | 内置角色列表、编辑区、工具/技能勾选；左栏固定「通用对话」管理普通会话范围 |
 | `GET /system/skills` | 无 | 无 | HTML 页面 | 内置技能列表、声明式定义编辑、基础信息与试运行/运行记录 |
 | `GET /system/ai` | 无 | 无 | HTML 页面 | AI 配置工作台：来源、模型清单与 7 个功能路由 |
 | `GET /api/system/scheduler/jobs` | 无 | 无 | `{list[], total}`，元素为 `scheduled_job`（A.17） | 任务列表：表达式、下次执行、上次结果与累计次数 |
@@ -312,7 +312,9 @@
 | `POST /api/system/scheduler/jobs/{job_id}/run` | 路径参数 | 无 | `{status, message, duration_ms, detail}` | 立即执行一次（线程池内同步跑，写入 `job_runs`） |
 | `GET /api/system/scheduler/runs` | Query | `job_id`（可选）、`page`、`page_size`（默认 20） | 分页包，`list[]` 为 `job_run`（A.18） | 执行历史，按开始时间倒序 |
 | `GET /api/system/system-personas` | 无 | 无 | `{list[]}`，元素为 `system_persona`（A.21） | 内置角色列表：版本、状态、工具/技能白名单与生效数量 |
-| `GET /api/system/system-personas/options` | 无 | 无 | `{tools:[{name,label,kind,description,restricted}], skills:[{key,label,kind,scope,description,version,restricted}]}` | 管理员勾选用的工具与平台技能稳定清单 |
+| `GET /api/system/system-personas/options` | 无 | 无 | `{tools:[{name,label,kind,description,restricted}], skills:[{key,label,kind,scope,description,version,restricted}]}` | 管理员勾选用的工具与平台技能稳定清单；所有项 `restricted=false` |
+| `GET /api/system/system-personas/default-chat` | 无 | 无 | `default_chat`（A.23） | 普通会话（未绑定角色）的默认工具/技能配置 |
+| `PUT /api/system/system-personas/default-chat` | JSON | `tool_grants`（数组或 null）、`skill_grants`（数组或 null）；`extra=forbid` | `default_chat`（A.23） | 保存通用对话配置；只校验项是否存在与 `skill_*` 不混入 `tool_grants`，保存后重建常驻图 |
 | `POST /api/system/system-personas` | JSON | `key`、`name`、`description`、`definition{schema_version,prompt}`、`status`、`sort_order`、`tool_grants`（数组或 null）、`skill_grants`（数组或 null） | `system_persona`（201） | 新建内置角色；立即发布 v1，校验键/名称唯一、提示词与白名单 |
 | `GET /api/system/system-personas/{persona_id}` | 路径参数 | 无 | `system_persona`（A.21） | 内置角色详情 |
 | `PUT /api/system/system-personas/{persona_id}` | JSON | 同创建字段；`key` 可传但必须与原键一致 | `system_persona` | 保存名称/定位/状态/排序/提示词/白名单；提示词变化才新增版本；键不可改 |
@@ -341,7 +343,7 @@
 
 > 表达式口径：cron 为标准五段式（分 时 日 月 星期），**星期字段只接受 mon~sun 英文缩写**，数字写法返回 400；interval 形如 `10m`/`2h`/`1d`（最小 60 秒）；date 形如 `2026-11-20 15:40` 且必须晚于当前时间。任务参数结构由代码注册表约束，多余字段返回 422。任务为实例级配置，不按用户隔离。本模块全部页面与接口仅 `管理员` 可访问（401/403 口径见 1.2）。「立即执行」为同步执行，耗时较长时请求会等待。
 >
-> 内置角色口径：`scope=system`，普通用户只读，管理员可增删改查。`tool_grants` / `skill_grants` 为 `null` 时沿用平台默认范围；非空数组（含空数组）为显式白名单，空数组表示不使用任何工具/技能。`key` 创建后不可修改；删除被 `agent_conversations.persona_id` 引用的角色返回 409。
+> 内置角色口径：`scope=system`，普通用户只读，管理员可增删改查。`tool_grants` / `skill_grants` 为 `null` 时使用全部已注册工具与全部平台技能；非空数组（含空数组）为显式白名单，空数组表示不使用任何工具/技能。所有工具与平台技能都可授权给任意角色，不再有“专项技能只允许某角色”的校验。`key` 创建后不可修改；删除被 `agent_conversations.persona_id` 引用的角色返回 409。通用对话配置 `agent_chat_defaults` 是单行、非角色配置，只作用于未绑定角色的普通会话，不参与角色列表与选择。
 >
 > 内置技能口径：平台技能固定 `scope=system`，普通用户在 `/agent/skills` 只读，管理员在 `/system/skills` 维护。代码技能定义由 `app/modules/agent/skills/platform.py` 注册，定义只读、删除 400；名称/描述/分类/斜杠别名/状态可在管理接口调整，不新增版本，保存后重建系统图。提示词技能可新建、编辑并被版本化，定义只承载 `{schema_version:1, prompt}`（1~4000 字）；声明式技能可新建、编辑并被版本化，定义仍走既有 DSL 白名单。保存/启停/删除后服务端重建常驻系统图并清空按用户图缓存，立即生效。删除被内置角色 `skill_grants` 显式引用的技能返回 409；`key` 创建后不可修改。
 >
@@ -577,8 +579,8 @@
 | `status` / `sort_order` | `active` / `disabled`；内置角色排序 |
 | `current_version_no` / `version_no` / `published` | 当前生效版本、本次返回版本、是否已发布 |
 | `definition` | `{schema_version:1, prompt}` |
-| `tool_grants` / `skill_grants` | 管理员配置的原始白名单；`null` 表示沿用平台默认范围，空数组表示不使用 |
-| `default_tools` / `default_skills` | 该角色沿用默认范围时实际可用的工具名与技能键 |
+| `tool_grants` / `skill_grants` | 管理员配置的原始白名单；`null` 表示全部已注册工具/平台技能，空数组表示不使用 |
+| `default_tools` / `default_skills` | 该角色默认可用（全量）的工具名与技能键 |
 | `effective_tools` / `effective_skills` | 当前实际生效的工具名与技能键（显式白名单与现存清单取交集） |
 | `tool_count` / `skill_count` | 实际生效数量 |
 | `conversation_count` | 已绑定该角色的会话数；大于 0 时不可删除 |
@@ -597,6 +599,20 @@
 | `run_count` | 跨用户累计运行次数（只读审计，不返回用户身份） |
 | `can_edit` / `can_edit_definition` / `can_delete` | 平台技能均可编辑元数据；`can_edit_definition` 仅提示词/声明式为 `true`，代码技能定义只读；代码技能不可删除 |
 | `updated_at` | 更新时间 |
+
+### A.23 通用对话配置对象 DefaultChat
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` / `key` / `name` | 固定 `default`、`default_chat`、`通用对话`；不是角色 id/键 |
+| `description` | 配置说明；固定“所有未绑定角色的普通会话统一使用本配置” |
+| `is_default_chat` | 固定 `true`，页面据此渲染伪条目并隐藏角色字段 |
+| `tool_grants` / `skill_grants` | 原始白名单；`null` 表示全部工具/平台技能，空数组表示不使用 |
+| `default_tools` / `default_skills` | 平台当前全部已注册工具名与平台技能键 |
+| `effective_tools` / `effective_skills` | 当前实际生效范围（显式白名单与现存清单取交集） |
+| `tool_count` / `skill_count` | 实际生效数量 |
+| `can_edit` / `can_delete` | 固定 `true` / `false`；通用对话不是角色，不可删除 |
+| `updated_at` | 最后保存时间；从未保存时为 `null` |
 
 ## 17. 维护
 

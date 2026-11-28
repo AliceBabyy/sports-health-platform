@@ -45,7 +45,7 @@
 
   function updateCount() {
     if (!state) return;
-    count.textContent = state.questions.length + ' 题' + (state.questions.length >= 10 ? ' · 已满' : '');
+    count.textContent = state.questions.length + ' 题';
   }
 
   function renderEditor() {
@@ -67,9 +67,7 @@
     }).join('');
 
     body.innerHTML = rows +
-      (state.questions.length < 10
-        ? '<button class="hp-add-question" type="button"><span aria-hidden="true">+</span> 添加一个问题</button>'
-        : '<div class="hp-add-limit">已到 10 题上限</div>');
+      '<button class="hp-add-question" type="button"><span aria-hidden="true">+</span> 添加一个问题</button>';
 
     body.querySelectorAll('.hp-q-answer').forEach(function (textarea) {
       const update = function () {
@@ -95,7 +93,7 @@
   }
 
   function addQuestion() {
-    if (!state || state.questions.length >= 10) return;
+    if (!state) return;
     capture();
     const last = state.questions[state.questions.length - 1];
     const aspect = (last && last.aspect) || state.aspects[0] || 'exercise';

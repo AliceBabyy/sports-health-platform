@@ -263,24 +263,33 @@ class _FakeTool:
         self.name = name
 
 
-def test_tool_policy_is_noop_now_and_seam_works(monkeypatch):
+def test_tool_policy_defaults_all_and_explicit_grants_filter(monkeypatch):
     tools = [_FakeTool("general"), _FakeTool("diet_only")]
     assert policy.tools_for_persona(tools, "nutrition") == tools
+    assert policy.tools_for_persona(tools, None) == tools
     assert policy.persona_graph_fingerprint(None) == ""
 
+    # 旧的角色范围映射已清空；即使被外部临时塞回，也不再影响默认可见性。
     monkeypatch.setattr(policy, "TOOL_PERSONA_SCOPES", {"diet_only": frozenset({"nutrition"})})
     assert [t.name for t in policy.tools_for_persona(tools, "nutrition")] == ["general", "diet_only"]
-    assert [t.name for t in policy.tools_for_persona(tools, "e_trainer")] == ["general"]
-    assert [t.name for t in policy.tools_for_persona(tools, None)] == ["general"]
-    assert policy.persona_graph_fingerprint(type("P", (), {"key": "nutrition"})) == "nutrition:diet_only"
-    assert policy.persona_graph_fingerprint(type("P", (), {"key": "e_trainer"})) == ""
+    assert [t.name for t in policy.tools_for_persona(tools, "e_trainer")] == ["general", "diet_only"]
+    assert [t.name for t in policy.tools_for_persona(tools, None)] == ["general", "diet_only"]
+    assert policy.persona_graph_fingerprint(type("P", (), {"key": "nutrition"})) == ""
+
+    explicit = type("P", (), {
+        "key": "nutrition",
+        "tool_grants": frozenset({"general"}),
+        "skill_grants": None,
+    })
+    assert [t.name for t in policy.tools_for_persona(tools, explicit)] == ["general"]
+    assert policy.persona_graph_fingerprint(explicit).startswith("nutrition:g")
 
 
-def test_custom_fitness_plan_is_only_visible_to_training_coach():
+def test_custom_fitness_plan_is_visible_to_all_roles():
     tool_name = "skill_custom_fitness_plan"
     assert policy.tool_visible(tool_name, "training_coach") is True
-    assert policy.tool_visible(tool_name, "e_trainer") is False
-    assert policy.tool_visible(tool_name, None) is False
+    assert policy.tool_visible(tool_name, "e_trainer") is True
+    assert policy.tool_visible(tool_name, None) is True
 
 
 def test_platform_persona_prompts_fit_definition_limit():

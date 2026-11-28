@@ -29,6 +29,7 @@ from app.modules.agent.models import (
     AgentSkill,
     AgentSkillVersion,
 )
+from app.modules.agent.chat_defaults import default_chat_scope
 from app.modules.agent.graph import RUN_MODE_CONTINUE, RUN_MODE_NORMAL
 from app.modules.agent.personas.management import bindable_persona
 from app.modules.agent.personas.runtime import (
@@ -384,6 +385,13 @@ def build_turns(
     return result
 
 
+def _resolve_chat_scopes(db: Session, row: AgentConversation, user_id: int):
+    """返回 (角色人设, 工具/技能 scope)；普通会话的 scope 来自通用对话配置。"""
+    persona = resolve_for_conversation(db, row, user_id)
+    scope = persona if persona is not None else default_chat_scope(db)
+    return persona, scope
+
+
 async def get_messages(db: Session, user_id: int, conversation_id: int, runtime: dict) -> dict:
     """按一轮问答（turn）聚合历史，正文段、中途提问与工具轨迹一并返回。
 
@@ -392,14 +400,13 @@ async def get_messages(db: Session, user_id: int, conversation_id: int, runtime:
     与结果归并进 `tool_runs`，供前端用与流式一致的渲染器重建视图。
     """
     row = get_conversation(db, user_id, conversation_id)
-    persona = resolve_for_conversation(db, row, user_id)
+    persona, scope = _resolve_chat_scopes(db, row, user_id)
     config = {"configurable": {"thread_id": str(row.thread_id)}}
-    graph = graph_for_user(db, user_id, runtime, persona)
+    graph = graph_for_user(db, user_id, runtime, scope)
     state = await graph.aget_state(config)
     skills = available_skills(
-        db, user_id,
-        persona.key if persona is not None else None,
-        skill_grants=persona.skill_grants if persona is not None else None,
+        db, user_id, scope.key,
+        skill_grants=scope.skill_grants,
     )
     return {
         "conversation_id": row.id,
@@ -482,10 +489,10 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
     _validate_model(payload.model_name)
     row = get_conversation(db, user_id, conversation_id)
     thread_id = str(row.thread_id)
-    persona = resolve_for_conversation(db, row, user_id)
+    persona, scope = _resolve_chat_scopes(db, row, user_id)
     _acquire_slot(thread_id, payload.client_msg_id, row)
     config = {"configurable": {"thread_id": thread_id}}
-    state = await graph_for_user(db, user_id, runtime, persona).aget_state(config)
+    state = await graph_for_user(db, user_id, runtime, scope).aget_state(config)
     msgs = state.values.get("messages", [])
 
     if _pending_ask(state):
@@ -505,7 +512,7 @@ async def prepare_regenerate(db: Session, user_id: int, conversation_id: int, ru
         raise AppError(400, "暂无可重新生成的回答")
 
     try:
-        await graph_for_user(db, user_id, runtime, persona).aupdate_state(
+        await graph_for_user(db, user_id, runtime, scope).aupdate_state(
             config,
             {"messages": [RemoveMessage(id=m.id) for m in removed if getattr(m, "id", None)]},
         )
@@ -616,8 +623,8 @@ async def stop_reply(db: Session, user_id: int, conversation_id: int, runtime: d
     partial = run.get("partial") or ""
     closed = False
     if settled:
-        persona = resolve_for_conversation(db, row, user_id)
-        graph = graph_for_user(db, user_id, runtime, persona)
+        persona, scope = _resolve_chat_scopes(db, row, user_id)
+        graph = graph_for_user(db, user_id, runtime, scope)
         try:
             closed = await _close_interrupted_turn(
                 graph, {"configurable": {"thread_id": thread_id}}, partial
@@ -642,8 +649,8 @@ async def prepare_continue(db: Session, user_id: int, conversation_id: int, runt
     _validate_model(payload.model_name)
     row = get_conversation(db, user_id, conversation_id)
     thread_id = str(row.thread_id)
-    persona = resolve_for_conversation(db, row, user_id)
-    graph = graph_for_user(db, user_id, runtime, persona)
+    persona, scope = _resolve_chat_scopes(db, row, user_id)
+    graph = graph_for_user(db, user_id, runtime, scope)
     config = {"configurable": {"thread_id": thread_id}}
     state = await graph.aget_state(config)
 
@@ -678,8 +685,8 @@ async def update_ask_answer(db: Session, user_id: int, conversation_id: int, run
     if not answer:
         raise AppError(400, "回答不能为空")
 
-    persona = resolve_for_conversation(db, row, user_id)
-    graph = graph_for_user(db, user_id, runtime, persona)
+    persona, scope = _resolve_chat_scopes(db, row, user_id)
+    graph = graph_for_user(db, user_id, runtime, scope)
     config = {"configurable": {"thread_id": thread_id}}
     state = await graph.aget_state(config)
     if _pending_ask(state) is None:
@@ -926,12 +933,11 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
     activity_at = datetime.now()
     row.last_message_at = activity_at
     db.commit()
-    persona = resolve_for_conversation(db, row, row.user_id)
-    skill_scope = persona.key if persona is not None else None
-    graph = graph_for_user(db, row.user_id, runtime, persona)
+    persona, scope = _resolve_chat_scopes(db, row, row.user_id)
+    graph = graph_for_user(db, row.user_id, runtime, scope)
     skills = available_skills(
-        db, row.user_id, skill_scope,
-        skill_grants=persona.skill_grants if persona is not None else None,
+        db, row.user_id, scope.key,
+        skill_grants=scope.skill_grants,
     )
     base_config = {
         "configurable": {
@@ -1013,8 +1019,8 @@ async def stream_reply(db: Session, row: AgentConversation, thread_id: str, runt
                     yield _sse("delta", {"content": reply})
                 else:
                     skill = find_by_slash(
-                        db, row.user_id, token, skill_scope,
-                        skill_grants=persona.skill_grants if persona is not None else None,
+                        db, row.user_id, token, scope.key,
+                        skill_grants=scope.skill_grants,
                     )
                     if skill is None:
                         reply = f"没有找到 `/{token}` 技能。可用技能：" + _commands_text(skills)

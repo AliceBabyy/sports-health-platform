@@ -1,7 +1,7 @@
 """系统内置角色管理请求模型。"""
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SystemPersonaIn(BaseModel):
@@ -22,5 +22,14 @@ class SystemPersonaUpdateIn(BaseModel):
     definition: dict[str, Any]
     status: Literal["active", "disabled"] = "active"
     sort_order: int = Field(default=0, ge=0, le=9999)
+    tool_grants: list[str] | None = None
+    skill_grants: list[str] | None = None
+
+
+class DefaultChatUpdateIn(BaseModel):
+    """通用对话配置：只允许工具/技能白名单，不承载角色名、提示词或状态。"""
+
+    model_config = ConfigDict(extra="forbid")
+
     tool_grants: list[str] | None = None
     skill_grants: list[str] | None = None

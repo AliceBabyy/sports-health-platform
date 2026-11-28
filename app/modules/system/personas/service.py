@@ -6,6 +6,10 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppError
+from app.modules.agent.chat_defaults import (
+    default_chat_dict,
+    save_default_chat as save_chat_default,
+)
 from app.modules.agent.models import AgentConversation, AgentPersona, AgentPersonaVersion
 from app.modules.agent.personas.definition import validate_definition
 from app.modules.agent.personas.management import (
@@ -20,11 +24,6 @@ from app.modules.agent.personas.management import (
 from app.modules.agent.skills.registry import available_skills
 from app.modules.agent.tools.catalog import tool_names
 from app.modules.agent.tools.catalog import tool_options as catalog_tool_options
-from app.modules.agent.tools.policy import (
-    PROFILE_TEST_ONLY_TOOLS,
-    PROFILE_TEST_PERSONA,
-    tool_visible,
-)
 
 SYSTEM_SCOPE = "system"
 MAX_SORT_ORDER = 9999
@@ -101,8 +100,7 @@ def _validate_payload(
     db: Session,
     payload: dict,
     *,
-    key: str,
-    exclude_id: int | None,
+    exclude_id: int,
 ) -> tuple[list[str] | None, list[str] | None]:
     name = (payload.get("name") or "").strip()
     description = (payload.get("description") or "").strip()
@@ -111,8 +109,8 @@ def _validate_payload(
         sort_order = 0
     status = payload.get("status") or "active"
     errors = _basic_errors(
-        db, name=name, key=key, description=description,
-        sort_order=sort_order, exclude_id=exclude_id,
+        db, name=name, key=(payload.get("key") or "").strip().lower(),
+        description=description, sort_order=sort_order, exclude_id=exclude_id,
     )
     if status not in ("active", "disabled"):
         errors.append({"field": "status", "reason": "状态只能是 active 或 disabled"})
@@ -130,30 +128,13 @@ def _validate_payload(
                     "field": "tool_grants",
                     "reason": f"{name_} 属于技能，请使用 skill_grants 管理",
                 })
-        if key != PROFILE_TEST_PERSONA and PROFILE_TEST_ONLY_TOOLS & set(tools):
-            errors.append({
-                "field": "tool_grants",
-                "reason": "健康档案专项技能与保存工具只允许 health_profile_test 角色使用",
-            })
-    if skills is not None and key != PROFILE_TEST_PERSONA:
-        restricted = [
-            skill_key for skill_key in skills
-            if f"skill_{skill_key}" in PROFILE_TEST_ONLY_TOOLS
-        ]
-        if restricted:
-            errors.append({
-                "field": "skill_grants",
-                "reason": "健康档案专项技能只允许 health_profile_test 角色使用",
-            })
     if errors:
         raise PersonaValidationError(errors)
     return tools, skills
 
 
 def _default_tools(persona_key: str) -> list[str]:
-    return sorted(
-        name for name in tool_names() if tool_visible(name, persona_key)
-    )
+    return sorted(tool_names())
 
 
 def _default_skills(db: Session, persona_key: str) -> list[str]:
@@ -232,7 +213,7 @@ def get_system_persona(db: Session, persona_id: int) -> dict:
 
 def create_system_persona(db: Session, payload: dict, actor_id: int | None) -> dict:
     key = (payload.get("key") or "").strip().lower()
-    tools, skills = _validate_payload(db, payload, key=key, exclude_id=None)
+    tools, skills = _validate_payload(db, payload, exclude_id=None)
     sort_order = payload.get("sort_order")
     if sort_order is None:
         sort_order = 0
@@ -272,7 +253,7 @@ def save_system_persona(db: Session, persona_id: int, payload: dict, actor_id: i
             "field": "key", "reason": "内置角色键创建后不可修改；需要新键请新建角色",
         }])
     tools, skills = _validate_payload(
-        db, payload, key=persona.persona_key, exclude_id=persona.id,
+        db, payload, exclude_id=persona.id,
     )
     persona.name = payload["name"].strip()
     persona.description = (payload.get("description") or "").strip()
@@ -313,10 +294,10 @@ def delete_system_persona(db: Session, persona_id: int) -> None:
 
 
 def tool_options() -> list[dict]:
-    """工具选项 + 是否受默认角色范围限制（新建角色默认不勾受限工具）。"""
+    """工具选项；角色限制已取消，所有已注册工具都可自由勾选。"""
     options = catalog_tool_options()
     for option in options:
-        option["restricted"] = not tool_visible(option["name"], None)
+        option["restricted"] = False
     return options
 
 
@@ -334,15 +315,43 @@ def skill_options(db: Session) -> list[dict]:
             "scope": skill.scope,
             "description": skill.description,
             "version": skill.version_no,
-            "restricted": not tool_visible(skill.tool_name, None),
+            "restricted": False,
         }
         for skill in skills
     ], key=lambda item: (order.get(item["kind"], 99), item["key"]))
 
 
+def get_default_chat(db: Session) -> dict:
+    return default_chat_dict(db)
+
+
+def save_default_chat_config(db: Session, payload: dict, actor_id: int | None) -> dict:
+    """保存通用对话配置；只校验选项是否存在，不做任何角色范围限制。"""
+    errors: list[dict] = []
+    tools = _normalise_grants(payload, "tool_grants", tool_names(), errors)
+    available_skill_keys = {
+        skill.key for skill in available_skills(db, 0, include_restricted=True)
+        if skill.scope == SYSTEM_SCOPE
+    }
+    skills = _normalise_grants(payload, "skill_grants", available_skill_keys, errors)
+    if tools is not None:
+        for name_ in tools:
+            if name_.startswith("skill_"):
+                errors.append({
+                    "field": "tool_grants",
+                    "reason": f"{name_} 属于技能，请使用 skill_grants 管理",
+                })
+    if errors:
+        raise PersonaValidationError(errors)
+    return save_chat_default(
+        db, tool_grants=tools, skill_grants=skills, actor_id=actor_id,
+    )
+
+
 def page_context(db: Session) -> dict:
     return {
         "personas": list_system_personas(db),
+        "default_chat": get_default_chat(db),
         "tool_options": tool_options(),
         "skill_options": skill_options(db),
     }

@@ -63,7 +63,7 @@ checkpoint_blobs / checkpoint_writes / checkpoint_migrations）承载，应用�
 按业务域注册 8 个只读工具：`get_workout_summary`（跨三运动汇总，复用 overview 口径）、
 `get_fitness_records`（健身明细含动作与容量）、`get_swim_records`（游泳明细含配速/划频）、
 `get_dance_records`（舞蹈明细）、`get_body_measurements`（身材 4 组，`metric=all` 取整表或单指标趋势，
-未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪/恢复）、`get_cycle_records`（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段；仅女性账号，其他账号 403）、`get_profile_info`（昵称/性别/年龄 + 专项档案的最近一套与最近 3 套历史，女性 10 个、男性与未填性别 9 个不含生理期，+ `filled/set_count/skill_count`，不含密码）。
+未测量日期不补值）、`get_state_records`（食欲/肌肉疼痛/炎症/情绪/恢复）、`get_cycle_records`（参考值 + 月经记录 + 每日疼痛与 note + 今日阶段；仅女性账号，其他账号 403）、`get_profile_info`（昵称/性别/年龄 + 专项档案的最近一套与兼容保留历史（最多 3 套），女性 10 个、男性与未填性别 9 个不含生理期，+ `filled/set_count/skill_count`，不含密码）。
 取数范围由模型按用户意图决定：`days_back`、`start_date + end_date`、`limit` 均可选，
 **不传任何范围参数即取全部历史**，已移除原 366 天 / 20 条硬上限；一次拉全量或只拉最近几次
 都由意图决定。`user_id` 经 `RunnableConfig` 服务端注入、模型不可填，工具内部用独立短 session；
@@ -88,14 +88,15 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 选择（平台内置营养师 `nutrition`、电子私教 `e_trainer`、健身教练 `training_coach`、健康档案测试 `health_profile_test`，以及用户自定义角色）。角色会话创建时把
 `persona_id + persona_version_no` 一并落库，整段会话固定该角色、不提供切换；侧栏显示角色名徽标，
 历史消息与 SSE `done` 均携带角色快照。角色定义只提供提示词（`agent_chat.v9` 末尾「角色设定」+
-「规则优先级（最高）」）；工具/技能默认范围由服务端 `TOOL_PERSONA_SCOPES` 提供，管理员可在
-`/system/personas` 给内置角色配置显式 `tool_grants` / `skill_grants` 白名单（`NULL` 表示沿用默认范围，空数组表示不使用），
-装配阶段按白名单过滤。角色改版后老会话仍读创建时版本。普通用户角色管理页
+「规则优先级（最高）」）；所有已注册工具与平台技能默认全部开放，管理员可在
+`/system/personas` 为任意角色自由勾选 `tool_grants` / `skill_grants`（`NULL` 表示全部，空数组表示不使用），
+装配阶段只按显式白名单过滤。未绑定角色的普通会话由同页「通用对话」统一管理，配置落单行表 `agent_chat_defaults`
+（不是角色、不参与角色选择），保存后即时重建常驻图。角色改版后老会话仍读创建时版本。普通用户角色管理页
 `/agent/personas` 挂在「AI助手 → 角色管理」，平台角色只读，用户角色只写名称、定位与提示词，保存即
 生成新版本并生效，支持启停与删除（被会话引用时先删会话）。管理员内置角色页 `/system/personas` 支持新建、编辑、
-删除、排序、启停、恢复默认范围，接口统一为 `/api/system/system-personas`，自动受管理员门禁保护。数据层新增 `agent_personas` /
-`agent_persona_versions` 与 `agent_personas.tool_grants / skill_grants` 两列，会话表增加两列。迁移
-`python scripts/migrate_agent_personas.py`、`python scripts/migrate_agent_persona_grants.py`，种子 `python scripts/seed_agent_personas.py`。
+删除、排序、启停、恢复默认范围，并固定提供「通用对话」条目，接口统一为 `/api/system/system-personas`，自动受管理员门禁保护。数据层新增 `agent_personas` /
+`agent_persona_versions`、`agent_personas.tool_grants / skill_grants` 两列与 `agent_chat_defaults`，会话表增加两列。迁移
+`python scripts/migrate_agent_personas.py`、`python scripts/migrate_agent_persona_grants.py`、`python scripts/migrate_agent_chat_defaults.py`，种子 `python scripts/seed_agent_personas.py`。
 
 **健康档案专项技能（2026-11-26 重构）**：平台内置 `health_profile_test` 角色，健康档案拆成 10 个专项，每个专项一个平台代码技能，展示名统一加 `测试-` 前缀：
 `profile_goal`（测试-目标档案）、`profile_diet`（测试-饮食档案）、`profile_exercise`（测试-运动档案）、
@@ -105,16 +106,17 @@ SSE 工具事件新增 `label/kind/origin/version/skill`；技能轨迹与输出
 `exercise/sport/training/environment/preference` 五个 aspect；健身专项允许 `exercise/sport/goal/training/environment/preference` 六个 aspect，一次可生成 6~10 题。10 段提示词合并在
 `app/ai/prompts/profile_aspect_skills_v1.txt`，由 `loader.py` 按固定 section ID 加载；题目不写死注册表，
 模型每次在专项提示词约束下生成 3~10 题（健身档案 6~10 题）并逐题调用 `ask_user`，全部问完后调用
-`save_health_profile_aspect(skill_key, questions, answers)` 静默写入。保存成功后图进入
+`save_health_profile_aspect(skill_key, questions, answers)` 静默写入。单批仍只生成 3~10 题；已有专项时
+保存层把本批合并进当前档案：标题相同覆盖旧题，新标题追加为 qN+1，保存后的总题数可超过 10。保存成功后图进入
 `finalize_profile_save` 固定结束本轮，不自动开始下一个专项。
 `health_profile` 已重置为“一套专项问题多行、一行一道题”：字段为
-`set_id / skill_key / aspect / local_key(q1~q10) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，
-唯一约束 `(user_id,set_id,local_key)`，同一专项最多保留最近 3 套。页面 `/profile/health-profile`
+`set_id / skill_key / aspect / local_key(q1、q2...) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，
+唯一约束 `(user_id,set_id,local_key)`；同一专项持续累积一套，不再新建或截断历史套。页面 `/profile/health-profile`
 固定展示可用专项卡（女性 10 个；男性与未填性别 9 个，不含生理期）：已建立卡默认只读展示全部问答，未建立卡显示新增入口；卡头按钮统一「新增/编辑」，
-点击打开弹窗，问题文字与回答均可修改，末尾「+ 添加一个问题」可自定义追加（最多 10 题）。页面手工保存走
+点击打开弹窗，问题文字与回答均可修改，末尾「+ 添加一个问题」可自定义追加，题数不设上限。页面手工保存走
 `POST /api/profile/health-profile/sets`（无套新建/已有套直接编辑）与 `PUT /api/profile/health-profile/sets/{set_id}`
-（改题与追加），旧逐题 PUT 保留兼容；空串清空该题，DELETE 清空全部。`get_profile_info` 返回 10 个专项的最近一套与最近 3 套历史。
-10 个专项 skill 与保存工具只授权给 `health_profile_test`，是运行时硬边界，其他角色只保留 `get_profile_info` 只读，不能通过角色白名单绕过。重置迁移
+（改题与追加），旧逐题 PUT 保留兼容；空串清空该题，DELETE 清空全部。`get_profile_info` 返回 10 个专项的最近一套与兼容保留的历史（最多 3 套）。
+10 个专项 skill 与保存工具默认全部角色可见（V2.22 起取消“只授权给 `health_profile_test`”的硬边界），管理员可在任意角色中自由勾选；`NULL` 表示全量，显式白名单才裁剪。重置迁移
 `python scripts/migrate_health_profile_aspects.py`（仅允许在原表 0 行时执行）；已有数据的库补 `sport` 约束运行
 `python scripts/migrate_health_profile_sport.py`（只改 CHECK，不删数据）；曾建过四个临时健身专项的库运行
 `python scripts/migrate_profile_fitness_merge.py` 清理旧技能；种子
@@ -220,7 +222,7 @@ SSR 单体应用：**FastAPI + Jinja2 + SQLAlchemy + PostgreSQL**，端口 **801
 
 V1 范围：注册/登录认证 + 模块（身材数据 BD / 状态记录 SR / 健身训练 TR / 游泳 SW / 舞蹈 DA / 生理周期 MC / 个人信息 PR）。
 
-健康档案（2026-11-26 专项化重构，2026-11-27 视图优化）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，固定可用专项卡（女性 10 个；男性与未填性别 9 个，不含生理期），已建立卡默认只读展示题目与答案全文（未答显示「—」），卡头「新增/编辑」打开弹窗，弹窗内可改问题文字和回答，末尾「+ 添加一个问题」可自定义追加，最多 10 题。页头展示已建立专项/累计问题/已填写回答/最近更新四项概况；题目由「健康档案测试」角色按 10 个专项（展示名统一 `测试-` 前缀：测试-目标档案/测试-饮食档案/测试-运动档案/测试-健身档案/测试-睡眠档案/测试-生活方式/测试-生理期档案/测试-形体矫正/测试-伤病档案/测试-档案补充）在对话中生成，每套 3~10 题（健身档案 6~10 题）；`health_profile` 按 `set_id` 分套、一行一道题，字段 `set_id / skill_key / aspect / local_key(q1~q10) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，唯一约束 `(user_id,set_id,local_key)`，同一专项最多保留最近 3 套。文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_aspects.py`（仅原表 0 行时执行）；已有数据的库补 `sport` aspect 运行 `python scripts/migrate_health_profile_sport.py`（只改 CHECK，不删数据）；曾建过四个临时健身专项的库运行 `python scripts/migrate_profile_fitness_merge.py` 清理旧技能（保留既有档案答案）。
+健康档案（2026-11-26 专项化重构，2026-11-27 视图优化）：侧栏「个人信息」分组新增子页 `/profile/health-profile`，固定可用专项卡（女性 10 个；男性与未填性别 9 个，不含生理期），已建立卡默认只读展示题目与答案全文（未答显示「—」），卡头「新增/编辑」打开弹窗，弹窗内可改问题文字和回答，末尾「+ 添加一个问题」可自定义追加，题数不设上限。页头展示已建立专项/累计问题/已填写回答/最近更新四项概况；题目由「健康档案测试」角色按 10 个专项（展示名统一 `测试-` 前缀：测试-目标档案/测试-饮食档案/测试-运动档案/测试-健身档案/测试-睡眠档案/测试-生活方式/测试-生理期档案/测试-形体矫正/测试-伤病档案/测试-档案补充）在对话中生成，每套 3~10 题（健身档案 6~10 题）；`health_profile` 按 `set_id` 分套、一行一道题，字段 `set_id / skill_key / aspect / local_key(q1、q2...) / label / hint / placeholder / max_length / answer / sort_order / set_generated_at`，唯一约束 `(user_id,set_id,local_key)`；AI 单批仍只生成 3~10 题，已有专项时同标题覆盖、新标题追加，保存后的总题数可超过 10，同一专项持续累积一套，旧套兼容保留但不自动删除。文本不做结构化解析，只作 AI 每日建议与 Agent 只读工具的参考，不参与代码硬约束。现有库运行 `python scripts/migrate_health_profile_aspects.py`（仅原表 0 行时执行）；已有数据的库补 `sport` aspect 运行 `python scripts/migrate_health_profile_sport.py`（只改 CHECK，不删数据）；曾建过四个临时健身专项的库运行 `python scripts/migrate_profile_fitness_merge.py` 清理旧技能（保留既有档案答案）；支持超过 10 题前运行 `python scripts/migrate_health_profile_local_key.py` 放宽题号字段。
 
 账号注销：个人信息页可退出登录，或在输入当前密码后选择“注销但保留数据”（users.status=停用，禁止登录）和“注销并清除所有数据”（删除用户及所有关联记录）。停用账号可在注册页勾选恢复并凭同名账号、原密码恢复原 user_id 和数据。管理员角色已用于 `/system` 管理区（定时任务、内置角色、内置技能）；停用账号的恢复与清除仍通过受控数据库操作。现有库运行 `python scripts/migrate_user_status.py` 增加状态列。
 严格按《个人健康管理平台开发需求文档》V1 + UI 设计图 + 技术栈实现。

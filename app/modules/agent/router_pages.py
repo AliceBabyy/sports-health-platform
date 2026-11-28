@@ -9,7 +9,6 @@ from app.core.templating import render_page
 from app.modules.agent import service
 from app.modules.agent.personas.management import list_personas
 from app.modules.agent.skills.management import list_skills
-from app.modules.agent.tools.policy import TOOL_PERSONA_SCOPES
 from app.modules.agent.tools.web_search import web_search_available
 from app.modules.auth.models import User
 from app.modules.profile.aspect_skills import skill_female_only
@@ -106,6 +105,5 @@ def agent_personas_page(
             "personas": personas,
             "persona_max": settings.agent_persona_max_per_user,
             "persona_max_chars": settings.agent_persona_max_chars,
-            "tool_scoping_active": bool(TOOL_PERSONA_SCOPES),
         },
     )

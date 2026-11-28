@@ -25,7 +25,7 @@ DDL = [
 
 COMMENTS = [
     "COMMENT ON COLUMN agent_personas.tool_grants IS "
-    "'角色可用工具白名单 JSON 数组；NULL=按平台默认范围，空数组=不使用工具'",
+    "'角色可用工具白名单 JSON 数组；NULL=全部已注册工具，空数组=不使用工具'",
     "COMMENT ON COLUMN agent_personas.skill_grants IS "
     "'角色可用平台技能白名单 JSON 数组；NULL=全部平台技能，空数组=不使用技能'",
 ]

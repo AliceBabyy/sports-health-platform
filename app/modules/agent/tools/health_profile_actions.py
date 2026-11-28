@@ -1,10 +1,11 @@
-"""Agent 受控写工具：保存某个健康档案专项 skill 生成的一套问题与答案。
+"""Agent 受控写工具：保存某个健康档案专项 skill 生成的一批问题与答案。
 
-仅通过 TOOL_PERSONA_SCOPES 授权给 health_profile_test 角色；普通会话与其他角色不可见。
+可由任意角色或普通会话按显式 tool_grants 授权装配，不再只绑定 health_profile_test。
 边界由代码强制：
 - user_id 从 RunnableConfig 注入，模型不可填；
 - skill_key 必须是十个专项之一，题目 aspect 必须属于该专项；
-- 一套 3~10 题、题号 q1~q10、答案 key 必须与题目对应、至少 1 题有答案；
+- 单批 3~10 题、题号 q1~q10、答案 key 必须与题目对应、至少 1 题有答案；
+- 已有专项时合并到当前档案：同标题覆盖、新标题追加，总题数可超过 10；
 - 复用 profile.service 的落库逻辑，不直接写 SQL。
 """
 from __future__ import annotations
@@ -82,12 +83,13 @@ save_health_profile_aspect = StructuredTool.from_function(
     coroutine=_save_health_profile_aspect,
     name="save_health_profile_aspect",
     description=(
-        "保存健康档案测试中某个专项 skill 生成的一套问题与用户已回答内容（仅该角色可用）。"
-        "只在用户明确确认写入健康档案后调用；questions 为 3~10 个，key 用 q1~q10，"
+        "保存健康档案测试中某个专项 skill 生成的一批问题与用户已回答内容（仅该角色可用）。"
+        "只在用户明确确认写入健康档案后调用；questions 为本次生成的 3~10 个，key 用 q1~q10，"
         "每题 aspect 必须属于 skill_key 对应的专项（不能自造），不要混入其他专项；"
         "answers 的 key 必须与 questions 对应，只填用户实际说出的答案，至少 1 题，"
-        "不要推断或补写。同一套题再次保存只更新答案；题目变化会新增一套，"
-        "同一专项只保留最近 3 套。不要传 user_id、日期、set_id 或表名。"
+        "不要推断或补写。已有该专项档案时，标题相同的问题覆盖旧题，新标题追加到末尾；"
+        "单次仍只生成 3~10 题，但保存后的总题数可以超过 10。"
+        "不要传 user_id、日期、set_id 或表名。"
     ),
     args_schema=SaveHealthProfileAspectIn,
 )

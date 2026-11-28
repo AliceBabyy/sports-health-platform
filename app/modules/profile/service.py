@@ -1,8 +1,8 @@
 """个人信息 service：基本资料更新、密码修改与健康档案。
 
-health_profile 现在只存“专项 skill 生成的一套问题 + 答案”，不再有固定 10 题或
+health_profile 现在只存“专项 skill 生成的问题 + 答案”，不再有固定 10 题或
 跨方面混合问卷。读取时按 skill_key 聚合为套装视图；保存时按套/题更新答案，
-或由健康档案测试角色通过受控工具写入一套新题。
+健康档案测试角色通过受控工具把每批题合并进该专项当前档案。
 """
 from dataclasses import dataclass
 from datetime import datetime
@@ -212,7 +212,7 @@ def save_health_profile_items(
 
 
 def _page_set_questions(raw_questions, skill: dict) -> tuple[list[dict], dict[str, str | None]]:
-    """校验页面手工提交的一套题；允许 1~10 题，答案可以为空。"""
+    """校验页面手工提交的一套题；至少 1 题，答案可以为空，题数不设上限。"""
     try:
         normalized = questionnaire.normalize_page_questions(
             raw_questions, frozenset(skill["aspects"])
@@ -252,7 +252,7 @@ def save_health_profile_page_set(
 ) -> dict:
     """页面新增档案：没有该专项时建一套，已有最近一套时直接编辑它。
 
-    页面允许 1~10 题，便于用户先建立一个专项再逐题补充；不创建重复套。
+    页面至少 1 题，可继续追加；不创建重复套。
     """
     skill = PROFILE_SKILL_MAP.get(skill_key)
     if skill is None:
@@ -367,11 +367,12 @@ def save_health_profile_aspect(
     questions: list[dict],
     answers: dict[str, str],
 ) -> dict:
-    """健康档案测试专用：保存某个专项 skill 生成的一套问题与答案。
+    """健康档案测试专用：把一批 3~10 题合并进该专项当前档案。
 
-    只做轻量结构约束：3~10 题（健身档案 6~10 题）、aspect 属于该 skill、至少 1 题有答案。
-    同一专项同一套题（题号/标题/提示/aspect 完全相同）更新答案；
-    题目变化则新增一套，同一专项只保留最近 3 套。
+    单批仍按 3~10 题校验；已有档案时不再新建一套，而是：
+    - 标题一致的问题覆盖字段与答案（用户本次留空则保留原答案）；
+    - 新标题追加到末尾，题号顺延为 qN+1；
+    - 因此保存后的总题数可以超过 10，页面展示同一套持续累积的档案。
     """
     skill = PROFILE_SKILL_MAP.get(skill_key)
     if skill is None:
@@ -392,53 +393,11 @@ def save_health_profile_aspect(
     entries = _entries(db, user_id)
     all_sets = questionnaire.sets_from_entries(entries)
     latest = questionnaire.latest_set(all_sets, skill_key)
-    status = "created"
-    set_id: str
-    answered = len(cleaned)
+    generated_at = datetime.now()
 
-    if latest is not None and questionnaire.question_signature(
-        latest["questions"]
-    ) == questionnaire.question_signature(normalized):
-        set_id = latest["set_id"]
-        existing = {
-            q["local_key"]: q["answer"]
-            for q in latest["questions"]
-            if q["answer"]
-        }
-        target = {**existing, **cleaned}
-        if target == existing:
-            view = get_health_profile(db, user_id)
-            return {
-                "ok": True,
-                "status": "already_exists",
-                "skill_key": skill_key,
-                "skill_name": skill_name(skill_key),
-                "set_id": set_id,
-                "question_count": len(normalized),
-                "answered_count": len(existing),
-                "filled": view is not None,
-            }
-        for entry in entries:
-            if entry.set_id != set_id:
-                continue
-            entry.answer = target.get(entry.local_key) or None
-        status = "updated"
-        answered = len(target)
-    else:
+    if latest is None:
         set_id = questionnaire.new_set_id()
-        generated_at = datetime.now()
-        existing_for_skill = [
-            item for item in all_sets if item["skill_key"] == skill_key
-        ]
-        keep_before = questionnaire.MAX_SETS_PER_SKILL - 1
-        if len(existing_for_skill) > keep_before:
-            dropped = existing_for_skill[: len(existing_for_skill) - keep_before]
-            for old in dropped:
-                db.query(HealthProfile).filter(
-                    HealthProfile.user_id == user_id,
-                    HealthProfile.skill_key == skill_key,
-                    HealthProfile.set_id == old["set_id"],
-                ).delete(synchronize_session=False)
+        status = "created"
         for question in normalized:
             db.add(HealthProfile(
                 user_id=user_id,
@@ -454,17 +413,85 @@ def save_health_profile_aspect(
                 sort_order=question["sort_order"],
                 set_generated_at=generated_at,
             ))
+    else:
+        set_id = latest["set_id"]
+        status = "updated"
+        set_entries = [entry for entry in entries if entry.set_id == set_id]
+        by_label = {
+            (entry.label or "").strip().casefold(): entry
+            for entry in set_entries
+        }
+        next_order = max((entry.sort_order for entry in set_entries), default=-1) + 1
+        next_no = max(
+            (
+                int(entry.local_key[1:])
+                for entry in set_entries
+                if entry.local_key and entry.local_key[1:].isdigit()
+            ),
+            default=0,
+        ) + 1
+        changed = False
+
+        for question in normalized:
+            entry = by_label.get(question["label"].casefold())
+            answer = cleaned.get(question["local_key"])
+            if entry is not None:
+                for field in ("aspect", "label", "hint", "placeholder", "max_length"):
+                    if getattr(entry, field) != question[field]:
+                        setattr(entry, field, question[field])
+                        changed = True
+                if answer is not None and entry.answer != answer:
+                    entry.answer = answer
+                    changed = True
+                continue
+
+            entry = HealthProfile(
+                user_id=user_id,
+                set_id=set_id,
+                skill_key=skill_key,
+                aspect=question["aspect"],
+                local_key=f"q{next_no}",
+                label=question["label"],
+                hint=question["hint"],
+                placeholder=question["placeholder"],
+                max_length=question["max_length"],
+                answer=answer or None,
+                sort_order=next_order,
+                set_generated_at=generated_at,
+            )
+            db.add(entry)
+            by_label[question["label"].casefold()] = entry
+            next_order += 1
+            next_no += 1
+            changed = True
+
+        if not changed:
+            latest_answered = questionnaire.answered_count(latest)
+            view = get_health_profile(db, user_id)
+            return {
+                "ok": True,
+                "status": "already_exists",
+                "skill_key": skill_key,
+                "skill_name": skill_name(skill_key),
+                "set_id": set_id,
+                "question_count": questionnaire.question_count(latest),
+                "answered_count": latest_answered,
+                "filled": view is not None,
+            }
+        for entry in set_entries:
+            entry.set_generated_at = generated_at
 
     db.commit()
     view = get_health_profile(db, user_id)
+    saved = questionnaire.latest_set(view.sets, skill_key) if view is not None else None
     return {
         "ok": True,
         "status": status,
         "skill_key": skill_key,
         "skill_name": skill_name(skill_key),
         "set_id": set_id,
-        "question_count": len(normalized),
-        "answered_count": answered,
+        "question_count": questionnaire.question_count(saved) if saved else 0,
+        "answered_count": questionnaire.answered_count(saved) if saved else 0,
         "filled": view is not None,
     }
 

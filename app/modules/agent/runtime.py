@@ -14,6 +14,7 @@ from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 from sqlalchemy.orm import Session
 
+from app.modules.agent.chat_defaults import default_chat_scope
 from app.modules.agent.graph import build_graph, default_capabilities
 from app.modules.agent.skills.registry import ResolvedSkill, available_skills, skill_capabilities
 from app.modules.agent.tools import ALL_TOOLS, ask_user
@@ -78,35 +79,40 @@ async def init_agent_runtime() -> dict:
     await saver.setup()
 
     with SessionLocal() as db:
-        system_skills = available_skills(db, 0)
-    system_graph = build_user_graph(saver, system_skills)
+        scope = default_chat_scope(db)
+        system_skills = available_skills(
+            db, 0, scope.key, skill_grants=scope.skill_grants,
+        )
+        system_fp = persona_graph_fingerprint(scope)
+    system_graph = build_user_graph(saver, system_skills, scope)
     return {
         "pool": pool,
         "saver": saver,
         "graph": system_graph,
         "system_graph": system_graph,
+        "system_default_fp": system_fp,
         "graphs": {},
     }
 
 
 def graph_for_user(db: Session, user_id: int, runtime: dict, persona=None):
-    """返回该用户当前技能集（及角色工具范围）对应的编译图；无差异时复用系统图。"""
+    """返回该用户当前技能集（及角色/通用对话工具范围）对应的编译图；无差异时复用系统图。"""
+    scope = persona if persona is not None else default_chat_scope(db)
     skills = available_skills(
-        db, user_id,
-        persona.key if persona is not None else None,
-        skill_grants=persona.skill_grants if persona is not None else None,
+        db, user_id, scope.key,
+        skill_grants=scope.skill_grants,
     )
     user_skills = [s for s in skills if s.scope == "user"]
-    persona_fp = persona_graph_fingerprint(persona)
-    if not user_skills and not persona_fp:
+    scope_fp = persona_graph_fingerprint(scope)
+    if not user_skills and scope_fp == runtime.get("system_default_fp", ""):
         return runtime["system_graph"]
 
     fingerprint = ",".join(f"{s.id}:{s.version_no}:{s.kind}" for s in skills)
-    key = (user_id, fingerprint, persona_fp)
+    key = (user_id, fingerprint, scope_fp)
     cached = runtime["graphs"].get(key)
     if cached is not None:
         return cached
-    graph = build_user_graph(runtime["saver"], skills, persona)
+    graph = build_user_graph(runtime["saver"], skills, scope)
     if len(runtime["graphs"]) >= MAX_CACHED_GRAPHS:
         runtime["graphs"].pop(next(iter(runtime["graphs"])))
     runtime["graphs"][key] = graph
@@ -114,16 +120,21 @@ def graph_for_user(db: Session, user_id: int, runtime: dict, persona=None):
 
 
 def refresh_system_graph(runtime: dict) -> None:
-    """平台内置技能增删改/启停后重建常驻系统图并清空按用户图缓存。
+    """平台技能或通用对话配置变更后重建常驻图并清空按用户图缓存。
 
-    系统图在启动时只编译一次；管理员在 ``/system/skills`` 修改平台技能后调用本函数，
-    让默认用户的下一次提问直接使用最新技能集，无需重启服务。
+    系统图在启动时只编译一次；管理员在 ``/system/skills`` 或 ``/system/personas``
+    修改平台技能/通用对话后调用本函数，让下一次提问直接使用最新配置，无需重启服务。
     """
     with SessionLocal() as db:
-        system_skills = available_skills(db, 0)
-    graph = build_user_graph(runtime["saver"], system_skills)
+        scope = default_chat_scope(db)
+        system_skills = available_skills(
+            db, 0, scope.key, skill_grants=scope.skill_grants,
+        )
+        system_fp = persona_graph_fingerprint(scope)
+    graph = build_user_graph(runtime["saver"], system_skills, scope)
     runtime["system_graph"] = graph
     runtime["graph"] = graph
+    runtime["system_default_fp"] = system_fp
     runtime["graphs"].clear()
 
 

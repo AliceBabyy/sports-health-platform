@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}健康档案 · 体序{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/health_profile.css?v=20261127d">{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/css/pages/health_profile.css?v=20261128d">{% endblock %}
 {% block content %}
 <div class="page-head hp-page-head">
   <div class="hp-page-title">
@@ -68,7 +68,7 @@
     {% else %}
     <div class="hp-empty-card">
       <p>还没有这个专项的记录。可以从空白开始提问，也可以直接写下自己的问题和回答。</p>
-      <div class="hp-empty-tip">最多 10 题，保存后显示在卡片里</div>
+      <div class="hp-empty-tip">题数不限；保存后显示在卡片里，可随时继续追加</div>
     </div>
     {% endif %}
   </section>
@@ -97,5 +97,5 @@
 <script>
   window.INIT_HP_CARDS = {{ cards | tojson }};
 </script>
-<script src="/static/js/health_profile.js?v=20261127c"></script>
+<script src="/static/js/health_profile.js?v=20261128d"></script>
 {% endblock %}

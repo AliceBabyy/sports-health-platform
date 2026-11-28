@@ -35,7 +35,7 @@ def _user(db, username="admin"):
     return row
 
 
-def test_system_persona_rejects_profile_grants_outside_test_role(db):
+def test_system_persona_allows_profile_grants_on_any_role(db):
     from app.modules.agent.models import AgentSkill, AgentSkillVersion
 
     row = AgentSkill(
@@ -51,18 +51,13 @@ def test_system_persona_rejects_profile_grants_outside_test_role(db):
     ))
     db.commit()
 
-    with pytest.raises(PersonaValidationError):
-        service.create_system_persona(db, _payload(
-            key="nutrition_test", name="营养测试",
-            tool_grants=["save_health_profile_aspect"],
-        ), None)
-
-    with pytest.raises(PersonaValidationError):
-        service.create_system_persona(db, _payload(
-            key="nutrition_test", name="营养测试",
-            tool_grants=[],
-            skill_grants=["profile_goal"],
-        ), None)
+    created = service.create_system_persona(db, _payload(
+        key="nutrition_test", name="营养测试",
+        tool_grants=["save_health_profile_aspect"],
+        skill_grants=["profile_goal"],
+    ), None)
+    assert created["effective_tools"] == ["save_health_profile_aspect"]
+    assert created["effective_skills"] == ["profile_goal"]
 
 
 def test_create_and_list_system_persona(db):
@@ -83,7 +78,8 @@ def test_null_grants_follow_platform_defaults(db):
     assert created["tool_grants"] is None
     assert created["skill_grants"] is None
     assert "get_profile_info" in created["effective_tools"]
-    assert "save_health_profile_aspect" not in created["effective_tools"]
+    assert "save_health_profile_aspect" in created["effective_tools"]
+    assert created["effective_tools"] == created["default_tools"]
 
     granted = service.create_system_persona(db, _payload(
         key="custom_reader", name="自定义读取者",
@@ -136,7 +132,7 @@ def test_delete_system_persona_rejects_used_role(db):
     assert exc.value.status == 409
 
 
-def test_system_persona_can_grant_restricted_profile_skill(db):
+def test_system_persona_can_grant_profile_skill_to_named_role(db):
     from app.modules.agent.models import AgentSkill, AgentSkillVersion
 
     row = AgentSkill(

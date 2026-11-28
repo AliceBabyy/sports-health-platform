@@ -12,11 +12,6 @@ from sqlalchemy.orm import Session
 from app.modules.agent.models import AgentSkill, AgentSkillVersion
 from app.modules.agent.skills.definition import DefinitionInvalid, parse_definition
 from app.modules.agent.skills.platform import CODE_SKILLS
-from app.modules.agent.tools.policy import (
-    PROFILE_TEST_ONLY_TOOLS,
-    PROFILE_TEST_PERSONA,
-    tool_visible,
-)
 
 
 @dataclass(frozen=True)
@@ -76,12 +71,9 @@ def available_skills(
 ) -> list[ResolvedSkill]:
     """当前用户可用技能；角色显式 skill_grants 非空时按白名单过滤。
 
-    skill_grants 为 NULL 时沿用代码基线 ``tool_visible(skill_<key>, persona_key)``；
-    显式空数组表示该角色不使用任何技能。tool_grants 不直接过滤技能工具，
-    技能是否可用只由 skill_grants 决定，避免管理页勾选技能后还要重复勾工具。
-
-    ``include_restricted`` 只给角色/技能管理页使用：列全平台技能以便管理员授权，
-    不影响 Agent 运行时按角色范围过滤。
+    skill_grants 为 NULL 时全部平台技能 + 当前用户自己的提示词技能都可用；
+    显式空数组表示该角色不使用任何技能。工具与技能不再按角色做硬限制。
+    ``include_restricted`` 仅保留为旧调用兼容参数，当前不影响结果。
     """
     rows = (
         db.query(AgentSkill)
@@ -100,14 +92,7 @@ def available_skills(
         skill = resolve_row(db, row)
         if skill is None:
             continue
-        if (not include_restricted
-                and skill.tool_name in PROFILE_TEST_ONLY_TOOLS
-                and persona_key != PROFILE_TEST_PERSONA):
-            continue
-        if skill_grants is not None:
-            if skill.key not in skill_grants:
-                continue
-        elif not include_restricted and not tool_visible(skill.tool_name, persona_key):
+        if skill_grants is not None and skill.key not in skill_grants:
             continue
         resolved.append(skill)
     return resolved

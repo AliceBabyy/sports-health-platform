@@ -17,7 +17,7 @@ from app.modules.auth.models import User
 from app.modules.profile import service
 from app.modules.profile import skill_runtime
 from app.modules.profile.aspect_skills import ASPECT_SKILLS, PROFILE_SKILL_KEYS
-from app.modules.profile.questionnaire import MAX_SETS_PER_SKILL, latest_set
+from app.modules.profile.questionnaire import latest_set
 from app.modules.profile.questionnaire import normalize_questions
 
 
@@ -150,44 +150,72 @@ def test_question_limit_allows_ten_questions():
     assert len(normalize_questions(questions, frozenset({"goal"}))) == 10
 
 
-def test_same_signature_updates_and_different_signature_adds_set(db):
-    user = _user(db)
-    first = service.save_health_profile_aspect(
-        db, user.id, "profile_diet", _questions(), {"q1": "食堂"}
-    )
-    set_id = first["set_id"]
-    updated = service.save_health_profile_aspect(
-        db, user.id, "profile_diet", _questions(), {"q1": "食堂", "q2": "不吃辣"}
-    )
-    assert updated["status"] == "updated"
-    assert updated["set_id"] == set_id
-    assert updated["answered_count"] == 2
+def test_page_set_schema_allows_more_than_ten_questions():
+    from app.modules.profile.schemas import HealthProfileSetIn
 
-    view = service.get_health_profile(db, user.id)
-    assert len(view.all_sets) == 1
+    payload = {
+        "skill_key": "profile_diet",
+        "questions": [
+            {
+                "local_key": f"q{index + 1}",
+                "aspect": "diet",
+                "label": f"扩展问题 {index + 1}？",
+                "max_length": 200,
+                "answer": "",
+            }
+            for index in range(12)
+        ],
+    }
+    parsed = HealthProfileSetIn.model_validate(payload)
+    assert len(parsed.questions) == 12
+    assert parsed.questions[-1].local_key == "q12"
+
+
+def test_ai_save_merges_into_current_profile_beyond_ten(db):
+    user = _user(db)
+    first_labels = [f"第 {index + 1} 题？" for index in range(10)]
+    first = service.save_health_profile_aspect(
+        db, user.id, "profile_diet",
+        _questions(first_labels, ["diet"] * 10),
+        {"q1": "食堂"},
+    )
+    assert first["question_count"] == 10
+    set_id = first["set_id"]
 
     second = service.save_health_profile_aspect(
         db, user.id, "profile_diet",
-        _questions(["早餐通常吃什么？", "会喝含糖饮料吗？", "有补充蛋白粉吗？"], ["diet"] * 3),
-        {"q1": "包子"},
+        _questions(["第 5 题？", "新增第 11 题？", "新增第 12 题？"], ["diet"] * 3),
+        {"q1": "改后答案", "q2": "新增答案"},
     )
-    assert second["status"] == "created"
+    assert second["status"] == "updated"
+    assert second["set_id"] == set_id
+    assert second["question_count"] == 12
+    assert second["answered_count"] == 3
+
     view = service.get_health_profile(db, user.id)
-    assert len(view.all_sets) == 2
-    assert latest_set(view.all_sets, "profile_diet")["set_id"] == second["set_id"]
+    assert view.set_count == 1
+    latest = latest_set(view.all_sets, "profile_diet")
+    labels = [q["label"] for q in latest["questions"]]
+    assert labels[0] == "第 1 题？"
+    assert labels[4] == "第 5 题？"
+    assert labels[-2:] == ["新增第 11 题？", "新增第 12 题？"]
+    assert latest["questions"][4]["answer"] == "改后答案"
+    assert latest["questions"][-2]["local_key"] == "q11"
+    assert latest["questions"][-1]["local_key"] == "q12"
 
 
-def test_max_three_sets_per_skill(db):
+def test_ai_batch_still_rejects_more_than_ten_questions(db):
     user = _user(db)
-    for index in range(4):
-        questions = _questions([f"问题 {index}-1？", f"问题 {index}-2？", f"问题 {index}-3？"])
+    with pytest.raises(AppError):
         service.save_health_profile_aspect(
-            db, user.id, "profile_diet", questions, {"q1": f"答案 {index}"}
+            db, user.id, "profile_diet",
+            _questions(
+                [f"第 {index + 1} 题？" for index in range(11)],
+                ["diet"] * 11,
+                [f"q{index + 1}" for index in range(11)],
+            ),
+            {"q1": "食堂"},
         )
-    view = service.get_health_profile(db, user.id)
-    diet_sets = [item for item in view.all_sets if item["skill_key"] == "profile_diet"]
-    assert len(diet_sets) == MAX_SETS_PER_SKILL
-    assert diet_sets[-1]["questions"][0]["label"].startswith("问题 3-1")
 
 
 def test_questions_and_answers_are_lightly_constrained(db):
@@ -321,6 +349,16 @@ def test_page_set_can_create_edit_and_append_questions(db):
             [{"local_key": "q2", "aspect": "diet", "label": "b", "max_length": 200}],
         )
 
+    expanded_labels = [f"扩展问题 {index + 1}？" for index in range(12)]
+    expanded = service.save_health_profile_page_set(
+        db, user, "profile_diet", page_questions(expanded_labels)
+    )
+    assert expanded["question_count"] == 12
+    view = service.get_health_profile(db, user.id)
+    assert view.set_count == 1
+    assert len(view.sets[0]["questions"]) == 12
+    assert view.sets[0]["questions"][-1]["local_key"] == "q12"
+
 
 def test_profile_info_returns_aspect_questionnaires(db):
     from app.modules.agent.tools import queries
@@ -386,14 +424,16 @@ def test_profile_skill_executes_prompt_and_existing_context(db):
     assert "save_health_profile_aspect" in result["summary"]
 
 
-def test_profile_skills_and_save_tool_are_limited_to_health_profile_test():
+def test_profile_skills_and_save_tool_are_free_for_all_roles():
     class _FakeTool:
         def __init__(self, name):
             self.name = name
 
+    # 角色硬边界已取消：专项技能与保存工具不再按角色默认范围过滤。
+    assert TOOL_PERSONA_SCOPES == {}
     for key in PROFILE_SKILL_KEYS:
-        assert TOOL_PERSONA_SCOPES[f"skill_{key}"] == frozenset({"health_profile_test"})
-    assert TOOL_PERSONA_SCOPES["save_health_profile_aspect"] == frozenset({"health_profile_test"})
+        assert f"skill_{key}" not in TOOL_PERSONA_SCOPES
+    assert "save_health_profile_aspect" not in TOOL_PERSONA_SCOPES
 
     tools = [
         _FakeTool("general"),
@@ -410,30 +450,34 @@ def test_profile_skills_and_save_tool_are_limited_to_health_profile_test():
     assert [t.name for t in tools_for_persona(tools, test_role)] == [
         "general", "get_profile_info", "save_health_profile_aspect", "skill_profile_diet",
     ]
-    assert [t.name for t in tools_for_persona(tools, nutrition)] == ["general", "get_profile_info"]
-    assert [t.name for t in tools_for_persona(tools, None)] == ["general", "get_profile_info"]
+    assert [t.name for t in tools_for_persona(tools, nutrition)] == [
+        "general", "get_profile_info", "save_health_profile_aspect", "skill_profile_diet",
+    ]
+    assert [t.name for t in tools_for_persona(tools, None)] == [
+        "general", "get_profile_info", "save_health_profile_aspect", "skill_profile_diet",
+    ]
     explicit = type("P", (), {
         "key": "nutrition",
         "tool_grants": frozenset({"general", "save_health_profile_aspect"}),
         "skill_grants": frozenset({"profile_diet"}),
     })
-    assert [t.name for t in tools_for_persona(tools, explicit)] == ["general"]
+    assert [t.name for t in tools_for_persona(tools, explicit)] == [
+        "general", "save_health_profile_aspect", "skill_profile_diet",
+    ]
     assert persona_graph_fingerprint(nutrition) == ""
-    assert persona_graph_fingerprint(type("P", (), {"key": "health_profile_test"})).startswith(
-        "health_profile_test:"
-    )
+    assert persona_graph_fingerprint(type("P", (), {"key": "health_profile_test"})) == ""
 
 
-def test_available_skills_filters_profile_skills_by_persona(db):
+def test_available_skills_filters_profile_skills_only_by_explicit_grants(db):
     for item in ASPECT_SKILLS:
         _skill_row(db, key=item["key"], name=item["name"], alias=item["slash_alias"])
     db.commit()
     keys = sorted(item.key for item in available_skills(db, 0, "nutrition"))
-    assert keys == []
+    assert keys == sorted(PROFILE_SKILL_KEYS)
     keys = sorted(item.key for item in available_skills(
-        db, 0, "nutrition", skill_grants=frozenset(PROFILE_SKILL_KEYS),
+        db, 0, "nutrition", skill_grants=frozenset({"profile_goal"}),
     ))
-    assert keys == []
+    assert keys == ["profile_goal"]
     keys = sorted(item.key for item in available_skills(
         db, 0, "health_profile_test", skill_grants=PROFILE_SKILL_KEYS,
     ))

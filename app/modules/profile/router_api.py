@@ -116,7 +116,7 @@ def create_health_profile_set(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """页面新增专项档案：允许 1~10 题；已有该专项时直接编辑最近一套。"""
+    """页面新增专项档案：至少 1 题、不设上限；已有该专项时直接编辑最近一套。"""
     service.save_health_profile_page_set(db, user, payload.skill_key, payload.questions)
     return _health_profile_payload(db, user)
 

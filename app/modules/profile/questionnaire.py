@@ -1,31 +1,27 @@
 """健康档案专项问答的通用校验与视图组装。
 
-只做轻量结构约束，不写死题库、不强制覆盖多个 aspect：
-- 每套 3~10 题，题号 q1~q10；
-- 每题的 aspect 必须在该专项 skill 允许的范围内（由调用方传入 allowed_aspects）；
-- 至少 1 题有答案；答案长度受每题 max_length 限制；
-- 同一用户同一专项保留最近 3 套，页面只展示最近一套。
-
-题目内容始终由 AI 在专项提示词约束下现场生成，本模块不提供固定题。
+题目内容始终由 AI 按专项提示词现场生成；保存层不再限制一套档案的题数：
+- AI 单次生成仍为 3~10 题（健身档案 6~10 题），题号 q1~q10；
+- 已有专项再次测试时，同标题覆盖、新标题追加，档案题数可超过 10；
+- 页面手工建档允许从 1 题起继续追加，题号按 q1、q2... 连续排列；
+- 每题的 aspect 必须在该专项 skill 允许的范围内；
+- 答案长度受每题 max_length 限制。
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import secrets
 from datetime import datetime
 from typing import Any, Iterable
 
-MIN_QUESTIONS = 3
-MAX_QUESTIONS = 10
-MAX_SETS_PER_SKILL = 3
+MIN_AI_QUESTIONS = 3
+MAX_AI_QUESTIONS = 10
+AI_LOCAL_KEY_RE = re.compile(r"^q(?:[1-9]|10)$")
 MAX_LABEL_LENGTH = 48
 MAX_HINT_LENGTH = 120
 MAX_PLACEHOLDER_LENGTH = 120
 MIN_ANSWER_LENGTH = 50
 MAX_ANSWER_LENGTH = 255
-LOCAL_KEY_RE = re.compile(r"^q(?:[1-9]|10)$")
 
 
 def _value(item: Any, name: str, default=None):
@@ -39,18 +35,18 @@ def new_set_id() -> str:
 
 
 def normalize_questions(raw_questions: Iterable[Any], allowed_aspects: frozenset[str]) -> list[dict]:
-    """校验 AI 生成的一套问题；返回可直接落库的题目列表。"""
+    """校验 AI 单次生成的一套问题；返回可直接合并落库的题目列表。"""
     items = list(raw_questions or [])
-    if not MIN_QUESTIONS <= len(items) <= MAX_QUESTIONS:
-        raise ValueError(f"一套题需要 {MIN_QUESTIONS}~{MAX_QUESTIONS} 道")
+    if not MIN_AI_QUESTIONS <= len(items) <= MAX_AI_QUESTIONS:
+        raise ValueError(f"单次测试需要 {MIN_AI_QUESTIONS}~{MAX_AI_QUESTIONS} 道题")
 
     normalized: list[dict] = []
     seen_keys: set[str] = set()
     seen_labels: set[str] = set()
     for index, raw in enumerate(items):
         key = str(_value(raw, "key") or _value(raw, "local_key") or "").strip().lower()
-        if not LOCAL_KEY_RE.fullmatch(key):
-            raise ValueError("题号只能使用 q1~q10")
+        if not AI_LOCAL_KEY_RE.fullmatch(key):
+            raise ValueError("单次测试题号只能使用 q1~q10")
         if key in seen_keys:
             raise ValueError(f"题号重复：{key}")
         seen_keys.add(key)
@@ -99,14 +95,14 @@ def normalize_questions(raw_questions: Iterable[Any], allowed_aspects: frozenset
 def normalize_page_questions(
     raw_questions: Iterable[Any], allowed_aspects: frozenset[str]
 ) -> list[dict]:
-    """校验页面手工新增/编辑的一套问题：允许 1~10 题，题号必须从 q1 连续排列。
+    """校验页面手工新增/编辑的一套问题：至少 1 题，题号从 q1 连续排列。
 
-    页面与 AI 导入共用同一套字段和限制，但页面允许先建立更少的问题，后续再用
-    「添加问题」补到 10 题；AI 导入仍要求至少 3 题。
+    页面允许先建立少量问题，后续继续用「添加问题」追加；一次提交可以超过 10 题。
+    AI 单次导入仍只接受 3~10 题，见 normalize_questions。
     """
     items = list(raw_questions or [])
-    if not 1 <= len(items) <= MAX_QUESTIONS:
-        raise ValueError(f"一套题需要 1~{MAX_QUESTIONS} 道")
+    if not items:
+        raise ValueError("至少需要 1 道题")
 
     normalized: list[dict] = []
     seen_labels: set[str] = set()
@@ -181,22 +177,6 @@ def validate_answers(questions: list[dict], answers: dict[str, str] | None) -> d
     return cleaned
 
 
-def question_signature(questions: list[dict]) -> str:
-    payload = [
-        {
-            "key": q["local_key"],
-            "aspect": q["aspect"],
-            "label": q["label"],
-            "hint": q["hint"],
-            "placeholder": q["placeholder"],
-            "max_length": q["max_length"],
-        }
-        for q in sorted(questions, key=lambda item: item["local_key"])
-    ]
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
 def _entry_dict(entry) -> dict:
     return {
         "local_key": entry.local_key,
@@ -258,10 +238,6 @@ def latest_sets_by_skill(sets: list[dict]) -> list[dict]:
         latest.values(),
         key=lambda item: (order.get(item["skill_key"], 999), item["set_id"]),
     )
-
-
-def history_for_skill(sets: list[dict], skill_key: str) -> list[dict]:
-    return [s for s in sets if s["skill_key"] == skill_key][-MAX_SETS_PER_SKILL:]
 
 
 def set_qa(question_set: dict, *, answered_only: bool = False) -> list[dict]:

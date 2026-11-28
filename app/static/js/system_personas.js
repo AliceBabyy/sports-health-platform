@@ -4,9 +4,11 @@
 
   const S = {
     personas: Array.isArray(window.INIT_SYSTEM_PERSONAS) ? window.INIT_SYSTEM_PERSONAS.slice() : [],
+    defaultChat: window.INIT_DEFAULT_CHAT || null,
     tools: Array.isArray(window.INIT_TOOL_OPTIONS) ? window.INIT_TOOL_OPTIONS.slice() : [],
     skills: Array.isArray(window.INIT_SKILL_OPTIONS) ? window.INIT_SKILL_OPTIONS.slice() : [],
     current: null,
+    editingDefault: false,
     selectedTools: new Set(),
     selectedSkills: new Set(),
     toolMode: "default",
@@ -22,8 +24,8 @@
   const $ = id => document.getElementById(id);
 
   function initEls() {
-    ["personaList", "personaCount", "editorEmpty", "personaForm", "editorKicker", "editorName",
-      "editorBadges", "fName", "fKey", "fSort", "fStatus", "fDescription", "fPrompt",
+    ["personaList", "defaultChatList", "personaCount", "editorEmpty", "personaForm", "editorKicker", "editorName",
+      "editorBadges", "personaMetaSection", "personaPromptSection", "fName", "fKey", "fSort", "fStatus", "fDescription", "fPrompt",
       "toolChecks", "skillChecks", "toolModeNote", "skillModeNote", "editorResult",
       "btnNewPersona", "btnEmptyNew", "workActions", "btnSave", "btnDelete",
       "btnResetGrants", "versionHint"].forEach(id => { els[id] = $(id); });
@@ -54,12 +56,29 @@
       '<span class="si-arrow" aria-hidden="true">&rsaquo;</span></button>';
   }
 
+  function defaultItemHtml() {
+    const p = S.defaultChat || {};
+    const active = S.editingDefault ? " active" : "";
+    return '<button class="skill-item' + active + '" data-default-chat="1" type="button">' +
+      '<span class="si-mark platform">通</span>' +
+      '<span class="si-text">' +
+        '<span class="si-name"><span class="si-name-text">通用对话</span>' +
+          '<span class="si-state published">默认</span></span>' +
+        '<span class="si-meta"><span class="si-slash">' + (p.tool_count || 0) + " 工具 · " +
+          (p.skill_count || 0) + ' 技能</span>' +
+          '<span class="si-version">普通会话</span></span>' +
+      "</span>" +
+      '<span class="si-arrow" aria-hidden="true">&rsaquo;</span></button>';
+  }
+
   function renderList() {
     els.personaCount.textContent = String(S.personas.length);
+    els.defaultChatList.innerHTML = defaultItemHtml();
     els.personaList.innerHTML = S.personas.length
       ? S.personas.map(itemHtml).join("")
       : '<div class="si-empty">暂无内置角色</div>';
-    document.querySelectorAll(".system-personas-page .skill-item").forEach(btn => {
+    els.defaultChatList.querySelector("[data-default-chat]").addEventListener("click", selectDefaultChat);
+    document.querySelectorAll(".system-personas-page .skill-item[data-id]").forEach(btn => {
       btn.addEventListener("click", () => selectPersona(Number(btn.dataset.id)));
     });
   }
@@ -84,8 +103,8 @@
     );
     const key = type === "tool" ? option.name : option.key;
     const meta = type === "tool"
-      ? (option.restricted ? "默认受限" : "默认可用")
-      : ("v" + (option.version || "—") + (option.restricted ? " · 默认受限" : ""));
+      ? "可选"
+      : ("v" + (option.version || "—") + " · 可选");
     return '<label class="check-item">' +
       '<input type="checkbox" data-type="' + type + '" data-key="' + App.escapeHtml(key) + '"' +
         (checked ? " checked" : "") + ">" +
@@ -132,17 +151,50 @@
 
   function updateModeNotes() {
     els.toolModeNote.textContent = S.toolMode === "default"
-      ? "默认范围：未受限工具全开，受限工具按平台规则"
+      ? "默认范围：全部工具可用"
       : "已锁定：" + S.selectedTools.size + " 个工具";
     els.skillModeNote.textContent = S.skillMode === "default"
       ? "默认范围：全部平台技能可用"
       : "已锁定：" + S.selectedSkills.size + " 个技能";
   }
 
+  function showPersonaFields(show) {
+    els.personaMetaSection.hidden = !show;
+    els.personaPromptSection.hidden = !show;
+  }
+
+  function selectDefaultChat() {
+    const p = S.defaultChat || {};
+    S.current = null;
+    S.editingDefault = true;
+    S.toolMode = p.tool_grants === null || p.tool_grants === undefined ? "default" : "explicit";
+    S.skillMode = p.skill_grants === null || p.skill_grants === undefined ? "default" : "explicit";
+    S.selectedTools = new Set(p.effective_tools || []);
+    S.selectedSkills = new Set(p.effective_skills || []);
+    renderList();
+    els.editorEmpty.hidden = true;
+    els.personaForm.hidden = false;
+    els.workActions.hidden = false;
+    showPersonaFields(false);
+    els.editorName.textContent = "通用对话";
+    els.editorKicker.textContent = "普通会话 · 默认配置";
+    els.editorBadges.innerHTML = [
+      badge("未绑定角色的新建会话"),
+      badge((p.tool_count || 0) + " 工具"),
+      badge((p.skill_count || 0) + " 技能"),
+    ].join("");
+    els.versionHint.textContent = "不是角色，不参与新建角色会话选择；只控制普通会话的工具/技能范围，保存后即时生效";
+    els.btnDelete.hidden = true;
+    els.btnResetGrants.hidden = false;
+    renderChecks();
+    clearResult();
+  }
+
   function selectPersona(id) {
     const p = findPersona(id);
     if (!p) return;
     S.current = p;
+    S.editingDefault = false;
     S.toolMode = p.tool_grants === null ? "default" : "explicit";
     S.skillMode = p.skill_grants === null ? "default" : "explicit";
     S.selectedTools = new Set(p.effective_tools || []);
@@ -151,6 +203,7 @@
     els.editorEmpty.hidden = true;
     els.personaForm.hidden = false;
     els.workActions.hidden = false;
+    showPersonaFields(true);
     els.editorName.textContent = p.name;
     els.editorKicker.textContent = p.status === "disabled" ? "内置角色 · 已停用" : "内置角色 · 已启用";
     els.editorBadges.innerHTML = [
@@ -178,14 +231,16 @@
 
   function newPersona() {
     S.current = null;
+    S.editingDefault = false;
     pendingKey = "builtin_" + Date.now().toString(36);
     S.toolMode = "default";
     S.skillMode = "default";
-    S.selectedTools = new Set(S.tools.filter(item => !item.restricted).map(item => item.name));
-    S.selectedSkills = new Set(S.skills.filter(item => !item.restricted).map(item => item.key));
+    S.selectedTools = new Set(S.tools.map(item => item.name));
+    S.selectedSkills = new Set(S.skills.map(item => item.key));
     els.editorEmpty.hidden = true;
     els.personaForm.hidden = false;
     els.workActions.hidden = false;
+    showPersonaFields(true);
     els.editorName.textContent = "新建内置角色";
     els.editorKicker.textContent = "内置角色 · 新建";
     els.editorBadges.innerHTML = badge("平台内置");
@@ -206,12 +261,15 @@
   }
 
   function resetGrants() {
-    if (S.current) {
+    if (S.editingDefault) {
+      S.selectedTools = new Set((S.defaultChat && S.defaultChat.default_tools) || S.tools.map(item => item.name));
+      S.selectedSkills = new Set((S.defaultChat && S.defaultChat.default_skills) || S.skills.map(item => item.key));
+    } else if (S.current) {
       S.selectedTools = new Set(S.current.default_tools || []);
       S.selectedSkills = new Set(S.current.default_skills || []);
     } else {
-      S.selectedTools = new Set(S.tools.filter(item => !item.restricted).map(item => item.name));
-      S.selectedSkills = new Set(S.skills.filter(item => !item.restricted).map(item => item.key));
+      S.selectedTools = new Set(S.tools.map(item => item.name));
+      S.selectedSkills = new Set(S.skills.map(item => item.key));
     }
     S.toolMode = "default";
     S.skillMode = "default";
@@ -220,6 +278,14 @@
   }
 
   function payload() {
+    if (S.editingDefault) {
+      return {
+        body: {
+          tool_grants: S.toolMode === "default" ? null : Array.from(S.selectedTools).sort(),
+          skill_grants: S.skillMode === "default" ? null : Array.from(S.selectedSkills).sort(),
+        },
+      };
+    }
     const prompt = els.fPrompt.value.trim();
     if (!els.fName.value.trim()) return { error: "角色名不能为空" };
     if (!els.fKey.value.trim()) return { error: "角色键不能为空" };
@@ -274,6 +340,16 @@
     const collected = payload();
     if (collected.error) { showErrors({ summary: collected.error }, true); return; }
     try {
+      if (S.editingDefault) {
+        const saved = await App.api("/api/system/system-personas/default-chat", {
+          method: "PUT", body: collected.body,
+        });
+        S.defaultChat = saved;
+        selectDefaultChat();
+        showErrors({ ok: true, summary: "通用对话已保存：工具 " + saved.tool_count +
+          " 个、技能 " + saved.skill_count + " 个" }, false);
+        return;
+      }
       if (S.current) {
         const saved = await App.api("/api/system/system-personas/" + S.current.id, {
           method: "PUT", body: collected.body,
@@ -332,6 +408,7 @@
     initEls();
     bind();
     renderList();
-    if (S.personas.length) selectPersona(S.personas[0].id);
+    if (S.defaultChat) selectDefaultChat();
+    else if (S.personas.length) selectPersona(S.personas[0].id);
   });
 })();
